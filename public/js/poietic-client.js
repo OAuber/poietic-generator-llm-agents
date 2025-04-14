@@ -721,18 +721,47 @@ class PoieticClient {
         // Ne rien afficher si pas encore d'activité
         if (!this.lastActivity && !this.disconnectedAt) {
             this.activityCursor.style.height = '100%';
+            const remainingTimeDisplay = document.getElementById('remaining-time');
+            if (remainingTimeDisplay) {
+                remainingTimeDisplay.textContent = '180 sec';
+            }
             return;
         }
 
-        const activityTime = this.disconnectedAt || this.lastActivity;
+        // Si déconnecté, ne plus mettre à jour
+        if (this.disconnectedAt) {
+            this.activityCursor.style.height = '0%';
+            const remainingTimeDisplay = document.getElementById('remaining-time');
+            if (remainingTimeDisplay) {
+                remainingTimeDisplay.textContent = '0 sec';
+            }
+            return;
+        }
+
+        const activityTime = this.lastActivity;
         const inactiveTime = (Date.now() - activityTime) / 1000;
         const remainingTime = Math.max(180 - inactiveTime, 0);
         const heightPercentage = (remainingTime / 180) * 100;
 
+        // Si le timeout est atteint, forcer la barre à 0% et le compteur à 0
+        if (remainingTime === 0) {
+            this.activityCursor.style.height = '0%';
+            const remainingTimeDisplay = document.getElementById('remaining-time');
+            if (remainingTimeDisplay) {
+                remainingTimeDisplay.textContent = '0 sec';
+            }
+            if (this.isConnected) {
+                this.handleInactivityTimeout();
+            }
+            return;
+        }
+
         this.activityCursor.style.height = `${heightPercentage}%`;
 
-        if (remainingTime === 0 && this.isConnected) {
-            this.handleInactivityTimeout();
+        // Mise à jour du temps restant sous la lettre T
+        const remainingTimeDisplay = document.getElementById('remaining-time');
+        if (remainingTimeDisplay) {
+            remainingTimeDisplay.textContent = `${Math.floor(remainingTime)} sec`;
         }
     }
 
@@ -1280,55 +1309,45 @@ class PoieticClient {
     }
 
     updateGradientPalette() {
-        console.log('Mise à jour gradient-palette');
         const ctx = this.gradientPalette.getContext('2d');
-        if (!ctx) {
-            console.error('Impossible d\'obtenir le contexte 2D pour gradient-palette');
-            return;
-        }
+        if (!ctx) return;
 
-        // Récupérer les dimensions réelles du canvas
         const rect = this.gradientPalette.getBoundingClientRect();
         this.gradientPalette.width = rect.width;
         this.gradientPalette.height = rect.height;
-        
-        console.log('Dimensions du canvas:', {
-            width: rect.width,
-            height: rect.height
-        });
 
-        // Effacer le canvas
         ctx.clearRect(0, 0, rect.width, rect.height);
 
         try {
-            // Dégradé horizontal (couleurs)
+            // 1. Dégradé horizontal (couleurs)
             const gradientH = ctx.createLinearGradient(0, 0, rect.width, 0);
-            gradientH.addColorStop(0, "#FF0000");    // Rouge
-            gradientH.addColorStop(0.17, "#FFFF00"); // Jaune
-            gradientH.addColorStop(0.33, "#00FF00"); // Vert
-            gradientH.addColorStop(0.5, "#00FFFF");  // Cyan
-            gradientH.addColorStop(0.67, "#0000FF"); // Bleu
-            gradientH.addColorStop(0.83, "#FF00FF"); // Magenta
-            gradientH.addColorStop(1, "#FF0000");    // Rouge
+            gradientH.addColorStop(0, "#FF0000");
+            gradientH.addColorStop(0.17, "#FFFF00");
+            gradientH.addColorStop(0.33, "#00FF00");
+            gradientH.addColorStop(0.5, "#00FFFF");
+            gradientH.addColorStop(0.67, "#0000FF");
+            gradientH.addColorStop(0.83, "#FF00FF");
+            gradientH.addColorStop(1, "#FF0000");
 
-            // Appliquer le dégradé horizontal
             ctx.fillStyle = gradientH;
             ctx.fillRect(0, 0, rect.width, rect.height);
 
-            // Dégradé vertical (luminosité)
-            const gradientV = ctx.createLinearGradient(0, 0, 0, rect.height);
-            gradientV.addColorStop(0, "rgba(255, 255, 255, 1)");
-            gradientV.addColorStop(0.5, "rgba(255, 255, 255, 0)");
-            gradientV.addColorStop(0.5, "rgba(0, 0, 0, 0)");
-            gradientV.addColorStop(1, "rgba(0, 0, 0, 1)");
+            // 2. Dégradé blanc vers transparent
+            const gradientWhite = ctx.createLinearGradient(0, 0, 0, rect.height/2);
+            gradientWhite.addColorStop(0, "rgba(255, 255, 255, 1)");
+            gradientWhite.addColorStop(1, "rgba(255, 255, 255, 0)");
+            
+            ctx.fillStyle = gradientWhite;
+            ctx.fillRect(0, 0, rect.width, rect.height/2);
 
-            // Appliquer le dégradé vertical
-            ctx.globalCompositeOperation = 'multiply';
-            ctx.fillStyle = gradientV;
-            ctx.fillRect(0, 0, rect.width, rect.height);
-            ctx.globalCompositeOperation = 'source-over';
+            // 3. Dégradé transparent vers noir
+            const gradientBlack = ctx.createLinearGradient(0, rect.height/2, 0, rect.height);
+            gradientBlack.addColorStop(0, "rgba(0, 0, 0, 0)");
+            gradientBlack.addColorStop(1, "rgba(0, 0, 0, 1)");
+            
+            ctx.fillStyle = gradientBlack;
+            ctx.fillRect(0, rect.height/2, rect.width, rect.height/2);
 
-            console.log('Gradient dessiné avec succès');
         } catch (error) {
             console.error('Erreur lors du dessin du gradient:', error);
         }
@@ -1393,7 +1412,19 @@ class PoieticClient {
         // Collecter les couleurs
         const colors = new Set();
         const myCell = this.cells.get(this.myUserId);
+        
+        // Initialiser ou récupérer l'historique des couleurs
+        if (!this.colorHistory) {
+            this.colorHistory = new Set();
+        }
+        
+        // Ajouter la couleur courante à l'historique
+        if (this.currentColor && this.currentColor !== 'transparent') {
+            this.colorHistory.add(this.currentColor);
+        }
+        
         if (myCell) {
+            // Collecter toutes les couleurs actives du dessin
             Array.from(myCell.children).forEach(subCell => {
                 const color = subCell.style.backgroundColor;
                 if (color && color !== 'transparent') {
@@ -1401,22 +1432,20 @@ class PoieticClient {
                     const [r, g, b] = this.parseRgb(color);
                     const [h, s, l] = this.rgbToHsl(r, g, b);
                     
-                    // Filtrer les couleurs :
-                    // - trop claires (l > 95%) ou trop foncées (l < 5%)
-                    // - trop saturées (s > 95%) ou trop peu saturées (s < 15%)
-                    if (l < 95 && l > 10 && s < 95 && s > 10) {
+                    // Critères de filtrage légèrement assouplis
+                    if (l < 95 && l > 5 && s < 95 && s > 5) {
                         colors.add(color);
                     }
                 }
             });
         }
 
-        // Ajouter des couleurs par défaut si nécessaire
-        if (colors.size === 0) {
-            colors.add('#FF0000');
-            colors.add('#00FF00');
-            colors.add('#0000FF');
-        }
+        // Ajouter les couleurs de l'historique qui sont encore dans le dessin
+        this.colorHistory.forEach(color => {
+            if (colors.has(color) || color === this.currentColor) {
+                colors.add(color);
+            }
+        });
 
         // Convertir les couleurs en tableau et trier
         const colorArray = Array.from(colors).sort((a, b) => {
@@ -1434,7 +1463,7 @@ class PoieticClient {
             return s2 - s1;
         });
 
-        // Afficher les couleurs triées
+        // Afficher les couleurs triées XX
         const gridSize = Math.ceil(Math.sqrt(colorArray.length));
         const cellWidth = width / gridSize;
         const cellHeight = height / gridSize;

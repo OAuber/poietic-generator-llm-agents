@@ -7,6 +7,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Poietic Generator</title>
     <link rel="stylesheet" href="/css/poietic-styles.css?v=<%= Time.utc.to_unix %>">
+    <style>
+        /* ... existing styles ... */
+        .or-separator {
+            color: #666;
+            margin: 10px 0;
+            text-align: center;
+            font-style: italic;
+        }
+        /* ... existing styles ... */
+    </style>
 </head>
 <body>
     <div id="main-container">
@@ -14,10 +24,42 @@
         <div id="technical-tools" class="tools-zone">
             <div id="zone-3a" class="sub-zone">
                 <div id="zone-3a1" class="split-zone">
-                    <div class="tool-circle">3a1</div>
+                    <div class="tool-circle">
+                        <svg class="stat-icon" viewBox="0 0 40 24" width="40" height="24">
+                            <!-- H -->
+                            <path d="M4 4 L4 20 M16 4 L16 20 M4 12 L16 12" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  stroke-width="1.5"
+                                  stroke-linecap="round"/>
+                            <!-- U -->
+                            <path d="M20 4 L20 16 Q20 20 28 20 Q36 20 36 16 L36 4" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  stroke-width="1.5"
+                                  stroke-linecap="round"/>
+                        </svg>
+                        <div class="stat-value">-</div>
+                    </div>
                 </div>
                 <div id="zone-3a2" class="split-zone">
-                    <div class="tool-circle">3a2</div>
+                    <div class="tool-circle">
+                        <svg class="stat-icon" viewBox="0 0 36 24" width="36" height="24">
+                            <!-- A -->
+                            <path d="M4 20 L12 4 L20 20 M6 14 L18 14" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  stroke-width="1.5"
+                                  stroke-linecap="round"/>
+                            <!-- I -->
+                            <path d="M24 4 L24 20" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  stroke-width="1.5"
+                                  stroke-linecap="round"/>
+                        </svg>
+                        <div class="stat-value">-</div>
+                    </div>
                 </div>
             </div>
             <div id="zone-3b" class="sub-zone">
@@ -25,17 +67,34 @@
                     <div class="activity-box">
                         <div id="activity-cursor"></div>
                     </div>
-                    <button id="reconnect-button" class="control-button">
-                        <span>PLAY</span>
-                    </button>
                 </div>
             </div>
             <div id="zone-3c" class="sub-zone">
                 <div id="zone-3c1" class="split-zone">
-                    <div class="tool-circle">3c1</div>
+                    <div class="tool-circle">
+                        <svg class="stat-icon" viewBox="0 0 36 24" width="36" height="24">
+                            <!-- D -->
+                            <path d="M4 4 L4 20 M4 4 Q20 4 20 12 Q20 20 4 20" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  stroke-width="1.5"
+                                  stroke-linecap="round"/>
+                        </svg>
+                        <div class="stat-value">--:--:--</div>
+                    </div>
                 </div>
                 <div id="zone-3c2" class="split-zone">
-                    <div class="tool-circle">3c2</div>
+                    <div class="tool-circle">
+                        <svg class="stat-icon" viewBox="0 0 36 24" width="36" height="24">
+                            <!-- T -->
+                            <path d="M4 4 L20 4 M12 4 L12 20" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  stroke-width="1.5"
+                                  stroke-linecap="round"/>
+                        </svg>
+                        <div class="stat-value" id="remaining-time">180 sec</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -47,6 +106,10 @@
                 <div class="overlay-title">Poietic Generator</div>
                 <div class="overlay-subtitle">Pixel Love since 1986</div>
                 <div class="overlay-message">
+                    <button id="play-button" class="control-button" onclick="window.location.reload()">
+                        <span>PLAY</span>
+                    </button>
+                    <div class="or-separator">or</div>
                     <a href="https://poietic-generator.net/player/" class="replay-link">REPLAY</a>
                 </div>
                 <div class="overlay-footer">Copyleft, Free Art License</div>

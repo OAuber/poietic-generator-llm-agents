@@ -301,12 +301,21 @@ body.disconnected #reconnect-button {
     width: 100%;
 }
 
-.replay-link {
+.replay-link, #play-button {
     color: white;
     text-decoration: none;
+    font-family: inherit;
+    font-size: 30px;
+    font-weight: bold;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    line-height: 1;
 }
 
-.replay-link:hover {
+.replay-link:hover, #play-button:hover {
     text-decoration: underline;
 }
 
@@ -855,4 +864,33 @@ html, body {
     .tool-circle svg {
         transform: scale(0.8); /* Réduire légèrement la taille des icônes */
     }
+}
+
+/* Style des icônes statistiques */
+.stat-icon {
+    width: min(35%, 35px);
+    height: min(35%, 35px);
+    position: relative;
+    color: var(--text-color);
+    margin-bottom: 5px;
+}
+
+.tool-circle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.stat-value {
+    color: var(--text-color);
+    font-size: 12px;
+    font-family: monospace;
+    margin-top: 5px;
+}
+
+/* État déconnecté */
+body.disconnected .stat-icon,
+body.disconnected .stat-value {
+    opacity: 0.3;
 }
