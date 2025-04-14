@@ -268,6 +268,31 @@ body {
     width: 100%;
 }
 
+.replay-link, #play-button {
+    color: white;
+    text-decoration: none;
+    font-family: inherit;
+    font-size: 30px;
+    font-weight: bold;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.replay-link:hover, #play-button:hover {
+    text-decoration: underline;
+}
+
+.or-separator {
+    color: #666;
+    margin: 10px 0;
+    text-align: center;
+    font-style: italic;
+}
+
 .player-overlay-footer {
     position: absolute;
     bottom: 10px;
