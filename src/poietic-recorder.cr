@@ -8,6 +8,7 @@ require "./file_storage"
 
 class PoieticRecorder
   DEFAULT_DB_PATH = "db/recorder.db"
+  CACHE_DURATION = 5 * 60  # 5 minutes en secondes
 
   # Constantes pour les critères de nettoyage
   MIN_SESSION_DURATION = 3 * 60 * 1000  # 3 minutes en millisecondes
@@ -18,6 +19,8 @@ class PoieticRecorder
   @processing : Bool = false
   @current_session_id : String?
   @players : Hash(String, HTTP::WebSocket)
+  @sessions_cache : Array(Hash(String, JSON::Any))?
+  @last_cache_update : Time?
 
   def initialize(db_path : String = DEFAULT_DB_PATH)
     # Créer le dossier de la base de données si nécessaire
@@ -32,13 +35,15 @@ class PoieticRecorder
     @event_queue = Channel(JSON::Any).new(1000)
     @current_session_id = nil
     @players = {} of String => HTTP::WebSocket
+    @sessions_cache = nil
+    @last_cache_update = nil
     
     # Configuration et démarrage
     private_setup_database
     ensure_test_session
     cleanup_invalid_sessions
     spawn process_event_queue
-    puts "=== Initialisation du PoieticRecorder avec DB: #{db_path} ==="
+    # puts "=== Initialisation du PoieticRecorder avec DB: #{db_path} ==="
   end
 
   private def private_setup_database
@@ -65,7 +70,7 @@ class PoieticRecorder
         event_data = @event_queue.receive
         save_event(event_data)
       rescue ex
-        puts "Erreur dans la file d'événements: #{ex.message}"
+        # puts "Erreur dans la file d'événements: #{ex.message}"
       end
     end
   end
@@ -73,9 +78,9 @@ class PoieticRecorder
   def record_event(event_data : JSON::Any)
     return unless @current_session_id
 
-    puts "=== Recording event ==="
-    puts "=== Type: #{event_data["type"]?} ==="
-    puts "=== Data: #{event_data.to_json} ==="
+    # puts "=== Recording event ==="
+    # puts "=== Type: #{event_data["type"]?} ==="
+    # puts "=== Data: #{event_data.to_json} ==="
 
     # S'assurer que l'événement a un timestamp
     timestamp = event_data["timestamp"]?.try(&.as_i64?) || Time.utc.to_unix_ms
@@ -90,18 +95,18 @@ class PoieticRecorder
         event_data.to_json
       )
     end
-    puts "=== Événement sauvegardé pour la session #{@current_session_id} ==="
+    # puts "=== Événement sauvegardé pour la session #{@current_session_id} ==="
   end
 
   private def save_event(event_data : JSON::Any)
     if @current_session_id.nil?
-      puts "=== ERREUR : Tentative de sauvegarde d'événement sans session active ==="
+      # puts "=== ERREUR : Tentative de sauvegarde d'événement sans session active ==="
       return
     end
 
-    puts "=== Sauvegarde d'un événement ==="
-    puts "=== Type: #{event_data["type"]?} ==="
-    puts "=== Timestamp présent: #{event_data["timestamp"]?} ==="
+    # puts "=== Sauvegarde d'un événement ==="
+    # puts "=== Type: #{event_data["type"]?} ==="
+    # puts "=== Timestamp présent: #{event_data["timestamp"]?} ==="
 
     timestamp = event_data["timestamp"]?.try(&.as_i64?) || Time.utc.to_unix_ms
 
@@ -115,11 +120,11 @@ class PoieticRecorder
         event_data.to_json
       )
     end
-    puts "=== Événement sauvegardé pour la session #{@current_session_id} ==="
+    # puts "=== Événement sauvegardé pour la session #{@current_session_id} ==="
   end
 
-  def get_sessions
-    puts "=== Lecture des sessions dans la base de données ==="
+  private def update_sessions_cache
+    puts "=== Mise à jour du cache des sessions ==="
     sessions = [] of Hash(String, JSON::Any)
     @db.query(
       "SELECT 
@@ -144,11 +149,21 @@ class PoieticRecorder
           "user_count" => JSON::Any.new(rs.read(Int64))
         }
         sessions << session
-        puts "=== Session trouvée: #{session.inspect} ==="
       end
     end
-    puts "=== Total sessions: #{sessions.size} ==="
-    sessions
+    @sessions_cache = sessions
+    @last_cache_update = Time.utc
+    puts "=== Cache des sessions mis à jour avec #{sessions.size} sessions ==="
+  end
+
+  def get_sessions
+    # Vérifier si le cache est valide
+    if @sessions_cache.nil? || @last_cache_update.nil? || 
+       (Time.utc - @last_cache_update.not_nil!) > Time::Span.new(seconds: CACHE_DURATION)
+      update_sessions_cache
+    end
+
+    @sessions_cache.not_nil!
   end
 
   def get_recent_events(limit = 20)
@@ -173,7 +188,7 @@ class PoieticRecorder
       end
     end
 
-    puts "Événements récents trouvés : #{events.size}"
+    # puts "Événements récents trouvés : #{events.size}"
     events
   end
 
@@ -192,7 +207,7 @@ class PoieticRecorder
         as: {Int64, Int64?}
       )
 
-      puts "Stats de la session courante : #{current_stats[0]} événements, dernier à #{current_stats[1]}"
+      # puts "Stats de la session courante : #{current_stats[0]} événements, dernier à #{current_stats[1]}"
 
       {
         "total_events" => JSON::Any.new(current_stats[0]),
@@ -200,7 +215,7 @@ class PoieticRecorder
         "last_event" => current_stats[1].try { |t| JSON::Any.new(t) } || JSON::Any.new(nil)
       }
     else
-      puts "Pas de session courante, stats à zéro"
+      # puts "Pas de session courante, stats à zéro"
       {
         "total_events" => JSON::Any.new(0_i64),
         "total_sessions" => JSON::Any.new(0_i64),
@@ -219,26 +234,26 @@ class PoieticRecorder
     socket.on_message do |message|
       begin
         event_data = JSON.parse(message)
-        puts "=== WebSocket: Reçu événement de type: #{event_data["type"]?} ==="
+        # puts "=== WebSocket: Reçu événement de type: #{event_data["type"]?} ==="
         record_event(event_data)
-        puts "=== WebSocket: Événement enregistré: #{event_data["type"]?} ==="
+        # puts "=== WebSocket: Événement enregistré: #{event_data["type"]?} ==="
       rescue ex
-        puts "Erreur lors du traitement du message WebSocket: #{ex.message}"
-        puts ex.backtrace.join("\n")
+        # puts "Erreur lors du traitement du message WebSocket: #{ex.message}"
+        # puts ex.backtrace.join("\n")
       end
     end
 
     socket.on_close do
-      puts "Déconnecté du serveur principal"
+      # puts "Déconnecté du serveur principal"
       sleep 5.seconds
       spawn { connect_to_main_server }
     end
 
     begin
-      puts "Tentative de connexion au serveur principal..."
+      # puts "Tentative de connexion au serveur principal..."
       socket.run
     rescue ex
-      puts "Erreur de connexion: #{ex.message}"
+      # puts "Erreur de connexion: #{ex.message}"
       sleep 5.seconds
       spawn { connect_to_main_server }
     end
@@ -262,10 +277,11 @@ class PoieticRecorder
 
   # Appelé quand le premier utilisateur se connecte
   def start_new_session
+    @sessions_cache = nil  # Invalider le cache
     return if @current_session_id
 
     @current_session_id = "session_#{Time.utc.to_unix_ms}"
-    puts "=== Création d'une nouvelle session : #{@current_session_id} ==="
+    # puts "=== Création d'une nouvelle session : #{@current_session_id} ==="
 
     @db.transaction do |tx|
       tx.connection.exec(
@@ -286,12 +302,13 @@ class PoieticRecorder
 
   # Appelé quand le dernier utilisateur se déconnecte ou quand le serveur s'arrête
   def end_current_session
+    @sessions_cache = nil  # Invalider le cache
     return unless current_session_id = @current_session_id
 
     # Attendre un court instant pour s'assurer que tous les événements sont traités
     sleep(200.milliseconds)
 
-    puts "=== Fin de la session : #{current_session_id} ==="
+    # puts "=== Fin de la session : #{current_session_id} ==="
     @db.exec(
       "UPDATE sessions SET end_time = ? WHERE id = ?",
       Time.utc.to_unix_ms, current_session_id
@@ -323,15 +340,15 @@ class PoieticRecorder
       }
     end
 
-    puts "Session courante : #{result.try(&.to_json) || "aucune"}"
+    # puts "Session courante : #{result.try(&.to_json) || "aucune"}"
     result
   end
 
   def get_session_events(session_id : String)
     events = [] of Hash(String, JSON::Any)
 
-    puts "=== Getting events for session #{session_id} ==="
-    puts "=== Requête SQL: SELECT timestamp, event_data FROM events WHERE session_id = ? ORDER BY timestamp ==="
+    # puts "=== Getting events for session #{session_id} ==="
+    # puts "=== Requête SQL: SELECT timestamp, event_data FROM events WHERE session_id = ? ORDER BY timestamp ==="
 
     @db.query("SELECT timestamp, event_data FROM events WHERE session_id = ? ORDER BY timestamp", session_id) do |rs|
       rs.each do
@@ -339,7 +356,7 @@ class PoieticRecorder
         event_str = rs.read(String)
         event_json = JSON.parse(event_str)
 
-        puts "=== Lu événement: type=#{event_json["type"]?}, timestamp=#{timestamp} ==="
+        # puts "=== Lu événement: type=#{event_json["type"]?}, timestamp=#{timestamp} ==="
 
         # S'assurer que le timestamp est présent dans l'événement
         event_data = event_json.as_h
@@ -349,9 +366,9 @@ class PoieticRecorder
       end
     end
 
-    puts "=== Nombre total d'événements lus: #{events.size} ==="
-    puts "=== Types d'événements trouvés: #{events.map { |e| e["type"] }.uniq.join(", ")} ==="
-    puts "=== Dernier événement: #{events.last?.try &.inspect} ==="
+    # puts "=== Nombre total d'événements lus: #{events.size} ==="
+    # puts "=== Types d'événements trouvés: #{events.map { |e| e["type"] }.uniq.join(", ")} ==="
+    # puts "=== Dernier événement: #{events.last?.try &.inspect} ==="
     events
   end
 
@@ -434,18 +451,18 @@ class PoieticRecorder
   def add_player(socket : HTTP::WebSocket)
     player_id = "player_#{UUID.random}"
     @players[player_id] = socket
-    puts "=== Player #{player_id} connecté ==="
+    # puts "=== Player #{player_id} connecté ==="
     player_id
   end
 
   def remove_player(player_id : String)
     if @players.delete(player_id)
-      puts "=== Player #{player_id} déconnecté ==="
+      # puts "=== Player #{player_id} déconnecté ==="
     end
   end
 
   def start_server(port : Int32)
-    puts "=== Démarrage du serveur recorder sur le port #{port} ==="
+    # puts "=== Démarrage du serveur recorder sur le port #{port} ==="
 
     # Configuration Kemal
     Kemal.config.port = port
@@ -454,7 +471,7 @@ class PoieticRecorder
 
     # Configuration CORS
     before_all do |env|
-      puts "=== Requête reçue sur le recorder: #{env.request.method} #{env.request.path} ==="
+      # puts "=== Requête reçue sur le recorder: #{env.request.method} #{env.request.path} ==="
       env.response.headers["Access-Control-Allow-Origin"] = "*"
       env.response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
       env.response.headers["Access-Control-Allow-Headers"] = "*"
@@ -462,21 +479,21 @@ class PoieticRecorder
 
     # Routes pour le player
     get "/api/player/sessions" do |env|
-      puts "=== Récupération des sessions demandée ==="
+      # puts "=== Récupération des sessions demandée ==="
       env.response.content_type = "application/json"
       sessions = get_sessions
-      puts "=== Sessions trouvées: #{sessions.inspect} ==="
+      # puts "=== Sessions trouvées: #{sessions.inspect} ==="
       sessions.to_json
     end
 
     get "/api/player/sessions/:id/events" do |env|
       session_id = env.params.url["id"]
-      puts "=== Récupération des événements pour la session #{session_id} ==="
+      # puts "=== Récupération des événements pour la session #{session_id} ==="
       env.response.content_type = "application/json"
       events = get_session_events(session_id)
-      puts "=== Nombre d'événements trouvés: #{events.size} ==="
-      puts "=== Premier événement: #{events.first.inspect} ==="
-      puts "=== Dernier événement: #{events.last.inspect} ==="
+      # puts "=== Nombre d'événements trouvés: #{events.size} ==="
+      # puts "=== Premier événement: #{events.first.inspect} ==="
+      # puts "=== Dernier événement: #{events.last.inspect} ==="
       events.to_json
     end
 
@@ -508,21 +525,21 @@ class PoieticRecorder
   def ensure_test_session
     count = @db.query_one("SELECT COUNT(*) FROM sessions", as: Int64)
     if count == 0
-      puts "=== Création d'une session de test ==="
+      # puts "=== Création d'une session de test ==="
       session_id = UUID.random.to_s
       start_time = Time.utc.to_unix_ms
       @db.exec(
         "INSERT INTO sessions (id, start_time) VALUES (?, ?)",
         session_id, start_time
       )
-      puts "=== Session de test créée: #{session_id} ==="
+      # puts "=== Session de test créée: #{session_id} ==="
     end
   end
 
   def handle_initial_state(session_id : String, data : JSON::Any)
-    puts "=== Enregistrement de l'état initial ==="
-    puts "=== Session: #{session_id} ==="
-    puts "=== Data reçue: #{data.inspect} ==="
+    # puts "=== Enregistrement de l'état initial ==="
+    # puts "=== Session: #{session_id} ==="
+    # puts "=== Data reçue: #{data.inspect} ==="
 
     initial_state = {
       type: "initial_state",
@@ -533,7 +550,7 @@ class PoieticRecorder
       sub_cell_states: data["sub_cell_states"]? || {} of String => Hash(String, String)
     }
 
-    puts "=== État initial à sauvegarder: #{initial_state.inspect} ==="
+    # puts "=== État initial à sauvegarder: #{initial_state.inspect} ==="
 
     save_event(
       session_id,
@@ -543,9 +560,9 @@ class PoieticRecorder
   end
 
   def save_event(session_id : String, event_type : String, event_data : String)
-    puts "=== Sauvegarde d'un événement ==="
-    puts "=== Type: #{event_type} ==="
-    puts "=== Data: #{event_data} ==="
+    # puts "=== Sauvegarde d'un événement ==="
+    # puts "=== Type: #{event_type} ==="
+    # puts "=== Data: #{event_data} ==="
 
     @db.exec(
       "INSERT INTO events (session_id, timestamp, event_type, event_data) VALUES (?, ?, ?, ?)",
@@ -581,64 +598,93 @@ class PoieticRecorder
   end
 
   private def cleanup_invalid_sessions
-    puts "=== Nettoyage des sessions invalides ==="
+    @sessions_cache = nil  # Invalider le cache avant le nettoyage
+    puts "=== Début du nettoyage des sessions invalides ==="
     
-    @db.transaction do |tx|
-      # Afficher les détails d'une session pour analyse
-      puts "=== Analyse d'une session exemple ==="
-      tx.connection.query(
-        "SELECT s.id, s.start_time, s.end_time, e.event_type, e.event_data
-         FROM sessions s
-         LEFT JOIN events e ON s.id = e.session_id
-         LIMIT 10"
-      ) do |rs|
-        rs.each do
-          session_id = rs.read(String)
-          start_time = rs.read(Int64)
-          end_time = rs.read(Int64?)
-          event_type = rs.read(String?)
-          event_data = rs.read(String?)
-          
-          puts "Session: #{session_id}"
-          puts "  Start: #{Time.unix_ms(start_time)}"
-          puts "  End: #{end_time ? Time.unix_ms(end_time) : "en cours"}"
-          puts "  Event Type: #{event_type || "pas d'événement"}"
-          puts "  Event Data: #{event_data || "pas de données"}"
-          puts "  Event Data parsed: #{event_data ? JSON.parse(event_data) : "N/A"}"
-          puts "----------------------------------------"
+    max_retries = 5
+    retry_count = 0
+    retry_delay = 1.0  # secondes
+
+    while retry_count < max_retries
+      begin
+        @db.transaction do |tx|
+          # 1. Supprimer d'abord les événements orphelins
+          puts "=== Suppression des événements orphelins (tentative #{retry_count + 1}/#{max_retries}) ==="
+          tx.connection.exec(
+            "DELETE FROM events WHERE session_id NOT IN (SELECT id FROM sessions)"
+          )
+
+          # 2. Supprimer les sessions trop courtes ou inactives
+          puts "=== Suppression des sessions invalides ==="
+          tx.connection.exec(
+            "DELETE FROM events WHERE session_id IN (
+               SELECT id FROM sessions 
+               WHERE ((end_time - start_time) < ? AND end_time IS NOT NULL)
+               OR (
+                 end_time IS NULL 
+                 AND (? - start_time) > ? 
+                 AND (
+                   SELECT COUNT(DISTINCT json_extract(event_data, '$.user_id'))
+                   FROM events 
+                   WHERE session_id = sessions.id
+                   AND json_extract(event_data, '$.type') NOT IN ('observer_joined', 'observer_left')
+                 ) < ?
+               )
+             )",
+            MIN_SESSION_DURATION,
+            Time.utc.to_unix_ms,
+            MIN_SESSION_DURATION,
+            MIN_PARTICIPANTS
+          )
+
+          # 3. Supprimer les sessions sans événements de dessin dans une requête séparée
+          puts "=== Suppression des sessions sans dessin ==="
+          tx.connection.exec(
+            "DELETE FROM events WHERE session_id IN (
+               SELECT s.id 
+               FROM sessions s
+               WHERE NOT EXISTS (
+                 SELECT 1 
+                 FROM events e 
+                 WHERE e.session_id = s.id
+                 AND json_extract(e.event_data, '$.type') = 'cell_update'
+                 AND json_extract(e.event_data, '$.initial') IS NULL
+               )
+             )"
+          )
+
+          # 4. Nettoyer les sessions sans événements
+          puts "=== Nettoyage final des sessions sans événements ==="
+          tx.connection.exec(
+            "DELETE FROM sessions WHERE id NOT IN (
+               SELECT DISTINCT session_id FROM events
+             )"
+          )
         end
+        puts "=== Nettoyage des sessions terminé avec succès ==="
+        return  # Sortir de la boucle si tout s'est bien passé
+      rescue ex : SQLite3::Exception
+        if ex.message.try(&.includes?("database is locked"))
+          retry_count += 1
+          if retry_count < max_retries
+            puts "=== Base de données verrouillée, nouvelle tentative dans #{retry_delay} secondes (#{retry_count}/#{max_retries}) ==="
+            sleep(retry_delay.seconds)  # Utilisation de Time::Span
+            retry_delay *= 1.5  # Augmenter progressivement le délai
+          else
+            puts "=== ERREUR : Impossible d'accéder à la base de données après #{max_retries} tentatives ==="
+            puts ex.message
+          end
+        else
+          puts "=== ERREUR pendant le nettoyage des sessions: #{ex.message} ==="
+          puts ex.backtrace.join("\n")
+          break  # Sortir de la boucle pour les autres types d'erreurs
+        end
+      rescue ex
+        puts "=== ERREUR pendant le nettoyage des sessions: #{ex.message} ==="
+        puts ex.backtrace.join("\n")
+        break  # Sortir de la boucle pour les autres types d'erreurs
       end
-
-      # Supprimer les sessions trop courtes (terminées)
-      tx.connection.exec(
-        "DELETE FROM events WHERE session_id IN (
-           SELECT id FROM sessions 
-           WHERE ((end_time - start_time) < ? AND end_time IS NOT NULL)
-           OR (
-             end_time IS NULL 
-             AND (? - start_time) > ? 
-             AND (
-               SELECT COUNT(DISTINCT json_extract(event_data, '$.user_id'))
-               FROM events 
-               WHERE session_id = sessions.id
-               AND json_extract(event_data, '$.type') NOT IN ('observer_joined', 'observer_left')
-             ) < ?
-           )
-         )",
-        MIN_SESSION_DURATION,
-        Time.utc.to_unix_ms,
-        MIN_SESSION_DURATION,
-        MIN_PARTICIPANTS
-      )
-
-      tx.connection.exec(
-        "DELETE FROM sessions WHERE id NOT IN (
-           SELECT DISTINCT session_id FROM events
-         )"
-      )
     end
-
-    puts "=== Nettoyage des sessions terminé ==="
   end
 
   # Ajouter une méthode pour forcer le nettoyage
