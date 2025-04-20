@@ -39,50 +39,379 @@ body {
     z-index: 1;
 }
 
-/* Les deux tools-zones doivent se comporter de manière identique */
+/* Structure de base */
 .tools-zone {
     display: flex;
-    margin: 0;
-    padding: 0;
-    flex: 1;
-    position: relative;
-    z-index: 100;
+    width: 100%;
+    height: 100%;
+}
+
+/* Zones centrales - Dimensions strictement identiques */
+#zone-3b,
+#zone-2b {
+    flex: none !important; /* Force la suppression de flex */
+}
+
+/* Format horizontal */
+@media (orientation: landscape) {
+    .tools-zone {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sub-zone {
+        flex: 1;
+        display: flex;
+        overflow: hidden; /* Empêche les sliders */
+    }
+
+    .split-zone {
+        flex: 1;
+        display: flex;
+        position: relative;
+        overflow: hidden; /* Empêche les sliders */
+    }
+
+    /* Container principal - même structure pour toutes les zones */
+    #zone-3a1 .stat-container,
+    #zone-3a2 .stat-container,
+    #zone-3c1 .stat-container,
+    #zone-3c2 .stat-container {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        padding: 8px;
+    }
+
+    /* Titre - même structure pour tous */
+    #zone-3a1 .stat-title,
+    #zone-3a2 .stat-title,
+    #zone-3c1 .stat-title,
+    #zone-3c2 .stat-title {
+        position: absolute;
+        top: 80px;
+        left: 0;
+        right: 0;
+        width: 100%;
+        text-align: center !important;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 0;
+    }
+
+    /* Contenu - même structure pour tous */
+    #zone-3a1 .stat-content,
+    #zone-3a2 .stat-content,
+    #zone-3c1 .stat-content,
+    #zone-3c2 .stat-content {
+        height: 80%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    /* Structure des lignes */
+    .stat-row {
+        display: flex;
+        width: 100%;
+        margin-bottom: 4px;
+    }
+
+    .stat-label {
+        flex: 1;
+        text-align: left;
+    }
+
+    .stat-value {
+        text-align: right;
+        padding-left: 8px;
+        padding-right: 12px;
+    }
+
+    /* Empêcher tout overflow qui pourrait causer des sliders */
+    .tool-circle {
+        overflow: hidden;
+    }
+
+    /* Contenu - position ajustée */
+    .stat-details {
+        position: absolute;
+        top: 55%;
+        transform: translateY(-50%);
+        width: calc(100% - 16px);
+        padding: 0 8px;
+    }
+}
+
+/* Format vertical */
+@media (orientation: portrait) {
+    .tools-zone {
+        flex-direction: row;
 }
 
 .sub-zone {
+        flex: 1;
     display: flex;
+        flex-direction: column;
+    }
+
+    .split-zone {
     flex: 1;
-    margin: 0;
-    padding: 0;
     position: relative;
-    z-index: 200;
+    }
+
+    /* Définition stricte de la taille des zones centrales */
+    #zone-3b {
+        height: 100%;
+        width: 33.33vw !important;
+        min-width: 33.33vw !important;
+        max-width: 33.33vw !important;
+    }
+
+    #zone-2b {
+        height: 100%;
+        width: 33.33vw !important;
+        min-width: 33.33vw !important;
+        max-width: 33.33vw !important;
+    }
+
+    /* Les autres zones s'adaptent à l'espace restant */
+    #zone-3a,
+    #zone-3c,
+    #zone-2a,
+    #zone-2c {
+    flex: 1;
+    }
+
+    /* Alignement SESSION et STATISTICS */
+    #zone-3a1 .stat-container,
+    #zone-3c1 .stat-container {
+        position: absolute;
+        top: 0;
+        padding-top: 8px;
+        width: 100%;
+    }
+
+    /* Alignement CONNECTIONS et USER */
+    #zone-3a2 .stat-container,
+    #zone-3c2 .stat-container {
+        position: absolute;
+        top: 0;
+        padding-top: 8px;
+        width: 100%;
+    }
 }
 
-.split-zone {
-    flex: 1;
+/* Styles de texte uniformes */
+.stat-title,
+.stat-label,
+.stat-value,
+.stat-row {
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+}
+
+/* Format horizontal - textes */
+@media (orientation: landscape) {
+    .stat-title,
+    .stat-label,
+    .stat-value,
+    .stat-row {
+        font-size: 11px;
+        line-height: 1.4;
+    }
+}
+
+/* Format vertical - textes */
+@media (orientation: portrait) {
+    .stat-title,
+    .stat-label,
+    .stat-value,
+    .stat-row {
+        font-size: 8px;
+        line-height: 1;
+    }
+
+    #zone-3a2 .stat-title,
+    #zone-3a2 .stat-label,
+    #zone-3a2 .stat-value,
+    #zone-3a2 .stat-row,
+    #zone-3c2 .stat-title,
+    #zone-3c2 .stat-label,
+    #zone-3c2 .stat-value,
+    #zone-3c2 .stat-row {
+        font-size: 7px;
+        line-height: 0.9;
+    }
+}
+
+/* Styles communs */
+.stat-container {
+    padding: 8px;
+}
+
+.stat-title {
+    text-align: left;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+/* Structure de base pour les lignes */
+.stat-row {
+    width: 100%;
     display: flex;
-    position: relative;
-    overflow: hidden;  /* Pour contenir l'overlay */
-    z-index: 300;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 0;
+    padding: 0;
+}
+
+/* Labels alignés à gauche */
+.stat-label {
+    text-align: left;
+    flex-shrink: 0;
+}
+
+/* Valeurs alignées à droite */
+.stat-value {
+    text-align: right;
+    margin-left: auto;
+}
+
+/* Styles spécifiques pour la zone Session (3a1) */
+#zone-3a1 .stat-row {
+    justify-content: flex-start; /* Pour le label "Start time:" */
+}
+
+#zone-3a1 .stat-value {
+    margin-left: auto; /* Pour pousser les valeurs de date/heure à droite */
+}
+
+/* Styles spécifiques pour la zone Connections (3a2) */
+#zone-3a2 .stat-row {
+    justify-content: space-between;
+}
+
+/* Styles spécifiques pour la zone Statistics (3c1) */
+#zone-3c1 .stat-row {
+    justify-content: space-between;
+}
+
+#zone-3c1 .vector-indicator {
+    margin-right: 4px;
+}
+
+/* Ajustement des espacements */
+.stat-group {
+    margin-bottom: 4px;
+}
+
+/* Maintien des tailles de police uniformes */
+@media (orientation: landscape) {
+    .stat-title,
+    .stat-label,
+    .stat-value {
+        font-size: 11px;
+        line-height: 1.4;
+    }
+}
+
+@media (orientation: portrait) {
+    .stat-title,
+    .stat-label,
+    .stat-value {
+        font-size: 8px;
+        line-height: 1;
+    }
+
+    #zone-3a2 .stat-title,
+    #zone-3a2 .stat-label,
+    #zone-3a2 .stat-value,
+    #zone-3c2 .stat-title,
+    #zone-3c2 .stat-label,
+    #zone-3c2 .stat-value {
+        font-size: 7px;
+        line-height: 0.9;
+    }
+}
+
+.vector-indicator {
+    display: inline;
+    margin: 0 2px;
+}
+
+/* Ajustements pour très petits écrans */
+@media (max-width: 480px) {
+    .stat-title,
+    .stat-label,
+    .stat-value,
+    .stat-row {
+        font-size: 6px;
+    }
+    
+    .stat-row {
+        padding-left: 4px;
+    }
 }
 
 /* Boutons standards */
 .tool-circle {
-    background-color: var(--background-color);
-    color: var(--text-color);
     width: 100%;
     height: 100%;
     display: flex;
     justify-content: center;
     align-items: center;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
+    background-color: var(--background-color);
+    color: var(--text-color);
 }
 
-/* Gestion des textes et SVG dans les boutons */
-.tool-circle > * {  /* Sélectionne tous les enfants directs */
-    position: relative;
-    z-index: 400;
+/* Styles spécifiques pour les icônes */
+.tool-circle .zoom-icon,
+.tool-circle .import-icon,
+.tool-circle .theme-icon,
+.tool-circle .share-icon {
+    width: min(40%, 40px);
+    height: min(40%, 40px);
+    margin: auto;
+}
+
+/* Styles spécifiques pour les zones de statistiques */
+.tool-circle .stat-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 5px;
+}
+
+.stat-title {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.stat-details {
+    width: 100%;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.stat-row {
+    padding-left: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+    color: var(--text-color);
+}
+
+.stat-label {
+    min-width: 90px;
+    opacity: 0.8;
+}
+
+.stat-value {
+    flex: 1;
 }
 
 /* Masquer le contenu des boutons en mode déconnecté */
@@ -893,4 +1222,637 @@ html, body {
 body.disconnected .stat-icon,
 body.disconnected .stat-value {
     opacity: 0.3;
+}
+
+/* Ajout des styles pour les titres des statistiques */
+.stat-title {
+    color: var(--text-color);
+    font-size: 14px;
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+/* État déconnecté pour les titres */
+body.disconnected .stat-title {
+    opacity: 0.3;
+}
+
+/* Ajustement du conteneur pour le nouveau format */
+.tool-circle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+    text-align: center;
+}
+
+/* Ajustement pour les petits écrans */
+@media (max-width: 480px) {
+    .stat-title {
+        font-size: 12px;
+    }
+}
+
+/* Styles pour les détails des statistiques */
+.stat-details {
+    width: 100%;
+    padding: 2px 0;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: flex-start;
+    align-items: baseline;
+    margin: 2px 0;
+    color: var(--text-color);
+    white-space: nowrap;
+    padding-left: 8px;  /* Indentation de base */
+}
+
+.stat-label {
+    min-width: 90px;  /* Largeur fixe pour aligner les valeurs */
+    opacity: 0.8;
+}
+
+.stat-value {
+    flex: 1;
+}
+
+/* Ajustement du conteneur principal */
+.tool-circle {
+    padding: 8px 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;  /* Aligner à gauche plutôt qu'au centre */
+    justify-content: flex-start;
+}
+
+.stat-title {
+    margin-bottom: 4px;
+    font-weight: bold;
+    align-self: center;  /* Garder le titre centré */
+}
+
+/* Styles spécifiques pour le mode horizontal */
+@media (orientation: landscape) {
+    .tool-circle {
+        height: 100%;
+        overflow-y: auto;  /* Permettre le défilement si nécessaire */
+        scrollbar-width: thin;  /* Pour Firefox */
+    }
+    
+    .tool-circle::-webkit-scrollbar {
+        width: 4px;  /* Pour Chrome/Safari */
+    }
+    
+    .tool-circle::-webkit-scrollbar-thumb {
+        background-color: var(--text-color);
+        opacity: 0.3;
+    }
+    
+    .stat-details {
+        width: 100%;
+    }
+    
+    .stat-row {
+        font-size: 10px;  /* Légèrement plus petit en mode horizontal */
+        margin: 1px 0;
+    }
+    
+    .stat-label {
+        min-width: 70px;  /* Plus compact en mode horizontal */
+    }
+}
+
+/* Styles spécifiques pour le mode vertical */
+@media (orientation: portrait) {
+    .tool-circle {
+        padding: 5px;
+    }
+    
+    .stat-details {
+        width: 100%;
+    }
+    
+    .stat-row {
+        justify-content: space-between;  /* Plus espacé en mode vertical */
+        padding-left: 12px;  /* Indentation plus prononcée */
+    }
+    
+    .stat-label {
+        margin-right: 8px;
+    }
+}
+
+/* Style pour les indicateurs vectoriels */
+.vector-indicator {
+    display: inline-block;
+    margin: 0 2px;
+    transition: transform 0.3s ease;
+}
+
+/* Rotations pour les indicateurs de vecteur */
+.vector-indicator[data-direction="up"] {
+    transform: rotate(-90deg);
+}
+
+.vector-indicator[data-direction="down"] {
+    transform: rotate(90deg);
+}
+
+/* État déconnecté */
+body.disconnected .stat-details {
+    opacity: 0.3;
+}
+
+/* Optimisations pour très petits écrans */
+@media (max-width: 480px) {
+    .stat-details {
+        font-size: 9px;
+    }
+    
+    .stat-row {
+        margin: 1px 0;
+    }
+    
+    .stat-label {
+        min-width: 60px;
+    }
+}
+
+/* Optimisations pour écrans moyens */
+@media (min-width: 481px) and (max-width: 768px) {
+    .stat-details {
+        font-size: 10px;
+    }
+    
+    .stat-label {
+        min-width: 80px;
+    }
+}
+
+/* Style spécifique pour les tool-circle contenant des statistiques */
+.tool-circle:has(.stat-details) {
+    padding: 8px 5px;
+    justify-content: flex-start;
+    align-items: stretch;
+}
+
+/* Conteneur des statistiques */
+.stat-details {
+    width: 100%;
+    padding: 2px 0;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: flex-start;
+    align-items: baseline;
+    margin: 2px 0;
+    color: var(--text-color);
+    white-space: nowrap;
+    padding-left: 8px;
+}
+
+.stat-label {
+    min-width: 90px;
+    opacity: 0.8;
+}
+
+.stat-value {
+    flex: 1;
+}
+
+.stat-title {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+/* Styles pour les icônes */
+.zoom-icon,
+.import-icon,
+.theme-icon,
+.share-icon {
+    width: min(40%, 40px);
+    height: min(40%, 40px);
+}
+
+/* Media queries pour l'orientation */
+@media (orientation: landscape) {
+    .tool-circle:has(.stat-details) {
+        overflow-y: auto;
+        scrollbar-width: thin;
+    }
+    
+    .tool-circle:has(.stat-details)::-webkit-scrollbar {
+        width: 4px;
+    }
+    
+    .tool-circle:has(.stat-details)::-webkit-scrollbar-thumb {
+        background-color: var(--text-color);
+        opacity: 0.3;
+    }
+    
+    .stat-row {
+        font-size: 10px;
+        margin: 1px 0;
+    }
+    
+    .stat-label {
+        min-width: 70px;
+    }
+}
+
+@media (orientation: portrait) {
+    .tool-circle:has(.stat-details) {
+        padding: 5px;
+    }
+    
+    .stat-row {
+        justify-content: space-between;
+        padding-left: 12px;
+    }
+    
+    .stat-label {
+        margin-right: 8px;
+    }
+}
+
+/* Optimisations pour différentes tailles d'écran */
+@media (max-width: 480px) {
+    .stat-details {
+        font-size: 9px;
+    }
+    
+    .stat-row {
+        margin: 1px 0;
+    }
+    
+    .stat-label {
+        min-width: 60px;
+    }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+    .stat-details {
+        font-size: 10px;
+    }
+    
+    .stat-label {
+        min-width: 80px;
+    }
+}
+
+/* État déconnecté */
+body.disconnected .stat-details,
+body.disconnected .zoom-icon,
+body.disconnected .import-icon,
+body.disconnected .theme-icon,
+body.disconnected .share-icon {
+    opacity: 0.3;
+}
+
+/* Style spécifique pour les zones de statistiques */
+.stat-details {
+    width: 100%;
+    padding: 2px 0;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+/* Conteneur pour les icônes */
+.tool-circle svg {
+    width: min(40%, 40px);
+    height: min(40%, 40px);
+}
+
+/* Style spécifique pour les zones avec statistiques */
+.tool-circle.with-stats {
+    padding: 8px 5px;
+    justify-content: flex-start;
+}
+
+/* Ajout de la classe with-stats dans le HTML pour les zones concernées */
+
+/* Ajout aux styles existants */
+.stat-group {
+    margin: 4px 0;
+}
+
+.stat-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.indented {
+    padding-left: 16px;
+    font-family: monospace;
+}
+
+.vector-indicator {
+    display: inline-block;
+    transition: transform 0.3s ease;
+}
+
+/* Ajustement des marges et espacements */
+.stat-label {
+    min-width: unset; /* Supprime la largeur fixe précédente */
+}
+
+.stat-value {
+    line-height: 1.4;
+}
+
+/* Media queries pour l'adaptation responsive */
+@media (max-width: 480px) {
+    .indented {
+        padding-left: 12px;
+    }
+}
+
+/* Style de base pour le conteneur de statistiques */
+.stat-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* Centre verticalement */
+    padding: 5px;
+}
+
+.stat-title {
+    width: 100%;
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.stat-details {
+    width: 100%;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.stat-group {
+    margin: 2px 0;
+}
+
+.stat-row {
+    padding-left: 12px;
+    white-space: nowrap;
+    color: var(--text-color);
+}
+
+/* Styles spécifiques pour l'orientation horizontale */
+@media (orientation: landscape) {
+    .tools-zone {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sub-zone {
+        flex: 1;
+        display: flex;
+    }
+
+    .split-zone {
+        flex: 1;
+        display: flex;
+    }
+
+    /* Alignement horizontal des titres */
+    #zone-3a .split-zone {
+        display: flex;
+        align-items: flex-start;
+    }
+
+    #zone-3a .stat-container {
+        justify-content: flex-start;
+        padding-top: 8px; /* Espace uniforme en haut */
+    }
+}
+
+/* Styles spécifiques pour l'orientation verticale */
+@media (orientation: portrait) {
+    .stat-container {
+        padding: 3px;
+        line-height: 1.2; /* Interligne réduit */
+    }
+
+    .stat-group {
+        margin: 1px 0; /* Espacement réduit entre les groupes */
+    }
+
+    .stat-title {
+        margin-bottom: 2px; /* Espacement réduit après le titre */
+        font-size: 0.9em; /* Titre légèrement plus petit */
+    }
+
+    .stat-details {
+        font-size: 10px; /* Texte légèrement plus petit */
+    }
+
+    .stat-row {
+        padding-left: 8px; /* Indentation réduite */
+    }
+}
+
+/* Ajustements pour très petits écrans */
+@media (max-width: 480px) {
+    .stat-details {
+        font-size: 9px;
+    }
+    
+    .stat-container {
+        padding: 2px;
+        line-height: 1.1;
+    }
+}
+
+/* Ajustements pour la zone centrale en mode horizontal */
+@media (orientation: landscape) {
+    #zone-3b {
+        flex: 2; /* Donne plus d'espace à la zone centrale */
+    }
+}
+
+/* Style de base */
+.tool-circle {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.stat-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+}
+
+/* Structure des lignes de stats */
+.stat-row {
+    display: flex;
+    width: 100%;
+}
+
+.stat-label {
+    flex: 1;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.stat-value {
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 8px;
+    padding-right: 12px;
+}
+
+/* Format horizontal */
+@media (orientation: landscape) {
+    .tools-zone {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sub-zone {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+    }
+
+    .split-zone {
+        flex: 1;
+        display: flex;
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Container de base */
+    .stat-container {
+        padding: 8px;
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    /* Titres centrés */
+    .stat-title {
+        position: absolute;
+        top: 80px;
+        left: 0;
+        width: 100%;
+        text-align: center !important;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 0;
+    }
+
+    /* Contenu */
+    .stat-details {
+        position: absolute;
+        top: 55%;
+        transform: translateY(-50%);
+        width: calc(100% - 16px);
+        padding: 0 8px;
+    }
+
+    /* Structure des lignes */
+    .stat-row {
+        display: flex;
+        width: 100%;
+        margin-bottom: 4px;
+    }
+
+    .stat-label {
+        flex: 1;
+        text-align: left;
+    }
+
+    .stat-value {
+        text-align: right;
+        padding-left: 8px;
+        padding-right: 12px;
+    }
+
+    /* Empêcher tout overflow */
+    .tool-circle {
+        overflow: hidden;
+    }
+}
+
+/* Format vertical - garder les styles qui fonctionnent */
+@media (orientation: portrait) {
+    .tools-zone {
+        display: flex;
+        flex-direction: row;
+    }
+
+    .sub-zone {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .split-zone {
+        flex: 1;
+        display: flex;
+    }
+
+    /* Alignement des titres en vertical */
+    #zone-3a1 .stat-container,
+    #zone-3c1 .stat-container {
+        padding-top: 8px;
+    }
+
+    #zone-3a2 .stat-container,
+    #zone-3c2 .stat-container {
+        padding-top: 8px;
+    }
+}
+
+/* Tailles de police */
+@media (orientation: landscape) {
+    .stat-title,
+    .stat-label,
+    .stat-value {
+        font-size: 11px;
+        line-height: 1.4;
+    }
+}
+
+@media (orientation: portrait) {
+    .stat-title,
+    .stat-label,
+    .stat-value {
+        font-size: 8px;
+        line-height: 1;
+    }
+
+    #zone-3a2 .stat-title,
+    #zone-3a2 .stat-label,
+    #zone-3a2 .stat-value,
+    #zone-3c2 .stat-title,
+    #zone-3c2 .stat-label,
+    #zone-3c2 .stat-value {
+        font-size: 7px;
+        line-height: 0.9;
+    }
 }
