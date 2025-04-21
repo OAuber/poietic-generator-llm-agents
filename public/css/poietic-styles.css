@@ -1,10 +1,4 @@
-/* Reset et variables */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
+/* 1. Variables et Reset */
 :root {
     --main-button-size: 160px;
     --spacing: 8px;
@@ -14,7 +8,7 @@
     --grid-background: #000000;
 }
 
-/* Variables pour le mode clair */
+/* Mode clair */
 body.light-mode {
     --background-color: #ffffff;
     --text-color: #000000;
@@ -22,544 +16,43 @@ body.light-mode {
     --grid-background: #ffffff;
 }
 
-/* Structure principale */
+/* Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 2. Layout de base */
 body {
-    position: relative;
-    z-index: 0;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
 }
 
 #main-container {
     width: 100%;
     height: 100vh;
     display: flex;
-    margin: 0;
-    padding: 0;
     overflow: hidden;
     position: relative;
     z-index: 1;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* Structure de base */
+/* 3. Zones principales */
 .tools-zone {
     display: flex;
     width: 100%;
     height: 100%;
 }
 
-/* Zones centrales - Dimensions strictement identiques */
-#zone-3b,
-#zone-2b {
-    flex: none !important; /* Force la suppression de flex */
-}
-
-/* Format horizontal */
-@media (orientation: landscape) {
-    .tools-zone {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .sub-zone {
-        flex: 1;
-        display: flex;
-        overflow: hidden; /* Empêche les sliders */
-    }
-
-    .split-zone {
-        flex: 1;
-        display: flex;
-        position: relative;
-        overflow: hidden; /* Empêche les sliders */
-    }
-
-    /* Container principal - même structure pour toutes les zones */
-    #zone-3a1 .stat-container,
-    #zone-3a2 .stat-container,
-    #zone-3c1 .stat-container,
-    #zone-3c2 .stat-container {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        padding: 8px;
-    }
-
-    /* Titre - même structure pour tous */
-    #zone-3a1 .stat-title,
-    #zone-3a2 .stat-title,
-    #zone-3c1 .stat-title,
-    #zone-3c2 .stat-title {
-        position: absolute;
-        top: 80px;
-        left: 0;
-        right: 0;
-        width: 100%;
-        text-align: center !important;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 0;
-    }
-
-    /* Contenu - même structure pour tous */
-    #zone-3a1 .stat-content,
-    #zone-3a2 .stat-content,
-    #zone-3c1 .stat-content,
-    #zone-3c2 .stat-content {
-        height: 80%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-
-    /* Structure des lignes */
-    .stat-row {
-        display: flex;
-        width: 100%;
-        margin-bottom: 4px;
-    }
-
-    .stat-label {
-        flex: 1;
-        text-align: left;
-    }
-
-    .stat-value {
-        text-align: right;
-        padding-left: 8px;
-        padding-right: 12px;
-    }
-
-    /* Empêcher tout overflow qui pourrait causer des sliders */
-    .tool-circle {
-        overflow: hidden;
-    }
-
-    /* Contenu - position ajustée */
-    .stat-details {
-        position: absolute;
-        top: 55%;
-        transform: translateY(-50%);
-        width: calc(100% - 16px);
-        padding: 0 8px;
-    }
-}
-
-/* Format vertical */
-@media (orientation: portrait) {
-    .tools-zone {
-        flex-direction: row;
-}
-
-.sub-zone {
-        flex: 1;
-    display: flex;
-        flex-direction: column;
-    }
-
-    .split-zone {
-    flex: 1;
-    position: relative;
-    }
-
-    /* Définition stricte de la taille des zones centrales */
-    #zone-3b {
-        height: 100%;
-        width: 33.33vw !important;
-        min-width: 33.33vw !important;
-        max-width: 33.33vw !important;
-    }
-
-    #zone-2b {
-        height: 100%;
-        width: 33.33vw !important;
-        min-width: 33.33vw !important;
-        max-width: 33.33vw !important;
-    }
-
-    /* Les autres zones s'adaptent à l'espace restant */
-    #zone-3a,
-    #zone-3c,
-    #zone-2a,
-    #zone-2c {
-    flex: 1;
-    }
-
-    /* Alignement SESSION et STATISTICS */
-    #zone-3a1 .stat-container,
-    #zone-3c1 .stat-container {
-        position: absolute;
-        top: 0;
-        padding-top: 8px;
-        width: 100%;
-    }
-
-    /* Alignement CONNECTIONS et USER */
-    #zone-3a2 .stat-container,
-    #zone-3c2 .stat-container {
-        position: absolute;
-        top: 0;
-        padding-top: 8px;
-        width: 100%;
-    }
-}
-
-/* Styles de texte uniformes */
-.stat-title,
-.stat-label,
-.stat-value,
-.stat-row {
-    font-family: Calibri, 'Trebuchet MS', sans-serif;
-}
-
-/* Format horizontal - textes */
-@media (orientation: landscape) {
-    .stat-title,
-    .stat-label,
-    .stat-value,
-    .stat-row {
-        font-size: 11px;
-        line-height: 1.4;
-    }
-}
-
-/* Format vertical - textes */
-@media (orientation: portrait) {
-    .stat-title,
-    .stat-label,
-    .stat-value,
-    .stat-row {
-        font-size: 8px;
-        line-height: 1;
-    }
-
-    #zone-3a2 .stat-title,
-    #zone-3a2 .stat-label,
-    #zone-3a2 .stat-value,
-    #zone-3a2 .stat-row,
-    #zone-3c2 .stat-title,
-    #zone-3c2 .stat-label,
-    #zone-3c2 .stat-value,
-    #zone-3c2 .stat-row {
-        font-size: 7px;
-        line-height: 0.9;
-    }
-}
-
-/* Styles communs */
-.stat-container {
-    padding: 8px;
-}
-
-.stat-title {
-    text-align: left;
-    font-weight: bold;
-    margin-bottom: 8px;
-}
-
-/* Structure de base pour les lignes */
-.stat-row {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin: 0;
-    padding: 0;
-}
-
-/* Labels alignés à gauche */
-.stat-label {
-    text-align: left;
-    flex-shrink: 0;
-}
-
-/* Valeurs alignées à droite */
-.stat-value {
-    text-align: right;
-    margin-left: auto;
-}
-
-/* Styles spécifiques pour la zone Session (3a1) */
-#zone-3a1 .stat-row {
-    justify-content: flex-start; /* Pour le label "Start time:" */
-}
-
-#zone-3a1 .stat-value {
-    margin-left: auto; /* Pour pousser les valeurs de date/heure à droite */
-}
-
-/* Styles spécifiques pour la zone Connections (3a2) */
-#zone-3a2 .stat-row {
-    justify-content: space-between;
-}
-
-/* Styles spécifiques pour la zone Statistics (3c1) */
-#zone-3c1 .stat-row {
-    justify-content: space-between;
-}
-
-#zone-3c1 .vector-indicator {
-    margin-right: 4px;
-}
-
-/* Ajustement des espacements */
-.stat-group {
-    margin-bottom: 4px;
-}
-
-/* Maintien des tailles de police uniformes */
-@media (orientation: landscape) {
-    .stat-title,
-    .stat-label,
-    .stat-value {
-        font-size: 11px;
-        line-height: 1.4;
-    }
-}
-
-@media (orientation: portrait) {
-    .stat-title,
-    .stat-label,
-    .stat-value {
-        font-size: 8px;
-        line-height: 1;
-    }
-
-    #zone-3a2 .stat-title,
-    #zone-3a2 .stat-label,
-    #zone-3a2 .stat-value,
-    #zone-3c2 .stat-title,
-    #zone-3c2 .stat-label,
-    #zone-3c2 .stat-value {
-        font-size: 7px;
-        line-height: 0.9;
-    }
-}
-
-.vector-indicator {
-    display: inline;
-    margin: 0 2px;
-}
-
-/* Ajustements pour très petits écrans */
-@media (max-width: 480px) {
-    .stat-title,
-    .stat-label,
-    .stat-value,
-    .stat-row {
-        font-size: 6px;
-    }
-    
-    .stat-row {
-        padding-left: 4px;
-    }
-}
-
-/* Boutons standards */
-.tool-circle {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background-color: var(--background-color);
-    color: var(--text-color);
-}
-
-/* Styles spécifiques pour les icônes */
-.tool-circle .zoom-icon,
-.tool-circle .import-icon,
-.tool-circle .theme-icon,
-.tool-circle .share-icon {
-    width: min(40%, 40px);
-    height: min(40%, 40px);
-    margin: auto;
-}
-
-/* Styles spécifiques pour les zones de statistiques */
-.tool-circle .stat-container {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    padding: 8px 5px;
-}
-
-.stat-title {
-    width: 100%;
-    text-align: center;
-    margin-bottom: 8px;
-    font-weight: bold;
-}
-
-.stat-details {
-    width: 100%;
-    font-size: 11px;
-    font-family: monospace;
-}
-
-.stat-row {
-    padding-left: 12px;
-    line-height: 1.4;
-    white-space: nowrap;
-    color: var(--text-color);
-}
-
-.stat-label {
-    min-width: 90px;
-    opacity: 0.8;
-}
-
-.stat-value {
-    flex: 1;
-}
-
-/* Masquer le contenu des boutons en mode déconnecté */
-body.disconnected .tool-circle > * {
-    opacity: 0.3;  /* ou display: none; si vous préférez les cacher complètement */
-}
-
-/* Couleurs des boutons standards - temporairement en blanc pour debug */
-#zone-3a1 .tool-circle { background-color: #000000; }
-#zone-3a2 .tool-circle { background-color: #000000; }
-#zone-3c1 .tool-circle { background-color: #000000; }
-#zone-3c2 .tool-circle { background-color: #000000; }
-#zone-2a2 .tool-circle { background-color: #000000; }
-#zone-2c1 .tool-circle { background-color: #000000; }
-#zone-2c2 .tool-circle { background-color: #000000; }
-
-/* Boutons spéciaux */
-#zone-3b, #zone-2b {
-    aspect-ratio: 1/1;
-}
-
-/* Zone de connexion */
-.connection-tools {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    z-index: 400;
-}
-
-.activity-box {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: #000000;
-    z-index: 400;
-}
-
-#activity-cursor {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: var(--background-color);
-    transition: height 0.3s ease, background-color 0.3s ease;
-    border-top: 1px solid var(--text-color);
-    z-index: 400;
-}
-
-/* Style du bouton reconnect */
-#reconnect-button {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: none;
-    z-index: 450;
-    background-color: #000000;
-    color: white;
-    border: none;
-    outline: none;
-    /* Nouveaux styles pour harmoniser avec TIME OUT */
-    font-family: Calibri, 'Trebuchet MS', sans-serif;
-    font-size: 30px;
-    font-weight: bold;
-    opacity: 0;
-    transition: opacity 0.3s ease-in;
-}
-
-/* Activation du bouton reconnect */
-body.disconnected #reconnect-button {
-    display: block;
-    opacity: 1;
-}
-
-/* Zone de couleurs */
-
-.color-tools {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    z-index: 400;
-}
-
-#color-palette {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    aspect-ratio: auto;
-    z-index: 400;
-    background-color: transparent;
-}
-
-#color-preview {
-    width: 100%;
-    height: 100%;
-    border-radius: 0;
-    box-shadow: none;
-    cursor: pointer;
-    position: relative;
-    z-index: 400;
-    display: flex;
-}
-
-.color-preview-left,
-.color-preview-right {
-    flex: 1;
-    height: 100%;
-    cursor: pointer;
-}
-
-.color-preview-right {
-    border-left: 1px solid #666;
-}
-
-#user-palette {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100% !important;
-    height: 100% !important;
-    border-radius: 0;
-    display: none;
-    cursor: crosshair;
-    z-index: 450;
-    background-color: white;
-}
-
-#gradient-palette {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100% !important;
-    height: 100% !important;
-    border-radius: 0;
-    display: none;
-    cursor: crosshair;
-    z-index: 450;
-    background-color: white;
-}
-
-/* Zone de dessin */
 .main-zone {
     display: flex;
     justify-content: center;
@@ -572,6 +65,90 @@ body.disconnected #reconnect-button {
     z-index: 100;
 }
 
+/* 4. Composants communs */
+.tool-circle {
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    padding: 8px 5px;
+}
+
+/* 5. Statistiques */
+.stat-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+}
+
+.stat-title {
+    width: 100%;
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: var(--text-color);
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0 12px;
+    color: var(--text-color);
+    white-space: nowrap;
+}
+
+/* 6. Media Queries */
+@media (orientation: landscape) {
+    .tools-zone {
+        flex-direction: column;
+        width: max(0px, calc((100vw - min(100vh, 66.66vw)) / 2));
+    }
+
+    .main-zone {
+        height: min(100vh, 66.66vw);
+        width: min(100vh, 66.66vw);
+        border-left: 1px solid #333;
+        border-right: 1px solid #333;
+    }
+}
+
+@media (orientation: portrait) {
+    .tools-zone {
+        flex-direction: row;
+        height: max(0px, calc((100vh - min(100vw, 66.66vh)) / 2));
+    }
+
+    .main-zone {
+        width: 100%;
+        height: min(100%, 66.66vh);
+        border-top: 1px solid #333;
+        border-bottom: 1px solid #333;
+    }
+}
+
+/* 7. États */
+body.disconnected .tool-circle > * {
+    opacity: 0.3;
+}
+
+/* 8. Animations */
+@keyframes processing-pulse {
+    0% { opacity: 0.5; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0.5; }
+}
+
+/* 9. Autres styles */
 #poietic-grid {
     width: 100%;
     height: 100%;
@@ -728,8 +305,6 @@ body.welcoming #welcome-overlay {
     visibility: visible;  /* Utiliser visibility au lieu de display */
     opacity: 1;
 }
-
-/* Les autres styles (.overlay-title, .overlay-subtitle, etc.) seront réutilisés */
 
 /* Style du bouton de thème */
 #zone-2c1 .tool-circle { 
@@ -1110,7 +685,7 @@ body.disconnected #zone-2a2 .import-icon {
     display: none;
     cursor: crosshair;
     z-index: 450;
-    background-color: #000000;
+    background-color: var(--background-color);
 }
 
 /* Ajout d'une classe spécifique pour les palettes actives */
@@ -1643,26 +1218,53 @@ body.disconnected .share-icon {
 
 /* Styles spécifiques pour l'orientation verticale */
 @media (orientation: portrait) {
+    /* Configuration de base des conteneurs */
     .stat-container {
-        padding: 3px;
-        line-height: 1.2; /* Interligne réduit */
+        padding: 2px !important;  /* Réduit drastiquement le padding */
+        display: flex;
+        flex-direction: column;
+        gap: 1px;  /* Espace minimal entre les éléments */
     }
 
-    .stat-group {
-        margin: 1px 0; /* Espacement réduit entre les groupes */
-    }
-
+    /* Titres plus compacts */
     .stat-title {
-        margin-bottom: 2px; /* Espacement réduit après le titre */
-        font-size: 0.9em; /* Titre légèrement plus petit */
+        font-size: 12px !important;
+        margin-bottom: 1px !important;  /* Espace minimal sous le titre */
+        padding: 0 !important;
+        text-align: center;
+        font-weight: bold;
     }
 
-    .stat-details {
-        font-size: 10px; /* Texte légèrement plus petit */
+    /* Suppression des espaces superflus */
+    .stat-group {
+        margin: 0 !important;
+        padding: 0 !important;
     }
 
+    .stat-group + .stat-group {
+        margin-top: 0 !important;  /* Pas d'espace entre les groupes */
+    }
+
+    /* Configuration des lignes */
     .stat-row {
-        padding-left: 8px; /* Indentation réduite */
+        margin: 0 !important;
+        padding: 0 4px !important;  /* Réduit le padding horizontal */
+        min-height: 13px !important;  /* Hauteur minimale réduite */
+        display: flex;
+        justify-content: space-between;
+    }
+
+    /* Ajustement de la typographie */
+    .stat-label,
+    .stat-value {
+        font-size: 11px !important;
+        line-height: 1 !important;  /* Interlignage minimal */
+    }
+
+    /* Ajustements spécifiques pour CONNECTIONS et USER */
+    #zone-3a2 .stat-container,
+    #zone-3c2 .stat-container {
+        padding-top: 1px !important;
     }
 }
 
@@ -1828,31 +1430,583 @@ body.disconnected .share-icon {
     }
 }
 
-/* Tailles de police */
+/* Ajustement des tailles de police pour une meilleure lisibilité */
 @media (orientation: landscape) {
-    .stat-title,
+    /* Titres en mode paysage */
+    .stat-title {
+        font-size: 13px;  /* Augmenté de 11px à 13px */
+        line-height: 1.4;
+        margin-bottom: 10px;
+        font-weight: bold;
+    }
+
+    /* Labels et valeurs en mode paysage */
     .stat-label,
     .stat-value {
+        font-size: 12px;  /* Augmenté de 10px à 12px */
+        line-height: 1.5;
+    }
+
+    /* Ajustements spécifiques pour les zones statistiques */
+    #zone-3a1 .stat-container,
+    #zone-3a2 .stat-container,
+    #zone-3c1 .stat-container,
+    #zone-3c2 .stat-container {
+        padding: 10px;  /* Augmenté de 8px à 10px pour plus d'espace */
+    }
+
+    .stat-row {
+        margin: 3px 0;  /* Augmenté de 2px à 3px pour plus d'espacement */
+    }
+}
+
+@media (orientation: portrait) {
+    /* Styles de base pour toutes les zones statistiques */
+    .stat-container {
+        padding: 4px;
+    }
+
+    .stat-title {
+        font-size: 12px;
+        margin-bottom: 2px;
+        text-align: center;
+    }
+
+    .stat-label,
+    .stat-value {
+        font-size: 12px;
+        line-height: 1.2;
+    }
+
+    /* Style spécifique pour STATISTICS */
+    #zone-3c1 .stat-row {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        width: 100%;
+        margin: 2px 0;
+    }
+
+    #zone-3c1 .stat-label {
+        flex: 0 1 auto;
+        text-align: left;
+        white-space: nowrap;
+        opacity: 0.8;
+        padding-left: 12px;
+    }
+
+    #zone-3c1 .stat-value {
+        flex: 0 0 auto;
+        text-align: right;
+        padding-right: 12px;
+        font-family: monospace;
+        min-width: 60px;
+        display: inline-block;
+    }
+}
+
+/* Optimisations pour les très petits écrans */
+@media (max-width: 480px) and (orientation: portrait) {
+    .stat-title {
+        font-size: 9px;
+    }
+
+    .stat-label,
+    .stat-value {
+        font-size: 8px;
+    }
+
+    .stat-container {
+        padding: 4px;
+    }
+}
+
+/* Optimisations pour les écrans moyens */
+@media (min-width: 481px) and (max-width: 768px) {
+    .stat-title {
+        font-size: 11px;
+    }
+
+    .stat-label,
+    .stat-value {
+        font-size: 10px;
+    }
+}
+
+#session-start-date,
+#session-start-time {
+    font-family: inherit;
+}
+
+/* Styles communs pour toutes les zones en format horizontal */
+@media (orientation: landscape) {
+    /* Labels alignés à gauche avec padding uniforme */
+    .stat-label {
+        padding-left: 12px;
+    }
+
+    /* Valeurs alignées à droite avec padding uniforme */
+    .stat-value {
+        padding-right: 12px;
+    }
+
+    /* Supprimer les règles spécifiques qui créent des incohérences */
+    #zone-3a1 .stat-label,
+    #zone-3a2 .stat-label,
+    #zone-3c1 .stat-label,
+    #zone-3c2 .stat-label,
+    #zone-3a1 .stat-value,
+    #zone-3a2 .stat-value,
+    #zone-3c1 .stat-value,
+    #zone-3c2 .stat-value {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+}
+
+/* Alignement des valeurs dans STATISTICS en mode horizontal */
+@media (orientation: landscape) {
+    #zone-3c1 .stat-value {
+        text-align: right;
+        min-width: 70px;  /* Largeur minimale pour aligner les unités */
+    }
+}
+
+/* Alignement spécifique pour les valeurs dans STATISTICS en mode horizontal */
+@media (orientation: landscape) {
+    #zone-3c1 .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding-right: 8px;
+    }
+
+    #zone-3c1 .stat-label {
+        flex: 0 0 auto;
+        padding-left: 8px;
+    }
+
+    #zone-3c1 .stat-value {
+        flex: 0 0 70px;  /* Largeur fixe pour les valeurs */
+        text-align: right;
+        padding-right: 0;
+    }
+}
+
+/* Alignement spécifique pour STATISTICS en mode horizontal */
+@media (orientation: landscape) {
+    #zone-3c1 .stat-row {
+        display: flex;
+        justify-content: flex-start;
+        padding: 0 8px;
+    }
+
+    #zone-3c1 .stat-label {
+        flex: 0 1 auto;
+        text-align: left;
+        padding-right: 8px;
+    }
+
+    #zone-3c1 .stat-value {
+        flex: 0 0 80px;  /* Largeur fixe plus importante pour les valeurs */
+        text-align: right;
+        padding-right: 0;
+        font-family: monospace;  /* Pour assurer un alignement uniforme */
+    }
+}
+
+/* Zones centrales - Configuration de base */
+#zone-3b,
+#zone-2b {
+    flex: none !important;
+    aspect-ratio: 1/1;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Zone 3b - Curseur d'activité */
+#zone-3b {
+    background-color: var(--background-color);
+}
+
+.connection-tools {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 400;
+}
+
+.activity-box {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--background-color);
+    z-index: 400;
+}
+
+#activity-cursor {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--background-color);
+    transition: height 0.3s ease;
+    border-top: 1px solid var(--text-color);
+    z-index: 400;
+}
+
+#reconnect-button {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    z-index: 450;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    border: none;
+    outline: none;
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    font-size: 30px;
+    font-weight: bold;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+}
+
+/* Zone 2b - Palette de couleurs */
+#zone-2b {
+    background-color: var(--background-color);
+}
+
+.color-tools {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 400;
+}
+
+#color-palette {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 400;
+    background-color: transparent;
+}
+
+#color-preview {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    cursor: pointer;
+    position: relative;
+    z-index: 400;
+    display: flex;
+}
+
+.color-preview-left,
+.color-preview-right {
+    flex: 1;
+    height: 100%;
+    cursor: pointer;
+}
+
+.color-preview-right {
+    border-left: 1px solid #666;
+}
+
+#gradient-palette,
+#user-palette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0;
+    display: none;
+    cursor: crosshair;
+    z-index: 450;
+    background-color: var(--background-color);
+}
+
+/* État actif des palettes */
+.palette-active {
+    display: block !important;
+}
+
+/* Media queries spécifiques */
+@media (orientation: landscape) {
+    #zone-3b,
+    #zone-2b {
+        width: 100%;
+        height: auto;
+    }
+}
+
+@media (orientation: portrait) {
+    #zone-3b,
+    #zone-2b {
+        height: 100%;
+        width: calc(100vw / 3);
+        min-width: calc(100vw / 3);
+        max-width: calc(100vw / 3);
+    }
+}
+
+/* Alignement spécifique pour STATISTICS (zone-3c1) */
+#zone-3c1 .stat-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    margin: 2px 0;
+}
+
+#zone-3c1 .stat-label {
+    flex: 0 1 auto;
+    text-align: left;
+    white-space: nowrap;
+    opacity: 0.8;
+    padding-left: 12px;
+}
+
+#zone-3c1 .stat-value {
+    flex: 0 0 auto;
+    text-align: right;
+    padding-right: 12px;
+    font-family: monospace;
+    min-width: 60px;
+    display: inline-block;
+}
+
+/* Ajustements responsifs pour STATISTICS */
+@media (orientation: landscape) {
+    #zone-3c1 .stat-row {
         font-size: 11px;
         line-height: 1.4;
     }
 }
 
 @media (orientation: portrait) {
-    .stat-title,
-    .stat-label,
-    .stat-value {
-        font-size: 8px;
-        line-height: 1;
+    #zone-3c1 .stat-row {
+        font-size: 11px;
+        line-height: 1.2;
+        padding: 0 8px;
+    }
+    
+    #zone-3c1 .stat-value {
+        min-width: 40px;
+    }
+}
+
+/* Style spécifique pour STATISTICS (zone-3c1) */
+#zone-3c1 .stat-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+    padding: 8px;
+}
+
+#zone-3c1 .stat-title {
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+#zone-3c1 .stat-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#zone-3c1 .stat-row {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+#zone-3c1 .stat-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.8;
+    padding-left: 12px;
+}
+
+#zone-3c1 .stat-value {
+    text-align: right;
+    font-family: monospace;
+    padding-right: 12px;
+    margin-top: 2px;
+    width: 100%;
+    display: block;
+}
+
+/* Ajustements responsifs */
+@media (orientation: landscape) {
+    #zone-3c1 .stat-label,
+    #zone-3c1 .stat-value {
+        font-size: 11px;
+        line-height: 1.4;
+    }
+}
+
+@media (orientation: portrait) {
+    #zone-3c1 .stat-label,
+    #zone-3c1 .stat-value {
+        font-size: 11px;
+        line-height: 1.2;
+    }
+    
+    #zone-3c1 .stat-container {
+        padding: 4px;
+    }
+    
+    #zone-3c1 .stat-details {
+        gap: 4px;
+    }
+}
+
+/* Ajustements pour l'alignement en mode portrait */
+@media (orientation: portrait) {
+    /* Structure de base des zones */
+    .sub-zone {
+        flex-direction: column;
+        width: calc(100vw / 3);
+        min-height: 0;
+        display: flex;
     }
 
+    .split-zone {
+        width: 100%;
+        height: 50%;  /* Force une hauteur égale pour chaque zone */
+        min-height: 0;
+        flex: 1;      /* Distribution égale de l'espace */
+        display: flex;
+    }
+
+    /* Alignement pour toutes les zones de statistiques */
+    #zone-3a1 .stat-container,
+    #zone-3a2 .stat-container,
+    #zone-3c1 .stat-container,
+    #zone-3c2 .stat-container {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        padding: 8px;
+    }
+
+    /* Style uniforme pour tous les titres */
+    #zone-3a1 .stat-title,
     #zone-3a2 .stat-title,
-    #zone-3a2 .stat-label,
+    #zone-3c1 .stat-title,
+    #zone-3c2 .stat-title {
+        margin-bottom: 8px;
+        font-size: 8px;
+        text-align: center;
+    }
+
+    /* Style uniforme pour tous les contenus */
+    #zone-3a1 .stat-details,
+    #zone-3a2 .stat-details,
+    #zone-3c1 .stat-details,
+    #zone-3c2 .stat-details {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    /* Style uniforme pour toutes les lignes */
+    #zone-3a1 .stat-row,
+    #zone-3a2 .stat-row,
+    #zone-3c1 .stat-row,
+    #zone-3c2 .stat-row {
+        margin: 1px 0;
+        padding: 0 8px;
+    }
+
+    /* Style uniforme pour toutes les valeurs */
+    #zone-3a1 .stat-value,
     #zone-3a2 .stat-value,
-    #zone-3c2 .stat-title,
-    #zone-3c2 .stat-label,
+    #zone-3c1 .stat-value,
     #zone-3c2 .stat-value {
-        font-size: 7px;
-        line-height: 0.9;
+        text-align: right;
+        padding-right: 8px;
+    }
+
+    /* Assurer une hauteur égale pour toutes les zones */
+    #zone-3a,
+    #zone-3c {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    /* Ajustement spécifique pour les zones CONNECTIONS et USER */
+    #zone-3a2,
+    #zone-3c2 {
+        flex: 1;
+        display: flex;
+    }
+}
+
+/* Assurer une hauteur égale pour les zones en mode portrait */
+@media (orientation: portrait) {
+    .tools-zone {
+        display: flex;
+        flex-direction: row;
+        height: max(0px, calc((100vh - min(100vw, 66.66vh)) / 2));
+    }
+
+    #zone-3a,
+    #zone-3c {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+}
+
+@media (orientation: landscape) {
+    .stat-container {
+        padding: 8px !important;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-title {
+        font-size: 12px !important;
+        margin-bottom: 6px !important;
+        text-align: center;
+        font-weight: bold;
+    }
+
+    .stat-details {
+        padding: 0 !important;
+        margin-top: 16px !important;  /* Ajout d'une marge en haut uniforme */
+    }
+
+    .stat-group {
+        margin: 0 !important;
+    }
+
+    .stat-row {
+        margin: 2px 0 !important;
+        padding: 0 8px !important;
+        min-height: 16px !important;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
 }

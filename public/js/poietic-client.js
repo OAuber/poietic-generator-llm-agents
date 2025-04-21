@@ -5,6 +5,26 @@ import { generateRandomColor } from './poietic-random-color.js';
 
 class PoieticClient {
     constructor() {
+        // Vérifier si une instance est déjà active dans un autre onglet
+        if (localStorage.getItem('poieticClientActive')) {
+            console.warn("Une instance de PoieticClient est déjà active dans ce navigateur.");
+            document.body.innerHTML = `
+                <div style="text-align: center; margin-top: 20%;">
+                    <h2>Une session est déjà active dans un autre onglet.</h2>
+                    <p>Veuillez fermer les autres sessions avant d'en ouvrir une nouvelle.</p>
+                </div>`;
+            return;
+        }
+
+        // Marquer cette instance comme active
+        localStorage.setItem('poieticClientActive', 'true');
+
+        // Nettoyer le localStorage quand l'onglet est fermé
+        window.addEventListener('beforeunload', () => {
+            localStorage.removeItem('poieticClientActive');
+        });
+
+        // Singleton classique
         if (PoieticClient.instance) {
             return PoieticClient.instance;
         }
@@ -85,6 +105,20 @@ class PoieticClient {
         this.shareManager = new ShareManager(this);
 
         this.lastUpdates = new Map();
+
+        // Ajout des références aux éléments de session
+        this.sessionElements = {
+            startDate: document.getElementById('session-start-date'),
+            startTime: document.getElementById('session-start-time'),
+            duration: document.getElementById('session-duration')
+        };
+        
+        // Initialisation des variables de session
+        this.sessionStartTime = null;
+        this.sessionDurationInterval = null;
+
+        // Modification de la référence pour utiliser le nouvel élément
+        this.lastActionElement = document.getElementById('last-action-value');
     }
 
     initialize() {
@@ -218,6 +252,11 @@ class PoieticClient {
             this.socket.close();
         }
         this.isConnected = false;
+        
+        if (this.sessionDurationInterval) {
+            clearInterval(this.sessionDurationInterval);
+            this.sessionDurationInterval = null;
+        }
     }
 
     startHeartbeat() {
@@ -233,7 +272,7 @@ class PoieticClient {
         this.isLocalUpdate = false;
         switch (message.type) {
             case 'initial_state':
-                this.initializeState(message);
+                this.handleInitialState(message);
                 this.resetInactivityTimer();
                 break;
             case 'new_user':
@@ -261,7 +300,7 @@ class PoieticClient {
     }
 
     // SECTION: Gestion de l'état
-    initializeState(state) {
+    handleInitialState(state) {
         this.gridSize = state.grid_size;
         this.userColors = new Map(Object.entries(state.user_colors));
         this.myUserId = state.my_user_id;
@@ -298,6 +337,41 @@ class PoieticClient {
                 });
             });
         }
+
+        // Utiliser le timestamp de début de session au lieu du timestamp du message
+        this.sessionStartTime = state.session_start_time;
+        
+        // Mettre à jour l'affichage de la date et l'heure de début
+        this.updateSessionStartDisplay();
+        
+        // Démarrer la mise à jour de la durée
+        this.startSessionDurationUpdate();
+    }
+
+    updateSessionStartDisplay() {
+        if (!this.sessionStartTime) return;
+
+        const startDate = new Date(this.sessionStartTime);
+        
+        // Format américain pour la date (MM/DD/YYYY)
+        const dateStr = startDate.toLocaleDateString('en-US', {
+            month: '2-digit',
+            day: '2-digit',
+            year: 'numeric'
+        });
+
+        // Format 12h pour l'heure (hh:mm AM/PM)
+        const timeStr = startDate.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+
+        const dateElement = document.getElementById('session-start-date');
+        const timeElement = document.getElementById('session-start-time');
+
+        if (dateElement) dateElement.textContent = dateStr;
+        if (timeElement) timeElement.textContent = timeStr;
     }
 
     // SECTION: Gestion des cellules et de la grille
@@ -614,26 +688,17 @@ class PoieticClient {
     }
 
     sendCellUpdate(subX, subY, color) {
-        if (this.isConnected) {
-            // Vérifier si la dernière mise à jour pour cette cellule est identique
-            const lastUpdateKey = `${subX},${subY}`;
-            const lastUpdate = this.lastUpdates.get(lastUpdateKey);
+        if (!this.isConnected || !this.myUserId) return;
 
-            if (lastUpdate && lastUpdate.color === color) {
-                return; // Ne pas envoyer si la couleur est la même
-            }
+        const message = {
+            type: 'cell_update',
+            sub_x: subX,
+            sub_y: subY,
+            color: color
+        };
 
-            const message = {
-                type: 'cell_update',
-                sub_x: subX,
-                sub_y: subY,
-                color: color
-            };
-            this.socket.send(JSON.stringify(message));
-
-            // Mémoriser la dernière mise à jour
-            this.lastUpdates.set(lastUpdateKey, { color });
-        }
+        this.socket.send(JSON.stringify(message));
+        this.updateLastActivity(); // Mise à jour du timestamp de dernière action
     }
 
     // SECTION: Gestion des utilisateurs
@@ -704,8 +769,14 @@ class PoieticClient {
     initializeActivityMonitoring() {
         if (!this.activityCursor) return;
 
+        // Intervalle existant pour l'activité
         setInterval(() => {
             this.updateActivityDisplay();
+        }, 1000);
+
+        // Nouvel intervalle pour la dernière action
+        setInterval(() => {
+            this.updateLastActionDisplay();
         }, 1000);
 
         if (this.reconnectButton) {
@@ -767,10 +838,7 @@ class PoieticClient {
 
     updateLastActivity() {
         this.lastActivity = Date.now();
-        this.updateActivityDisplay();
-        
-        // Réinitialiser aussi le timer d'inactivité
-        this.resetInactivityTimer();
+        this.updateLastActionDisplay();
     }
 
     startInactivityTimer() {
@@ -1494,6 +1562,49 @@ class PoieticClient {
     // Nouvelle fonction utilitaire pour convertir RGB en HEX
     rgbToHex(r, g, b) {
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    }
+
+    updateSessionDisplay() {
+        if (this.sessionStartTime) {
+            // Mise à jour de la date
+            this.sessionElements.startDate.textContent = 
+                this.sessionStartTime.toISOString().slice(0,10).replace(/-/g,'/');
+            
+            // Mise à jour de l'heure
+            this.sessionElements.startTime.textContent = 
+                this.sessionStartTime.toTimeString().slice(0,8);
+        }
+    }
+
+    startSessionDurationUpdate() {
+        // Nettoyer l'intervalle existant si présent
+        if (this.sessionDurationInterval) {
+            clearInterval(this.sessionDurationInterval);
+        }
+
+        // Mettre à jour la durée toutes les secondes
+        this.sessionDurationInterval = setInterval(() => {
+            if (!this.sessionStartTime) return;
+
+            const now = Date.now();
+            const duration = now - this.sessionStartTime;
+            const minutes = Math.floor(duration / 60000);
+            const seconds = Math.floor((duration % 60000) / 1000);
+            
+            if (this.sessionElements.duration) {
+                this.sessionElements.duration.textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }, 1000);
+    }
+
+    updateLastActionDisplay() {
+        if (!this.lastActionElement || !this.lastActivity) return;
+
+        const now = Date.now();
+        const timeSinceLastAction = Math.floor((now - this.lastActivity) / 1000); // Conversion en secondes
+        
+        this.lastActionElement.textContent = `${timeSinceLastAction} sec`;
     }
 }
 
