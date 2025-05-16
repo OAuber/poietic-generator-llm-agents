@@ -87,6 +87,9 @@ body {
     display: flex;
     flex-direction: column;
     padding: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
 }
 
 .stat-title {
@@ -100,11 +103,38 @@ body {
 
 .stat-row {
     display: flex;
+    flex-direction: row;
+    align-items: center;
     justify-content: space-between;
-    align-items: baseline;
-    padding: 0 12px;
-    color: var(--text-color);
-    white-space: nowrap;
+    width: 100%;
+    padding-left: 8vw;
+    padding-right: 8vw;
+    box-sizing: border-box;
+}
+
+@media (max-width: 600px) {
+    .stat-row {
+        padding-left: 4vw;
+        padding-right: 4vw;
+    }
+}
+@media (min-width: 1200px) {
+    .stat-row {
+        padding-left: 80px;
+        padding-right: 80px;
+    }
+}
+
+.stat-label {
+    flex: 1 1 50%;
+    text-align: left;
+    justify-content: flex-start;
+}
+
+.stat-value {
+    flex: 1 1 50%;
+    text-align: right;
+    justify-content: flex-end;
 }
 
 /* 6. Media Queries */
@@ -120,6 +150,15 @@ body {
         border-left: 1px solid #333;
         border-right: 1px solid #333;
     }
+
+    .stat-container, .stat-details {
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+    }
 }
 
 @media (orientation: portrait) {
@@ -129,7 +168,7 @@ body {
     }
 
     .main-zone {
-        width: 100%;
+    width: 100%;
         height: min(100%, 66.66vh);
         border-top: 1px solid #333;
         border-bottom: 1px solid #333;
@@ -474,9 +513,10 @@ body.disconnected #zone-2a2 .import-icon {
     }
 
     #zone-3b, #zone-2b {
-        height: calc(100vh / 3);
         width: 100%;
+        height: 33.333vh; /* Un tiers de la hauteur de l'écran */
         min-height: 0;
+        max-height: 33.333vh;
     }
 
     .sub-zone {
@@ -529,7 +569,6 @@ body.disconnected #zone-2a2 .import-icon {
     .tools-zone {
         flex-direction: row;
         height: max(0px, calc((100vh - min(100vw, 66.66vh)) / 2));
-        min-height: 0;
     }
 
     #zone-3b, #zone-2b {
@@ -833,28 +872,33 @@ body.disconnected .stat-title {
 /* Styles pour les détails des statistiques */
 .stat-details {
     width: 100%;
-    padding: 2px 0;
-    font-size: 11px;
-    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
 }
 
 .stat-row {
     display: flex;
-    justify-content: flex-start;
-    align-items: baseline;
-    margin: 2px 0;
-    color: var(--text-color);
-    white-space: nowrap;
-    padding-left: 8px;  /* Indentation de base */
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding-left: 8vw;
+    padding-right: 8vw;
+    box-sizing: border-box;
 }
 
 .stat-label {
-    min-width: 90px;  /* Largeur fixe pour aligner les valeurs */
-    opacity: 0.8;
+    flex: 1 1 50%;
+    text-align: left;
+    justify-content: flex-start;
 }
 
 .stat-value {
-    flex: 1;
+    flex: 1 1 50%;
+    text-align: right;
+    justify-content: flex-end;
 }
 
 /* Ajustement du conteneur principal */
@@ -910,7 +954,13 @@ body.disconnected .stat-title {
     }
     
     .stat-details {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
         width: 100%;
+        gap: 2vh; /* Ajustez la valeur pour remplir la zone */
     }
     
     .stat-row {
@@ -1081,8 +1131,9 @@ body.disconnected .stat-details {
         font-size: 10px;
     }
     
-    .stat-label {
-        min-width: 80px;
+    .stat-label,
+    .stat-value {
+        font-size: 10px;
     }
 }
 
@@ -1402,6 +1453,12 @@ body.disconnected .share-icon {
 
 /* Format vertical - garder les styles qui fonctionnent */
 @media (orientation: portrait) {
+    .tools-zone,
+    .sub-zone,
+    .split-zone {
+        min-height: 0 !important;
+    }
+
     .tools-zone {
         display: flex;
         flex-direction: row;
@@ -1617,8 +1674,6 @@ body.disconnected .share-icon {
 /* Zones centrales - Configuration de base */
 #zone-3b,
 #zone-2b {
-    flex: none !important;
-    aspect-ratio: 1/1;
     position: relative;
     overflow: hidden;
 }
@@ -1749,7 +1804,9 @@ body.disconnected .share-icon {
     #zone-3b,
     #zone-2b {
         width: 100%;
-        height: auto;
+        height: 33.333vh; /* Un tiers de la hauteur de l'écran */
+        min-height: 0;
+        max-height: 33.333vh;
     }
 }
 
@@ -1979,34 +2036,399 @@ body.disconnected .share-icon {
 }
 
 @media (orientation: landscape) {
-    .stat-container {
-        padding: 8px !important;
+    .stat-container, .stat-details {
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        width: 100%;
         display: flex;
         flex-direction: column;
     }
+}
 
-    .stat-title {
-        font-size: 12px !important;
-        margin-bottom: 6px !important;
-        text-align: center;
-        font-weight: bold;
-    }
+#activity-cursor-bg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background-color: #444; /* Gris foncé pour le mode sombre */
+    z-index: 399;
+    pointer-events: none;
+    transition: height 0.3s;
+}
+body.light-mode #activity-cursor-bg {
+    background-color: #cccccc; /* Gris clair pour le mode clair */
+}
 
-    .stat-details {
-        padding: 0 !important;
-        margin-top: 16px !important;  /* Ajout d'une marge en haut uniforme */
-    }
+#activity-cursor {
+    z-index: 400;
+}
 
-    .stat-group {
-        margin: 0 !important;
-    }
+#zone-3b {
+    position: relative;
+    height: 100%;
+}
+.activity-box {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+}
+#activity-cursor-bg, #activity-cursor {
+    left: 0; width: 100%;
+    position: absolute;
+}
 
-    .stat-row {
-        margin: 2px 0 !important;
-        padding: 0 8px !important;
-        min-height: 16px !important;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+/* Overlay titre pour chaque zone statistique */
+.stat-zone {
+    position: relative;
+    overflow: visible;
+}
+
+/* Overlay titre : même typo que "PLAY" mais plus petit */
+.stat-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.2s;
+    text-align: center;
+    cursor: pointer;
+}
+body.light-mode .stat-overlay {
+    background: rgba(255,255,255,0.7);
+    color: #000;
+}
+
+/* Masquer le texte par défaut */
+.stat-container {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+/* Afficher le texte et masquer l'overlay au survol ou au focus clavier */
+.stat-zone:hover .stat-container,
+.stat-zone:focus-within .stat-container {
+    opacity: 1;
+    pointer-events: auto;
+}
+.stat-zone:hover .stat-overlay,
+.stat-zone:focus-within .stat-overlay {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Pour le clic sur mobile : on gère via JS */
+.stat-zone.show-content .stat-overlay {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.stat-zone.show-content .stat-container {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* Style pour le bouton calendrier */
+.session-circle {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.calendar-container {
+    position: relative;
+    width: 80%;
+    height: 80%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.calendar-icon {
+    width: 100%;
+    height: 100%;
+    display: block;
+    z-index: 1;
+}
+
+.session-day, .session-month {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #888;
+    font-family: monospace;
+    z-index: 2;
+    background: none;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+}
+
+.session-day {
+    left: 0.5%;
+    text-align: right;
+}
+
+.session-month {
+    right: 0.5%;
+    text-align: left;
+}
+
+body:not(.light-mode) .calendar-icon {
+    stroke: #fff !important;
+    fill: none !important;
+}
+body.light-mode .calendar-icon {
+    stroke: #000 !important;
+    fill: none !important;
+}
+
+.chrono-container {
+    position: relative;
+    width: 80%;
+    height: 80%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chrono-icon {
+    width: 100%;
+    height: 100%;
+    display: block;
+    z-index: 1;
+}
+
+.chrono-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    font-size: 0.55em;
+    font-weight: bold;
+    color: #fff;
+    font-family: monospace;
+    z-index: 2;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.08em;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.10);
+    text-transform: uppercase;
+}
+body.light-mode .chrono-label {
+    color: #000;
+}
+
+.chrono-last, .chrono-timeout {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #888;
+    font-family: monospace;
+    z-index: 2;
+    background: none;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+}
+
+.chrono-last {
+    left: 0.5%;
+    text-align: right;
+}
+
+.chrono-timeout {
+    right: 0.5%;
+    text-align: left;
+}
+
+/* Couleur du chrono selon le thème */
+body:not(.light-mode) .chrono-icon {
+    stroke: #fff !important;
+    fill: none !important;
+}
+body.light-mode .chrono-icon {
+    stroke: #000 !important;
+    fill: none !important;
+}
+
+.stats-container {
+    position: relative;
+    width: 90%;   /* Augmentez si besoin pour donner plus de place */
+    height: 90%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stats-icon {
+    width: 110%;   /* Plus grand que 100% pour agrandir le % */
+    height: 110%;
+    display: block;
+    z-index: 1;
+    color: #fff;
+}
+
+body.light-mode .stats-icon {
+    color: #000;
+}
+
+.stats-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2.1em;
+    height: 2.1em;
+    z-index: 2;
+    color: #888;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stats-arrow-left {
+    left: 0.5%;
+}
+
+.stats-arrow-right {
+    right: 0.5%;
+}
+
+.arrow-icon {
+    width: 100%;
+    height: 100%;
+    stroke: #888;
+    fill: #888;
+}
+
+body.light-mode .arrow-icon {
+    stroke: #888;
+    fill: #888;
+}
+
+.user-container {
+    position: relative;
+    width: 80%;
+    height: 80%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.user-icon {
+    width: 100%;
+    height: 100%;
+    display: block;
+    color: #fff;
+}
+
+body.light-mode .user-icon {
+    color: #000;
+}
+
+.user-count {
+    position: absolute;
+    top: 50%;
+    right: 0.5%; /* Même distance que les autres logos */
+    transform: translateY(-50%);
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #888;
+    font-family: monospace;
+    z-index: 2;
+    background: none;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+    text-align: left;
+}
+
+.session-timer-container {
+    position: relative;
+    width: 80%;
+    height: 80%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-timer-icon {
+    width: 120%;
+    height: 120%;
+    display: block;
+    z-index: 1;
+    color: #fff;
+}
+body.light-mode .session-timer-icon {
+    color: #000;
+}
+
+.session-timer-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    font-size: 0.55em;
+    font-weight: bold;
+    color: #fff;
+    font-family: monospace;
+    z-index: 2;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.08em;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.10);
+    text-transform: uppercase;
+}
+body.light-mode .session-timer-label {
+    color: #000;
+}
+
+.session-minutes, .session-seconds {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #888;
+    font-family: monospace;
+    z-index: 2;
+    background: none;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+}
+
+.session-minutes {
+    left: 0.5%;
+    text-align: right;
+}
+
+.session-seconds {
+    right: 0.5%;
+    text-align: left;
+}
+/* Patch global pour éviter toute hauteur minimale en mode portrait */
+@media (orientation: portrait) {
+    .tools-zone,
+    .sub-zone,
+    .split-zone {
+        min-height: 0 !important;
     }
 }
