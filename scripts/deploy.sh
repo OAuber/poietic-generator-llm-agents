@@ -37,13 +37,24 @@ scp -i "$SSH_KEY" bin/poietic-generator-api bin/poietic-recorder "$SERVER:$DEPLO
 # 3. Déploiement sur le serveur
 log "Déploiement sur le serveur..."
 ssh -i "$SSH_KEY" "$SERVER" << 'ENDSSH'
+    # Dossier de travail pour les données et la base
+    export WORKDIR="/home/debian/poietic-data"
+    export DBDIR="\$WORKDIR/db"
+
+    # Arrêt des services AVANT toute manipulation
+    sudo systemctl stop poietic-generator.service
+    sudo systemctl stop poietic-recorder.service
+
+    # Création du dossier de travail et de la base si besoin
+    sudo mkdir -p "\$DBDIR"
+    sudo chown debian:debian "\$WORKDIR" "\$DBDIR"
+    if [ ! -f "\$DBDIR/recorder.db" ]; then
+        sudo -u debian sqlite3 "\$DBDIR/recorder.db" ".databases"
+    fi
+
     # Sauvegarde des versions actuelles
     sudo cp /usr/local/bin/poietic-generator-api /usr/local/bin/poietic-generator-api.backup
     sudo cp /usr/local/bin/poietic-recorder /usr/local/bin/poietic-recorder.backup
-
-    # Arrêt des services
-    sudo systemctl stop poietic-generator.service
-    sudo systemctl stop poietic-recorder.service
 
     # Installation des nouveaux binaires
     sudo mv ~/deploy/poietic-* /usr/local/bin/

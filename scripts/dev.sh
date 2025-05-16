@@ -1,11 +1,14 @@
 #!/bin/bash
 
+# Supprimer l'ancienne base de données si elle existe
+rm -f db/recorder.db*
+
 # Lancer le serveur d'enregistrement sur le port 3002
 crystal run src/cli/recorder-server.cr -- --port=3002 &
 PID_RECORDER=$!
 
-# Attendre un peu que le recorder démarre
-sleep 2
+# Attendre un peu plus longtemps que le recorder démarre et initialise sa base de données
+sleep 5
 
 # Lancer le serveur principal sur le port 3001
 crystal run src/cli/poietic-generator-api.cr -- --port=3001 &
