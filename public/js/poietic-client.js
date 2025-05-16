@@ -3,27 +3,55 @@ import { ShareManager } from './poietic-share.js';
 import { ColorGenerator } from './poietic-color-generator.js';
 import { generateRandomColor } from './poietic-random-color.js';
 
+const SESSION_KEY = 'poieticClientActive';
+const SESSION_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+
+function isSessionActive() {
+    const lastActive = parseInt(localStorage.getItem(SESSION_KEY) || '0', 10);
+    return (Date.now() - lastActive) < SESSION_TIMEOUT;
+}
+
+if (isSessionActive()) {
+    document.body.innerHTML = `
+        <div style="text-align: center; margin-top: 20%;">
+            <h2>A session is already active in this browser.</h2>
+        </div>`;
+
+    // === DEV ONLY: Bouton caché pour réinitialiser le localStorage ===
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+        const devBtn = document.createElement('button');
+        devBtn.textContent = "Reset Poietic Session Lock";
+        devBtn.style.position = "fixed";
+        devBtn.style.bottom = "10px";
+        devBtn.style.right = "10px";
+        devBtn.style.zIndex = 9999;
+        devBtn.style.opacity = 0.5;
+        devBtn.style.padding = "0.5em 1em";
+        devBtn.style.background = "#fff";
+        devBtn.style.border = "1px solid #888";
+        devBtn.style.borderRadius = "6px";
+        devBtn.onmouseover = () => devBtn.style.opacity = 1;
+        devBtn.onmouseout = () => devBtn.style.opacity = 0.5;
+        devBtn.onclick = () => {
+            localStorage.removeItem(SESSION_KEY);
+            alert("Session lock supprimé !");
+        };
+        document.body.appendChild(devBtn);
+    }
+
+    throw new Error("Session already active in this browser.");
+}
+
+localStorage.setItem(SESSION_KEY, Date.now().toString());
+window.addEventListener('beforeunload', () => {
+    localStorage.removeItem(SESSION_KEY);
+});
+setInterval(() => {
+    localStorage.setItem(SESSION_KEY, Date.now().toString());
+}, 10000);
+
 class PoieticClient {
     constructor() {
-        // Vérifier si une instance est déjà active dans un autre onglet
-        if (localStorage.getItem('poieticClientActive')) {
-            console.warn("Une instance de PoieticClient est déjà active dans ce navigateur.");
-            document.body.innerHTML = `
-                <div style="text-align: center; margin-top: 20%;">
-                    <h2>Une session est déjà active dans un autre onglet.</h2>
-                    <p>Veuillez fermer les autres sessions avant d'en ouvrir une nouvelle.</p>
-                </div>`;
-            return;
-        }
-
-        // Marquer cette instance comme active
-        localStorage.setItem('poieticClientActive', 'true');
-
-        // Nettoyer le localStorage quand l'onglet est fermé
-        window.addEventListener('beforeunload', () => {
-            localStorage.removeItem('poieticClientActive');
-        });
-
         // Singleton classique
         if (PoieticClient.instance) {
             return PoieticClient.instance;
@@ -119,6 +147,10 @@ class PoieticClient {
 
         // Modification de la référence pour utiliser le nouvel élément
         this.lastActionElement = document.getElementById('last-action-value');
+
+        if (this.sessionTimerInterval) clearInterval(this.sessionTimerInterval);
+        this.sessionTimerInterval = setInterval(() => this.updateSessionTimer(), 1000);
+        this.updateSessionTimer();
     }
 
     initialize() {
@@ -346,6 +378,8 @@ class PoieticClient {
         
         // Démarrer la mise à jour de la durée
         this.startSessionDurationUpdate();
+
+        this.updateUserCount();
     }
 
     updateSessionStartDisplay() {
@@ -705,6 +739,7 @@ class PoieticClient {
     addNewUser(userId, position, color) {
         this.userColors.set(userId, color);
         this.updateCell(userId, position[0], position[1]);
+        this.updateUserCount();
     }
 
     removeUser(userId) {
@@ -716,6 +751,7 @@ class PoieticClient {
         this.userPositions.delete(userId);
         this.userColors.delete(userId);
         this.initialColors.delete(userId);
+        this.updateUserCount();
     }
 
     // SECTION: Gestion du zoom et de la mise à jour
@@ -810,9 +846,19 @@ class PoieticClient {
         }
 
         const activityTime = this.lastActivity;
-        const inactiveTime = (Date.now() - activityTime) / 1000;
-        const remainingTime = Math.max(180 - inactiveTime, 0);
+        const elapsedTime = Math.min((Date.now() - activityTime) / 1000, 180);
+        const remainingTime = Math.max(180 - elapsedTime, 0);
         const heightPercentage = (remainingTime / 180) * 100;
+        const elapsedPercentage = (elapsedTime / 180) * 100;
+
+        // Curseur animé (ligne)
+        this.activityCursor.style.height = `${heightPercentage}%`;
+
+        // Fond gris (partie écoulée)
+        const bg = document.getElementById('activity-cursor-bg');
+        if (bg) {
+            bg.style.height = `${elapsedPercentage}%`;
+        }
 
         // Si le timeout est atteint, forcer la barre à 0% et le compteur à 0
         if (remainingTime === 0) {
@@ -827,12 +873,10 @@ class PoieticClient {
             return;
         }
 
-        this.activityCursor.style.height = `${heightPercentage}%`;
-
         // Mise à jour du temps restant sous la lettre T
         const remainingTimeDisplay = document.getElementById('remaining-time');
         if (remainingTimeDisplay) {
-            remainingTimeDisplay.textContent = `${Math.floor(remainingTime)} sec`;
+            remainingTimeDisplay.textContent = Math.floor(remainingTime);
         }
     }
 
@@ -918,6 +962,29 @@ class PoieticClient {
         if (zoomButton) {
             zoomButton.addEventListener('click', () => this.toggleZoom());
         }
+
+        document.querySelectorAll('.stat-overlay').forEach(overlay => {
+            overlay.addEventListener('click', function(e) {
+                const zone = this.closest('.stat-zone');
+                if (zone.classList.contains('show-content')) {
+                    zone.classList.remove('show-content');
+                } else {
+                    // Fermer les autres overlays ouverts
+                    document.querySelectorAll('.stat-zone.show-content').forEach(z => z.classList.remove('show-content'));
+                    zone.classList.add('show-content');
+                }
+                e.stopPropagation();
+            });
+        });
+
+        // Fermer le contenu si on clique ailleurs
+        document.addEventListener('click', function(e) {
+            document.querySelectorAll('.stat-zone.show-content').forEach(zone => {
+                if (!zone.contains(e.target)) {
+                    zone.classList.remove('show-content');
+                }
+            });
+        });
     }
 
     handleGridEnter() {
@@ -1604,10 +1671,54 @@ class PoieticClient {
         const now = Date.now();
         const timeSinceLastAction = Math.floor((now - this.lastActivity) / 1000); // Conversion en secondes
         
-        this.lastActionElement.textContent = `${timeSinceLastAction} sec`;
+        this.lastActionElement.textContent = timeSinceLastAction;
+    }
+
+    updateUserCount() {
+        const userCountSpan = document.getElementById('user-count-value');
+        if (userCountSpan) {
+            userCountSpan.textContent = this.userColors.size;
+        }
+    }
+
+    updateSessionTimer() {
+        // Récupère le timestamp du début de session
+        var sessionStartTime = window.poieticClient?.sessionStartTime;
+        if (!sessionStartTime) return;
+
+        var now = Date.now();
+        var elapsed = Math.floor((now - sessionStartTime) / 1000);
+        var minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        var seconds = String(elapsed % 60).padStart(2, '0');
+        var minSpan = document.getElementById('session-minutes-value');
+        var secSpan = document.getElementById('session-seconds-value');
+        if (minSpan) minSpan.textContent = minutes;
+        if (secSpan) secSpan.textContent = seconds;
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     window.poieticClient = new PoieticClient();
 });
+
+function updateSessionDate() {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('session-date-value').textContent = `${day}/${month}`;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const daySpan = document.getElementById('session-day-value');
+    const monthSpan = document.getElementById('session-month-value');
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    if (daySpan) daySpan.textContent = day;
+    if (monthSpan) monthSpan.textContent = month;
+});
+
+// Lance la mise à jour toutes les secondes
+setInterval(updateSessionTimer, 1000);
+// Appelle une première fois au chargement
+updateSessionTimer();
