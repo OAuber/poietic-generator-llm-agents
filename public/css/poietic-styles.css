@@ -80,63 +80,6 @@ body {
     padding: 8px 5px;
 }
 
-/* 5. Statistiques */
-.stat-container {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    padding: 8px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-}
-
-.stat-title {
-    width: 100%;
-    text-align: center;
-    font-weight: bold;
-    margin-bottom: 8px;
-    color: var(--text-color);
-    font-family: Calibri, 'Trebuchet MS', sans-serif;
-}
-
-.stat-row {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding-left: 8vw;
-    padding-right: 8vw;
-    box-sizing: border-box;
-}
-
-@media (max-width: 600px) {
-    .stat-row {
-        padding-left: 4vw;
-        padding-right: 4vw;
-    }
-}
-@media (min-width: 1200px) {
-    .stat-row {
-        padding-left: 80px;
-        padding-right: 80px;
-    }
-}
-
-.stat-label {
-    flex: 1 1 50%;
-    text-align: left;
-    justify-content: flex-start;
-}
-
-.stat-value {
-    flex: 1 1 50%;
-    text-align: right;
-    justify-content: flex-end;
-}
-
 /* 6. Media Queries */
 @media (orientation: landscape) {
     .tools-zone {
@@ -149,15 +92,6 @@ body {
         width: min(100vh, 66.66vw);
         border-left: 1px solid #333;
         border-right: 1px solid #333;
-    }
-
-    .stat-container, .stat-details {
-        justify-content: center;
-        align-items: center;
-        height: 100%;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
     }
 }
 
@@ -391,10 +325,11 @@ body.light-mode #zone-2c1 .theme-light {
 #zone-3a2 .tool-circle,
 #zone-3c1 .tool-circle,
 #zone-3c2 .tool-circle,
+#zone-2a1 .tool-circle,
 #zone-2a2 .tool-circle,
 #zone-2c1 .tool-circle,
 #zone-2c2 .tool-circle {
-    background-color: var(--background-color);
+    background-color: var(--background-color) !important;
 }
 
 /* La grille principale */
@@ -838,20 +773,6 @@ body.disconnected .stat-value {
     opacity: 0.3;
 }
 
-/* Ajout des styles pour les titres des statistiques */
-.stat-title {
-    color: var(--text-color);
-    font-size: 14px;
-    font-family: Calibri, 'Trebuchet MS', sans-serif;
-    font-weight: bold;
-    margin-bottom: 5px;
-}
-
-/* État déconnecté pour les titres */
-body.disconnected .stat-title {
-    opacity: 0.3;
-}
-
 /* Ajustement du conteneur pour le nouveau format */
 .tool-circle {
     display: flex;
@@ -862,45 +783,6 @@ body.disconnected .stat-title {
     text-align: center;
 }
 
-/* Ajustement pour les petits écrans */
-@media (max-width: 480px) {
-    .stat-title {
-        font-size: 12px;
-    }
-}
-
-/* Styles pour les détails des statistiques */
-.stat-details {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-}
-
-.stat-row {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding-left: 8vw;
-    padding-right: 8vw;
-    box-sizing: border-box;
-}
-
-.stat-label {
-    flex: 1 1 50%;
-    text-align: left;
-    justify-content: flex-start;
-}
-
-.stat-value {
-    flex: 1 1 50%;
-    text-align: right;
-    justify-content: flex-end;
-}
-
 /* Ajustement du conteneur principal */
 .tool-circle {
     padding: 8px 5px;
@@ -908,12 +790,6 @@ body.disconnected .stat-title {
     flex-direction: column;
     align-items: flex-start;  /* Aligner à gauche plutôt qu'au centre */
     justify-content: flex-start;
-}
-
-.stat-title {
-    margin-bottom: 4px;
-    font-weight: bold;
-    align-self: center;  /* Garder le titre centré */
 }
 
 /* Styles spécifiques pour le mode horizontal */
@@ -932,44 +808,12 @@ body.disconnected .stat-title {
         background-color: var(--text-color);
         opacity: 0.3;
     }
-    
-    .stat-details {
-        width: 100%;
-    }
-    
-    .stat-row {
-        font-size: 10px;  /* Légèrement plus petit en mode horizontal */
-        margin: 1px 0;
-    }
-    
-    .stat-label {
-        min-width: 70px;  /* Plus compact en mode horizontal */
-    }
 }
 
 /* Styles spécifiques pour le mode vertical */
 @media (orientation: portrait) {
     .tool-circle {
         padding: 5px;
-    }
-    
-    .stat-details {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        width: 100%;
-        gap: 2vh; /* Ajustez la valeur pour remplir la zone */
-    }
-    
-    .stat-row {
-        justify-content: space-between;  /* Plus espacé en mode vertical */
-        padding-left: 12px;  /* Indentation plus prononcée */
-    }
-    
-    .stat-label {
-        margin-right: 8px;
     }
 }
 
@@ -989,76 +833,11 @@ body.disconnected .stat-title {
     transform: rotate(90deg);
 }
 
-/* État déconnecté */
-body.disconnected .stat-details {
-    opacity: 0.3;
-}
-
-/* Optimisations pour très petits écrans */
-@media (max-width: 480px) {
-    .stat-details {
-        font-size: 9px;
-    }
-    
-    .stat-row {
-        margin: 1px 0;
-    }
-    
-    .stat-label {
-        min-width: 60px;
-    }
-}
-
-/* Optimisations pour écrans moyens */
-@media (min-width: 481px) and (max-width: 768px) {
-    .stat-details {
-        font-size: 10px;
-    }
-    
-    .stat-label {
-        min-width: 80px;
-    }
-}
-
 /* Style spécifique pour les tool-circle contenant des statistiques */
 .tool-circle:has(.stat-details) {
     padding: 8px 5px;
     justify-content: flex-start;
     align-items: stretch;
-}
-
-/* Conteneur des statistiques */
-.stat-details {
-    width: 100%;
-    padding: 2px 0;
-    font-size: 11px;
-    font-family: monospace;
-}
-
-.stat-row {
-    display: flex;
-    justify-content: flex-start;
-    align-items: baseline;
-    margin: 2px 0;
-    color: var(--text-color);
-    white-space: nowrap;
-    padding-left: 8px;
-}
-
-.stat-label {
-    min-width: 90px;
-    opacity: 0.8;
-}
-
-.stat-value {
-    flex: 1;
-}
-
-.stat-title {
-    width: 100%;
-    text-align: center;
-    margin-bottom: 4px;
-    font-weight: bold;
 }
 
 /* Styles pour les icônes */
@@ -1085,55 +864,11 @@ body.disconnected .stat-details {
         background-color: var(--text-color);
         opacity: 0.3;
     }
-    
-    .stat-row {
-        font-size: 10px;
-        margin: 1px 0;
-    }
-    
-    .stat-label {
-        min-width: 70px;
-    }
 }
 
 @media (orientation: portrait) {
     .tool-circle:has(.stat-details) {
         padding: 5px;
-    }
-    
-    .stat-row {
-        justify-content: space-between;
-        padding-left: 12px;
-    }
-    
-    .stat-label {
-        margin-right: 8px;
-    }
-}
-
-/* Optimisations pour différentes tailles d'écran */
-@media (max-width: 480px) {
-    .stat-details {
-        font-size: 9px;
-    }
-    
-    .stat-row {
-        margin: 1px 0;
-    }
-    
-    .stat-label {
-        min-width: 60px;
-    }
-}
-
-@media (min-width: 481px) and (max-width: 768px) {
-    .stat-details {
-        font-size: 10px;
-    }
-    
-    .stat-label,
-    .stat-value {
-        font-size: 10px;
     }
 }
 
@@ -1147,12 +882,6 @@ body.disconnected .share-icon {
 }
 
 /* Style spécifique pour les zones de statistiques */
-.stat-details {
-    width: 100%;
-    padding: 2px 0;
-    font-size: 11px;
-    font-family: monospace;
-}
 
 /* Conteneur pour les icônes */
 .tool-circle svg {
@@ -1189,53 +918,11 @@ body.disconnected .share-icon {
     transition: transform 0.3s ease;
 }
 
-/* Ajustement des marges et espacements */
-.stat-label {
-    min-width: unset; /* Supprime la largeur fixe précédente */
-}
-
-.stat-value {
-    line-height: 1.4;
-}
-
 /* Media queries pour l'adaptation responsive */
 @media (max-width: 480px) {
     .indented {
         padding-left: 12px;
     }
-}
-
-/* Style de base pour le conteneur de statistiques */
-.stat-container {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center; /* Centre verticalement */
-    padding: 5px;
-}
-
-.stat-title {
-    width: 100%;
-    text-align: center;
-    font-weight: bold;
-    margin-bottom: 5px;
-}
-
-.stat-details {
-    width: 100%;
-    font-size: 11px;
-    font-family: monospace;
-}
-
-.stat-group {
-    margin: 2px 0;
-}
-
-.stat-row {
-    padding-left: 12px;
-    white-space: nowrap;
-    color: var(--text-color);
 }
 
 /* Styles spécifiques pour l'orientation horizontale */
@@ -1260,74 +947,39 @@ body.disconnected .share-icon {
         display: flex;
         align-items: flex-start;
     }
-
-    #zone-3a .stat-container {
-        justify-content: flex-start;
-        padding-top: 8px; /* Espace uniforme en haut */
-    }
 }
 
 /* Styles spécifiques pour l'orientation verticale */
 @media (orientation: portrait) {
-    /* Configuration de base des conteneurs */
-    .stat-container {
-        padding: 2px !important;  /* Réduit drastiquement le padding */
-        display: flex;
-        flex-direction: column;
-        gap: 1px;  /* Espace minimal entre les éléments */
+    .tool-circle.stat-zone {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 1.2em !important; /* espace entre les blocs */
     }
-
-    /* Titres plus compacts */
-    .stat-title {
-        font-size: 12px !important;
-        margin-bottom: 1px !important;  /* Espace minimal sous le titre */
-        padding: 0 !important;
-        text-align: center;
-        font-weight: bold;
-    }
-
-    /* Suppression des espaces superflus */
-    .stat-group {
+    .tool-circle.stat-zone .stat-label,
+    .tool-circle.stat-zone .stat-value {
         margin: 0 !important;
         padding: 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        text-align: right !important;
+        display: inline-block !important;
+        font-size: 1em !important;
+        line-height: 1.2 !important;
+        vertical-align: middle !important;
     }
-
-    .stat-group + .stat-group {
-        margin-top: 0 !important;  /* Pas d'espace entre les groupes */
+    .tool-circle.stat-zone .stat-label {
+        font-weight: bold !important;
+        letter-spacing: 0.04em !important;
+        text-align: right !important;
+        margin-right: 0.4em !important;
     }
-
-    /* Configuration des lignes */
-    .stat-row {
-        margin: 0 !important;
-        padding: 0 4px !important;  /* Réduit le padding horizontal */
-        min-height: 13px !important;  /* Hauteur minimale réduite */
-        display: flex;
-        justify-content: space-between;
-    }
-
-    /* Ajustement de la typographie */
-    .stat-label,
-    .stat-value {
-        font-size: 11px !important;
-        line-height: 1 !important;  /* Interlignage minimal */
-    }
-
-    /* Ajustements spécifiques pour CONNECTIONS et USER */
-    #zone-3a2 .stat-container,
-    #zone-3c2 .stat-container {
-        padding-top: 1px !important;
-    }
-}
-
-/* Ajustements pour très petits écrans */
-@media (max-width: 480px) {
-    .stat-details {
-        font-size: 9px;
-    }
-    
-    .stat-container {
-        padding: 2px;
-        line-height: 1.1;
+    .tool-circle.stat-zone .stat-value {
+        font-weight: bold !important;
+        letter-spacing: 0.04em !important;
+        text-align: left !important;
+        margin-left: 0.4em !important;
     }
 }
 
@@ -1345,26 +997,6 @@ body.disconnected .share-icon {
     display: flex;
     justify-content: center;
     align-items: center;
-}
-
-.stat-container {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    padding: 8px;
-}
-
-/* Structure des lignes de stats */
-.stat-row {
-    display: flex;
-    width: 100%;
-}
-
-.stat-label {
-    flex: 1;
-    text-align: left;
-    white-space: nowrap;
 }
 
 .stat-value {
@@ -1392,57 +1024,6 @@ body.disconnected .share-icon {
         display: flex;
         position: relative;
         overflow: hidden;
-    }
-
-    /* Container de base */
-    .stat-container {
-        padding: 8px;
-        position: relative;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    /* Titres centrés */
-    .stat-title {
-        position: absolute;
-        top: 80px;
-        left: 0;
-        width: 100%;
-        text-align: center !important;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 0;
-    }
-
-    /* Contenu */
-    .stat-details {
-        position: absolute;
-        top: 55%;
-        transform: translateY(-50%);
-        width: calc(100% - 16px);
-        padding: 0 8px;
-    }
-
-    /* Structure des lignes */
-    .stat-row {
-        display: flex;
-        width: 100%;
-        margin-bottom: 4px;
-    }
-
-    .stat-label {
-        flex: 1;
-        text-align: left;
-    }
-
-    .stat-value {
-        text-align: right;
-        padding-left: 8px;
-        padding-right: 12px;
     }
 
     /* Empêcher tout overflow */
@@ -1474,201 +1055,11 @@ body.disconnected .share-icon {
         flex: 1;
         display: flex;
     }
-
-    /* Alignement des titres en vertical */
-    #zone-3a1 .stat-container,
-    #zone-3c1 .stat-container {
-        padding-top: 8px;
-    }
-
-    #zone-3a2 .stat-container,
-    #zone-3c2 .stat-container {
-        padding-top: 8px;
-    }
-}
-
-/* Ajustement des tailles de police pour une meilleure lisibilité */
-@media (orientation: landscape) {
-    /* Titres en mode paysage */
-    .stat-title {
-        font-size: 13px;  /* Augmenté de 11px à 13px */
-        line-height: 1.4;
-        margin-bottom: 10px;
-        font-weight: bold;
-    }
-
-    /* Labels et valeurs en mode paysage */
-    .stat-label,
-    .stat-value {
-        font-size: 12px;  /* Augmenté de 10px à 12px */
-        line-height: 1.5;
-    }
-
-    /* Ajustements spécifiques pour les zones statistiques */
-    #zone-3a1 .stat-container,
-    #zone-3a2 .stat-container,
-    #zone-3c1 .stat-container,
-    #zone-3c2 .stat-container {
-        padding: 10px;  /* Augmenté de 8px à 10px pour plus d'espace */
-    }
-
-    .stat-row {
-        margin: 3px 0;  /* Augmenté de 2px à 3px pour plus d'espacement */
-    }
-}
-
-@media (orientation: portrait) {
-    /* Styles de base pour toutes les zones statistiques */
-    .stat-container {
-        padding: 4px;
-    }
-
-    .stat-title {
-        font-size: 12px;
-        margin-bottom: 2px;
-        text-align: center;
-    }
-
-    .stat-label,
-    .stat-value {
-        font-size: 12px;
-        line-height: 1.2;
-    }
-
-    /* Style spécifique pour STATISTICS */
-    #zone-3c1 .stat-row {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-        width: 100%;
-        margin: 2px 0;
-    }
-
-    #zone-3c1 .stat-label {
-        flex: 0 1 auto;
-        text-align: left;
-        white-space: nowrap;
-        opacity: 0.8;
-        padding-left: 12px;
-    }
-
-    #zone-3c1 .stat-value {
-        flex: 0 0 auto;
-        text-align: right;
-        padding-right: 12px;
-        font-family: monospace;
-        min-width: 60px;
-        display: inline-block;
-    }
-}
-
-/* Optimisations pour les très petits écrans */
-@media (max-width: 480px) and (orientation: portrait) {
-    .stat-title {
-        font-size: 9px;
-    }
-
-    .stat-label,
-    .stat-value {
-        font-size: 8px;
-    }
-
-    .stat-container {
-        padding: 4px;
-    }
-}
-
-/* Optimisations pour les écrans moyens */
-@media (min-width: 481px) and (max-width: 768px) {
-    .stat-title {
-        font-size: 11px;
-    }
-
-    .stat-label,
-    .stat-value {
-        font-size: 10px;
-    }
 }
 
 #session-start-date,
 #session-start-time {
     font-family: inherit;
-}
-
-/* Styles communs pour toutes les zones en format horizontal */
-@media (orientation: landscape) {
-    /* Labels alignés à gauche avec padding uniforme */
-    .stat-label {
-        padding-left: 12px;
-    }
-
-    /* Valeurs alignées à droite avec padding uniforme */
-    .stat-value {
-        padding-right: 12px;
-    }
-
-    /* Supprimer les règles spécifiques qui créent des incohérences */
-    #zone-3a1 .stat-label,
-    #zone-3a2 .stat-label,
-    #zone-3c1 .stat-label,
-    #zone-3c2 .stat-label,
-    #zone-3a1 .stat-value,
-    #zone-3a2 .stat-value,
-    #zone-3c1 .stat-value,
-    #zone-3c2 .stat-value {
-        padding-left: 8px;
-        padding-right: 8px;
-    }
-}
-
-/* Alignement des valeurs dans STATISTICS en mode horizontal */
-@media (orientation: landscape) {
-    #zone-3c1 .stat-value {
-        text-align: right;
-        min-width: 70px;  /* Largeur minimale pour aligner les unités */
-    }
-}
-
-/* Alignement spécifique pour les valeurs dans STATISTICS en mode horizontal */
-@media (orientation: landscape) {
-    #zone-3c1 .stat-row {
-        display: flex;
-        justify-content: space-between;
-        padding-right: 8px;
-    }
-
-    #zone-3c1 .stat-label {
-        flex: 0 0 auto;
-        padding-left: 8px;
-    }
-
-    #zone-3c1 .stat-value {
-        flex: 0 0 70px;  /* Largeur fixe pour les valeurs */
-        text-align: right;
-        padding-right: 0;
-    }
-}
-
-/* Alignement spécifique pour STATISTICS en mode horizontal */
-@media (orientation: landscape) {
-    #zone-3c1 .stat-row {
-        display: flex;
-        justify-content: flex-start;
-        padding: 0 8px;
-    }
-
-    #zone-3c1 .stat-label {
-        flex: 0 1 auto;
-        text-align: left;
-        padding-right: 8px;
-    }
-
-    #zone-3c1 .stat-value {
-        flex: 0 0 80px;  /* Largeur fixe plus importante pour les valeurs */
-        text-align: right;
-        padding-right: 0;
-        font-family: monospace;  /* Pour assurer un alignement uniforme */
-    }
 }
 
 /* Zones centrales - Configuration de base */
@@ -1820,120 +1211,6 @@ body.disconnected .share-icon {
     }
 }
 
-/* Alignement spécifique pour STATISTICS (zone-3c1) */
-#zone-3c1 .stat-row {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
-    width: 100%;
-    margin: 2px 0;
-}
-
-#zone-3c1 .stat-label {
-    flex: 0 1 auto;
-    text-align: left;
-    white-space: nowrap;
-    opacity: 0.8;
-    padding-left: 12px;
-}
-
-#zone-3c1 .stat-value {
-    flex: 0 0 auto;
-    text-align: right;
-    padding-right: 12px;
-    font-family: monospace;
-    min-width: 60px;
-    display: inline-block;
-}
-
-/* Ajustements responsifs pour STATISTICS */
-@media (orientation: landscape) {
-    #zone-3c1 .stat-row {
-        font-size: 11px;
-        line-height: 1.4;
-    }
-}
-
-@media (orientation: portrait) {
-    #zone-3c1 .stat-row {
-        font-size: 11px;
-        line-height: 1.2;
-        padding: 0 8px;
-    }
-    
-    #zone-3c1 .stat-value {
-        min-width: 40px;
-    }
-}
-
-/* Style spécifique pour STATISTICS (zone-3c1) */
-#zone-3c1 .stat-container {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    height: 100%;
-    padding: 8px;
-}
-
-#zone-3c1 .stat-title {
-    text-align: center;
-    margin-bottom: 12px;
-}
-
-#zone-3c1 .stat-details {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-#zone-3c1 .stat-row {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-}
-
-#zone-3c1 .stat-label {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    opacity: 0.8;
-    padding-left: 12px;
-}
-
-#zone-3c1 .stat-value {
-    text-align: right;
-    font-family: monospace;
-    padding-right: 12px;
-    margin-top: 2px;
-    width: 100%;
-    display: block;
-}
-
-/* Ajustements responsifs */
-@media (orientation: landscape) {
-    #zone-3c1 .stat-label,
-    #zone-3c1 .stat-value {
-        font-size: 11px;
-        line-height: 1.4;
-    }
-}
-
-@media (orientation: portrait) {
-    #zone-3c1 .stat-label,
-    #zone-3c1 .stat-value {
-        font-size: 11px;
-        line-height: 1.2;
-    }
-    
-    #zone-3c1 .stat-container {
-        padding: 4px;
-    }
-    
-    #zone-3c1 .stat-details {
-        gap: 4px;
-    }
-}
-
 /* Ajustements pour l'alignement en mode portrait */
 @media (orientation: portrait) {
     /* Structure de base des zones */
@@ -1950,48 +1227,6 @@ body.disconnected .share-icon {
         min-height: 0;
         flex: 1;      /* Distribution égale de l'espace */
         display: flex;
-    }
-
-    /* Alignement pour toutes les zones de statistiques */
-    #zone-3a1 .stat-container,
-    #zone-3a2 .stat-container,
-    #zone-3c1 .stat-container,
-    #zone-3c2 .stat-container {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        padding: 8px;
-    }
-
-    /* Style uniforme pour tous les titres */
-    #zone-3a1 .stat-title,
-    #zone-3a2 .stat-title,
-    #zone-3c1 .stat-title,
-    #zone-3c2 .stat-title {
-        margin-bottom: 8px;
-        font-size: 8px;
-        text-align: center;
-    }
-
-    /* Style uniforme pour tous les contenus */
-    #zone-3a1 .stat-details,
-    #zone-3a2 .stat-details,
-    #zone-3c1 .stat-details,
-    #zone-3c2 .stat-details {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    /* Style uniforme pour toutes les lignes */
-    #zone-3a1 .stat-row,
-    #zone-3a2 .stat-row,
-    #zone-3c1 .stat-row,
-    #zone-3c2 .stat-row {
-        margin: 1px 0;
-        padding: 0 8px;
     }
 
     /* Style uniforme pour toutes les valeurs */
@@ -2032,17 +1267,6 @@ body.disconnected .share-icon {
         display: flex;
         flex-direction: column;
         height: 100%;
-    }
-}
-
-@media (orientation: landscape) {
-    .stat-container, .stat-details {
-        justify-content: center;
-        align-items: center;
-        height: 100%;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
     }
 }
 
@@ -2107,13 +1331,6 @@ body.light-mode #activity-cursor-bg {
 body.light-mode .stat-overlay {
     background: rgba(255,255,255,0.7);
     color: #000;
-}
-
-/* Masquer le texte par défaut */
-.stat-container {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
 }
 
 /* Afficher le texte et masquer l'overlay au survol ou au focus clavier */
@@ -2430,5 +1647,77 @@ body.light-mode .session-timer-label {
     .sub-zone,
     .split-zone {
         min-height: 0 !important;
+    }
+}
+
+/* Par défaut (paysage) : vertical, valeurs sous les titres */
+.tool-circle.stat-zone {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    height: 100% !important;
+    width: 100% !important;
+    background: none !important;
+    color: var(--text-color) !important;
+    font-family: Calibri, 'Trebuchet MS', sans-serif !important;
+    font-weight: bold !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+    font-size: 1.1em !important;
+    padding: 0 !important;
+}
+
+.tool-circle.stat-zone .stat-label {
+    font-size: 1em !important;
+    margin-bottom: 0.2em !important;
+    text-align: center !important;
+    width: 100% !important;
+    display: block !important;
+}
+
+.tool-circle.stat-zone .stat-value {
+    font-size: 1.1em !important;
+    margin-bottom: 0 !important;
+    text-align: center !important;
+    width: 100% !important;
+    display: block !important;
+    text-transform: none !important;
+    font-family: inherit !important;
+    font-weight: bold !important;
+    letter-spacing: 0.04em !important;
+}
+
+/* Mode portrait : horizontal, valeurs à droite */
+@media (orientation: portrait) {
+    .tool-circle.stat-zone {
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 1.2em !important; /* espace entre les blocs */
+    }
+    .tool-circle.stat-zone .stat-label,
+    .tool-circle.stat-zone .stat-value {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        text-align: right !important;
+        display: inline-block !important;
+        font-size: 1em !important;
+        line-height: 1.2 !important;
+        vertical-align: middle !important;
+    }
+    .tool-circle.stat-zone .stat-label {
+        font-weight: bold !important;
+        letter-spacing: 0.04em !important;
+        text-align: right !important;
+        margin-right: 0.4em !important;
+    }
+    .tool-circle.stat-zone .stat-value {
+        font-weight: bold !important;
+        letter-spacing: 0.04em !important;
+        text-align: left !important;
+        margin-left: 0.4em !important;
     }
 }

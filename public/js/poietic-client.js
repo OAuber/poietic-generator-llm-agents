@@ -149,8 +149,8 @@ class PoieticClient {
         this.lastActionElement = document.getElementById('last-action-value');
 
         if (this.sessionTimerInterval) clearInterval(this.sessionTimerInterval);
-        this.sessionTimerInterval = setInterval(() => this.updateSessionTimer(), 1000);
-        this.updateSessionTimer();
+        this.sessionTimerInterval = setInterval(() => this.updateSessionTimerText(), 1000);
+        this.updateSessionTimerText();
     }
 
     initialize() {
@@ -1681,19 +1681,14 @@ class PoieticClient {
         }
     }
 
-    updateSessionTimer() {
-        // Récupère le timestamp du début de session
-        var sessionStartTime = window.poieticClient?.sessionStartTime;
-        if (!sessionStartTime) return;
-
-        var now = Date.now();
-        var elapsed = Math.floor((now - sessionStartTime) / 1000);
-        var minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
-        var seconds = String(elapsed % 60).padStart(2, '0');
-        var minSpan = document.getElementById('session-minutes-value');
-        var secSpan = document.getElementById('session-seconds-value');
-        if (minSpan) minSpan.textContent = minutes;
-        if (secSpan) secSpan.textContent = seconds;
+    updateSessionTimerText() {
+        if (!this.sessionStartTime) return;
+        const now = Date.now();
+        const elapsed = Math.floor((now - this.sessionStartTime) / 1000);
+        const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        const seconds = String(elapsed % 60).padStart(2, '0');
+        const timerSpan = document.getElementById('session-timer-value');
+        if (timerSpan) timerSpan.textContent = `${minutes}:${seconds}`;
     }
 }
 
@@ -1719,6 +1714,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Lance la mise à jour toutes les secondes
-setInterval(updateSessionTimer, 1000);
+setInterval(updateSessionTimerText, 1000);
 // Appelle une première fois au chargement
-updateSessionTimer();
+updateSessionTimerText();

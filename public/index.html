@@ -24,26 +24,15 @@
         <div id="technical-tools" class="tools-zone">
             <div id="zone-3a" class="sub-zone">
                 <div id="zone-3a1" class="split-zone">
-                    <div class="tool-circle session-circle">
-                        <div class="session-timer-container">
-                            <span class="session-minutes" id="session-minutes-value">00</span>
-                            <svg viewBox="0 0 48 48" class="session-timer-icon">
-                                <circle cx="24" cy="24" r="21" stroke="currentColor" stroke-width="2.2" fill="none"/>
-                            </svg>
-                            <span class="session-timer-label">MIN</span>
-                            <span class="session-seconds" id="session-seconds-value">00</span>
-                        </div>
+                    <div class="tool-circle stat-zone">
+                        <span class="stat-label">SESSION</span>
+                        <span class="stat-value" id="session-timer">01:33</span>
                     </div>
                 </div>
                 <div id="zone-3a2" class="split-zone">
-                    <div class="tool-circle user-circle">
-                        <div class="user-container">
-                            <svg viewBox="0 0 48 48" class="user-icon">
-                                <circle cx="24" cy="16" r="10" stroke="currentColor" stroke-width="2.5" fill="none"/>
-                                <path d="M10 40c0-7.5 28-7.5 28 0" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                            </svg>
-                            <span class="user-count" id="user-count-value"></span>
-                        </div>
+                    <div class="tool-circle stat-zone">
+                        <span class="stat-label">USERS</span>
+                        <span class="stat-value" id="user-count">2</span>
                     </div>
                 </div>
             </div>
@@ -57,38 +46,17 @@
             </div>
             <div id="zone-3c" class="sub-zone">
                 <div id="zone-3c1" class="split-zone">
-                    <div class="tool-circle chrono-circle">
-                        <div class="chrono-container">
-                            <span class="chrono-last" id="last-action-value">0</span>
-                            <svg viewBox="0 0 48 48" class="chrono-icon">
-                                <circle cx="24" cy="24" r="21" stroke-width="2.2"/>
-                            </svg>
-                            <span class="chrono-label">SEC</span>
-                            <span class="chrono-timeout" id="remaining-time">180</span>
-                        </div>
+                    <div class="tool-circle stat-zone">
+                        <span class="stat-label">TIME OUT</span>
+                        <span class="stat-value" id="remaining-time">0</span>
                     </div>
                 </div>
                 <div id="zone-3c2" class="split-zone">
-                    <div class="tool-circle stats-circle">
-                        <div class="stats-container">
-                            <span class="stats-arrow stats-arrow-left">
-                                <svg viewBox="0 0 32 32" class="arrow-icon">
-                                    <line x1="6" y1="16" x2="26" y2="16" stroke-width="3" stroke-linecap="round"/>
-                                    <polygon points="22,12 26,16 22,20" />
-                                </svg>
-                            </span>
-                            <svg viewBox="0 0 48 48" class="stats-icon">
-                                <line x1="12" y1="36" x2="36" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                                <circle cx="16" cy="16" r="5" stroke="currentColor" stroke-width="2" fill="none"/>
-                                <circle cx="32" cy="32" r="5" stroke="currentColor" stroke-width="2" fill="none"/>
-                            </svg>
-                            <span class="stats-arrow stats-arrow-right">
-                                <svg viewBox="0 0 32 32" class="arrow-icon">
-                                    <line x1="6" y1="16" x2="26" y2="16" stroke-width="3" stroke-linecap="round"/>
-                                    <polygon points="22,12 26,16 22,20" />
-                                </svg>
-                            </span>
-                        </div>
+                    <div class="tool-circle stat-zone">
+                        <span class="stat-label">STATS</span>
+                        <span class="stat-value">
+                            <span id="stats-arrow">→</span>
+                        </span>
                     </div>
                 </div>
             </div>
