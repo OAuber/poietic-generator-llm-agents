@@ -152,7 +152,7 @@ body.disconnected .tool-circle > * {
     left: 0;
     width: 100%;
     color: var(--text-color);
-    font-size: 18px;
+    font-size: 20px;
     font-weight: bold;
     text-align: center;
 }
@@ -163,7 +163,7 @@ body.disconnected .tool-circle > * {
     left: 0;
     width: 100%;
     color: var(--text-color);
-    font-size: 28px;
+    font-size: 30px;
     font-family: 'Edwardian Script ITC', 'Brush Script MT', cursive;
     text-align: center;
 }
@@ -184,14 +184,14 @@ body.disconnected .tool-circle > * {
     color: white;
     text-decoration: none;
     font-family: inherit;
-    font-size: 30px;
-    font-weight: bold;
     background: none;
     border: none;
     padding: 0;
     margin: 0;
     cursor: pointer;
-    line-height: 1;
+    line-height: 1.2;
+    /* font-size: 30px;  <-- À supprimer ou commenter */
+    /* font-weight: bold; <-- À supprimer ou commenter */
 }
 
 .replay-link:hover, #play-button:hover {
@@ -204,7 +204,7 @@ body.disconnected .tool-circle > * {
     left: 0;
     width: 100%;
     color: var(--text-color);
-    font-size: 12px;
+    font-size: 14px;
     text-align: center;
     font-family: Calibri, 'Trebuchet MS', sans-serif;
     font-weight: normal;
@@ -955,7 +955,7 @@ body.disconnected .share-icon {
         flex-direction: row !important;
         align-items: center !important;
         justify-content: center !important;
-        gap: 1.2em !important; /* espace entre les blocs */
+        gap: 0.3em !important; /* espace réduit entre titre et valeur */
     }
     .tool-circle.stat-zone .stat-label,
     .tool-circle.stat-zone .stat-value {
@@ -973,13 +973,13 @@ body.disconnected .share-icon {
         font-weight: bold !important;
         letter-spacing: 0.04em !important;
         text-align: right !important;
-        margin-right: 0.4em !important;
+        margin-right: 0.2em !important; /* espace réduit */
     }
     .tool-circle.stat-zone .stat-value {
         font-weight: bold !important;
         letter-spacing: 0.04em !important;
         text-align: left !important;
-        margin-left: 0.4em !important;
+        margin-left: 0.2em !important; /* espace réduit */
     }
 }
 
@@ -1694,7 +1694,7 @@ body.light-mode .session-timer-label {
         flex-direction: row !important;
         align-items: center !important;
         justify-content: center !important;
-        gap: 1.2em !important; /* espace entre les blocs */
+        gap: 0.3em !important; /* espace réduit entre titre et valeur */
     }
     .tool-circle.stat-zone .stat-label,
     .tool-circle.stat-zone .stat-value {
@@ -1712,12 +1712,185 @@ body.light-mode .session-timer-label {
         font-weight: bold !important;
         letter-spacing: 0.04em !important;
         text-align: right !important;
-        margin-right: 0.4em !important;
+        margin-right: 0.2em !important; /* espace réduit */
     }
     .tool-circle.stat-zone .stat-value {
         font-weight: bold !important;
         letter-spacing: 0.04em !important;
         text-align: left !important;
-        margin-left: 0.4em !important;
+        margin-left: 0.2em !important; /* espace réduit */
     }
+}
+.custom-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-color: var(--overlay-background);
+    z-index: 2000;
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0.3s;
+    pointer-events: none;
+}
+.custom-overlay.active {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.overlay-message-details {
+    margin-top: 12px;
+    font-size: 0.7em;
+    font-weight: normal;
+}
+
+/* Harmonisation des boutons et liens dans les overlays */
+.overlay-message-details .replay-link,
+.overlay-message-details .control-button,
+.overlay-message-details #play-button {
+    font-size: 1em !important;
+    font-weight: normal !important;
+    line-height: 1.2 !important;
+}
+
+/* Smartphone portrait allongé : valeurs sous les titres, icônes taille normale */
+@media (orientation: portrait) and (max-aspect-ratio: 9/16) {
+    .tool-circle.stat-zone {
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 1.1em !important;
+      margin-top: 0 !important;
+    }
+    .tool-circle.stat-zone .stat-label,
+    .tool-circle.stat-zone .stat-value {
+      width: 100% !important;
+      text-align: center !important;
+      font-size: 1em !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    #zone-2a1 .tool-circle svg,
+    #zone-2a2 .tool-circle svg,
+    #zone-2c1 .tool-circle svg,
+    #zone-2c2 .tool-circle svg {
+      width: min(40%, 40px) !important;
+      height: min(40%, 40px) !important;
+      margin-top: 0 !important;
+    }
+  }
+  
+  /* Tablette portrait "carré" : valeurs à droite, typo plus petite, icônes plus grandes */
+  @media (orientation: portrait) and (min-aspect-ratio: 3/4) and (max-aspect-ratio: 5/4) {
+    .tool-circle.stat-zone {
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 0.9em !important;
+      gap: 0.3em !important;
+      margin-top: 0 !important;
+    }
+    .tool-circle.stat-zone .stat-label,
+    .tool-circle.stat-zone .stat-value {
+      width: auto !important;
+      min-width: 0 !important;
+      text-align: right !important;
+      font-size: 0.95em !important;
+    }
+    #zone-2a1 .tool-circle svg,
+    #zone-2a2 .tool-circle svg,
+    #zone-2c1 .tool-circle svg,
+    #zone-2c2 .tool-circle svg {
+      width: min(70%, 70px) !important;
+      height: min(70%, 70px) !important;
+      margin-top: 0 !important;
+    }
+  }
+  .network-issue-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 3000;
+    background: rgba(0,0,0,0.0); /* transparent */
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+.network-issue-message {
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+}
+.network-issue-title {
+    display: block;
+    color: #ff4444;
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    font-size: 1.1em;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    animation: network-blink 1.5s infinite;
+}
+.network-back-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 3000;
+    background: rgba(0,0,0,0.0); /* transparent */
+    display: none;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+.network-back-message {
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+}
+.network-back-title {
+    display: block;
+    color: #44ff44;
+    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    font-size: 1.1em;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    /* Pas d'animation clignotante */
+}
+@keyframes network-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.network-issue-retry {
+    display: block;
+    color: #fff;
+    font-size: 1em;
+    margin-top: 0.5em;
+}
+
+/* --- FORMAT SMARTPHONE (portrait allongé) --- */
+@media (orientation: portrait) and (max-aspect-ratio: 9/16) {
+  .tool-circle.stat-zone {
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.1em !important;
+    margin-top: 0 !important;
+  }
+  .tool-circle.stat-zone .stat-label,
+  .tool-circle.stat-zone .stat-value {
+    width: 100% !important;
+    text-align: center !important;
+    font-size: 1em !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #zone-2a1 .tool-circle svg,
+  #zone-2a2 .tool-circle svg,
+  #zone-2c1 .tool-circle svg,
+  #zone-2c2 .tool-circle svg {
+    width: min(40%, 40px) !important;
+    height: min(40%, 40px) !important;
+    margin-top: 0 !important;
+  }
 }

@@ -18,12 +18,7 @@ class Grid
   def set_user_position(user_id : String, position : Tuple(Int32, Int32))
     @user_positions[user_id] = position
     @initial_colors[user_id] = generate_initial_colors(user_id) unless @initial_colors.has_key?(user_id)
-    unless @sub_cell_states.has_key?(user_id)
-      @sub_cell_states[user_id] = Hash(Tuple(Int32, Int32), String).new
-      400.times do |i|
-        @sub_cell_states[user_id][{i % 20, i // 20}] = @initial_colors[user_id][i]
-      end
-    end
+    @sub_cell_states[user_id] ||= Hash(Tuple(Int32, Int32), String).new
   end
 
   def get_user_position(user_id : String)
@@ -153,14 +148,17 @@ class Grid
 end
 
 class Session
-  INACTIVITY_TIMEOUT = 3.minutes
+  INACTIVITY_TIMEOUT = 180.seconds
+  RECONNECTION_TIMEOUT = 180.seconds
 
   property users : Hash(String, HTTP::WebSocket)
   property observers : Hash(String, HTTP::WebSocket)
   property grid : Grid
   property user_colors : Hash(String, String)
   property last_activity : Hash(String, Time)
+  property last_heartbeat : Hash(String, Time)
   property recorders : Array(HTTP::WebSocket)
+  property pending_disconnects : Hash(String, Time)
 
   def initialize
     @users = Hash(String, HTTP::WebSocket).new
@@ -168,16 +166,35 @@ class Session
     @grid = Grid.new
     @user_colors = Hash(String, String).new
     @last_activity = Hash(String, Time).new
+    @last_heartbeat = Hash(String, Time).new
     @recorders = [] of HTTP::WebSocket
+    @pending_disconnects = Hash(String, Time).new
   end
 
   def add_user(socket : HTTP::WebSocket, forced_id : String? = nil) : String
-    user_id = forced_id || UUID.random.to_s
+    user_id = forced_id
+
+    # 1. Si reconnexion dans le délai de grâce
+    if user_id && @pending_disconnects.has_key?(user_id)
+      @pending_disconnects.delete(user_id)
+      @users[user_id] = socket
+      @last_heartbeat[user_id] = Time.utc
+      send_initial_state(user_id)
+      broadcast_new_user(user_id)
+      broadcast_zoom_update
+      return user_id
+    end
+
+    # 2. Nouvelle connexion (ou user_id obsolète)
+    user_id = UUID.random.to_s
+
     @users[user_id] = socket
-    @user_colors[user_id] = generate_random_color
     @last_activity[user_id] = Time.utc
+    @last_heartbeat[user_id] = Time.utc
     position = @grid.find_next_available_position
     @grid.set_user_position(user_id, position)
+    # Nettoyer toute sous-cellule personnalisée pour ce nouvel utilisateur
+    @grid.sub_cell_states[user_id] = Hash(Tuple(Int32, Int32), String).new
     send_initial_state(user_id)
     broadcast_new_user(user_id)
     broadcast_zoom_update
@@ -193,41 +210,39 @@ class Session
 
   def remove_observer(observer_id : String)
     @observers.delete(observer_id)
-    puts "=== Observer removed: #{observer_id} ==="
+    # puts "=== Observer removed: #{observer_id} ==="
   end
 
   def send_initial_state(user_id : String)
     grid_size = calculate_grid_size
+    current_time = Time.utc.to_unix_ms
 
-    # État commun pour tous les clients
+    session_start_time = API.recorder.get_current_session.try(&.["start_time"].as_i64) || current_time
+
+    # N'ENVOIE PAS les sub_cell_states du nouvel utilisateur
     base_state = {
       type: "initial_state",
+      timestamp: current_time,
+      session_start_time: session_start_time,
       grid_size: grid_size,
       grid_state: @grid.to_json,
-      user_colors: @user_colors,
-      sub_cell_states: serialize_sub_cell_states
+      sub_cell_states: serialize_sub_cell_states(user_id) # <-- exclut le user_id courant
     }
 
     if user_id.starts_with?("observer_")
-      # Pour les observateurs, on envoie juste l'état sans my_user_id
       @observers[user_id].send(base_state.to_json)
     else
-      # Pour les utilisateurs réguliers, on ajoute my_user_id
       client_state = base_state.merge({my_user_id: user_id})
       @users[user_id].send(client_state.to_json)
 
       # Enregistrement pour le recorder
       recorder_state = {
         type: "initial_state",
-        timestamp: Time.utc.to_unix_ms,
+        timestamp: current_time,  # Utiliser le même timestamp
         grid_size: grid_size,
         user_positions: @grid.user_positions.transform_values { |pos| [pos[0], pos[1]] },
-        user_colors: @user_colors,
-        sub_cell_states: serialize_sub_cell_states
+        sub_cell_states: serialize_sub_cell_states(user_id)
       }
-
-      puts "=== Enregistrement de l'état initial pour le recorder ==="
-      puts "=== État: #{recorder_state.inspect} ==="
 
       API.recorder.record_event(JSON.parse(recorder_state.to_json))
     end
@@ -238,13 +253,8 @@ class Session
       type: "new_user",
       user_id: new_user_id,
       position: @grid.get_user_position(new_user_id),
-      color: @user_colors[new_user_id]
     }.to_json
     broadcast(new_user_message)
-  end
-
-  def generate_random_color
-    "#" + "%06x" % (Random.new.rand(0xffffff))
   end
 
   def calculate_grid_size
@@ -252,39 +262,29 @@ class Session
   end
 
   def broadcast_initial_state(user)
-    puts "=== Envoi de l'état initial ==="
+    # puts "=== Envoi de l'état initial ==="
     state = {
       type: "initial_state",
       timestamp: Time.utc.to_unix_ms,  # Ajout du timestamp ici
       grid_size: calculate_grid_size,
       user_positions: @grid.user_positions.transform_values { |pos| [pos[0], pos[1]] },
-      user_colors: @user_colors,
       sub_cell_states: serialize_sub_cell_states
     }
-    puts "=== État initial: #{state.inspect} ==="
+    # puts "=== État initial: #{state.inspect} ==="
     broadcast(state.to_json)
   end
 
   def remove_user(user_id : String)
     if position = @grid.get_user_position(user_id)
-      # Enregistrer d'abord la déconnexion
       API.recorder.record_user_left(user_id)
-
-      # Envoyer la notification avant de supprimer l'utilisateur
       broadcast_user_left(user_id, position)
-
-      # Puis effectuer les modifications d'état
       @grid.remove_user(user_id)
       @users.delete(user_id)
-      @user_colors.delete(user_id)
       @last_activity.delete(user_id)
-
-      # Mettre à jour le zoom après les modifications
+      @last_heartbeat.delete(user_id)
+      @pending_disconnects.delete(user_id)
       broadcast_zoom_update
-
-      # Vérifier si c'était le dernier utilisateur
       if @users.empty?
-        puts "=== Dernier utilisateur déconnecté, fin de la session ==="
         API.recorder.end_current_session
       end
     end
@@ -296,7 +296,6 @@ class Session
       timestamp: Time.utc.to_unix_ms,
       grid_size: calculate_grid_size,
       grid_state: @grid.to_json,
-      user_colors: @user_colors,
       sub_cell_states: serialize_sub_cell_states
     }
 
@@ -317,7 +316,6 @@ class Session
       timestamp: Time.utc.to_unix_ms
     }.to_json
 
-    # S'assurer que le message est envoyé à tous (utilisateurs et observateurs)
     broadcast(message)
   end
 
@@ -327,7 +325,7 @@ class Session
       begin
         socket.send(message)
       rescue ex
-        puts "Error sending to user #{user_id}: #{ex.message}"
+        # puts "Error sending to user #{user_id}: #{ex.message}"
       end
     end
 
@@ -336,7 +334,7 @@ class Session
       begin
         socket.send(message)
       rescue ex
-        puts "Error sending to observer #{observer_id}: #{ex.message}"
+        # puts "Error sending to observer #{observer_id}: #{ex.message}"
       end
     end
   end
@@ -346,13 +344,15 @@ class Session
       begin
         socket.send(message)
       rescue ex
-        puts "Error sending to observer #{observer_id}: #{ex.message}"
+        # puts "Error sending to observer #{observer_id}: #{ex.message}"
       end
     end
   end
 
   # Modifiez ces méthodes pour envoyer les mises à jour aux observateurs
   def handle_cell_update(user_id : String, sub_x : Int32, sub_y : Int32, color : String)
+    @last_activity[user_id] = Time.utc
+    @last_heartbeat[user_id] = Time.utc
     @grid.update_sub_cell(user_id, sub_x, sub_y, color)
     update_message = {
       type: "cell_update",
@@ -367,12 +367,21 @@ class Session
     API.recorder.record_event(JSON.parse(update_message))
   end
 
+  def handle_heartbeat(user_id : String)
+    @last_heartbeat[user_id] = Time.utc
+  end
+
+  def handle_disconnect(user_id : String)
+    @pending_disconnects[user_id] = Time.utc
+    # NE PAS retirer de @users ici (il reste visible)
+    # (optionnel) broadcast_user_disconnected(user_id) si tu veux signaler la déconnexion
+  end
+
   def broadcast_new_user(new_user_id : String)
     new_user_message = {
       type: "new_user",
       user_id: new_user_id,
       position: @grid.get_user_position(new_user_id),
-      color: @user_colors[new_user_id]
     }.to_json
     broadcast(new_user_message)
     send_to_observers(new_user_message)
@@ -388,15 +397,14 @@ class Session
         }.to_json)
       end
     rescue ex
-      puts "Erreur lors de la diffusion du départ d'un utilisateur: #{ex.message}"
+      # puts "Erreur lors de la diffusion du départ d'un utilisateur: #{ex.message}"
     end
   end
 
-  def serialize_sub_cell_states
-    @grid.sub_cell_states.transform_values do |user_sub_cells|
-      user_sub_cells.transform_keys do |key|
-        "#{key[0]},#{key[1]}"
-      end
+  def serialize_sub_cell_states(exclude_user_id : String? = nil)
+    @grid.sub_cell_states.each_with_object({} of String => Hash(String, String)) do |(user_id, user_sub_cells), hash|
+      next if exclude_user_id && user_id == exclude_user_id
+      hash[user_id] = user_sub_cells.transform_keys { |key| "#{key[0]},#{key[1]}" }
     end
   end
 
@@ -405,7 +413,6 @@ class Session
       type: "zoom_update",
       grid_size: calculate_grid_size,
       grid_state: @grid.to_json,
-      user_colors: @user_colors,
       sub_cell_states: serialize_sub_cell_states
     }.to_json
     broadcast(zoom_update_message)
@@ -421,6 +428,17 @@ class Session
     @last_activity.each do |user_id, last_active|
       if now - last_active > INACTIVITY_TIMEOUT
         remove_user(user_id)
+        @last_heartbeat.delete(user_id)
+      end
+    end
+  end
+
+  def check_pending_disconnects
+    now = Time.utc
+    @pending_disconnects.each do |user_id, disconnect_time|
+      if now - disconnect_time > RECONNECTION_TIMEOUT
+        remove_user(user_id)
+        @last_heartbeat.delete(user_id)
       end
     end
   end
@@ -430,7 +448,7 @@ class Session
       begin
         recorder.send(message)
       rescue ex
-        puts "Erreur d'envoi au recorder: #{ex.message}"
+        # puts "Erreur d'envoi au recorder: #{ex.message}"
         @recorders.delete(recorder)
       end
     end
@@ -452,7 +470,6 @@ class PoieticGeneratorApi
   property recorders : Array(HTTP::WebSocket)
   property recorder : PoieticRecorder
   property grid : Grid
-  property user_colors : Hash(String, Array(String))
   property last_activity : Hash(String, Time)
 
   def initialize
@@ -461,7 +478,6 @@ class PoieticGeneratorApi
     @recorders = [] of HTTP::WebSocket
     @recorder = PoieticRecorder.new
     @grid = Grid.new
-    @user_colors = Hash(String, Array(String)).new
     @last_activity = Hash(String, Time).new
   end
 
@@ -474,7 +490,7 @@ class PoieticGeneratorApi
       begin
         socket.send(message)
       rescue ex
-        puts "Erreur d'envoi: #{ex.message}"
+        # puts "Erreur d'envoi: #{ex.message}"
         @sockets.delete(socket)
       end
     end
@@ -485,7 +501,7 @@ class PoieticGeneratorApi
       begin
         recorder.send(message)
       rescue ex
-        puts "Erreur d'envoi au recorder: #{ex.message}"
+        # puts "Erreur d'envoi au recorder: #{ex.message}"
         @recorders.delete(recorder)
       end
     end
@@ -557,25 +573,19 @@ get "/images/:file" do |env|
 end
 
 ws "/updates" do |socket, context|
-  puts "=== Nouvelle connexion WebSocket sur /updates ==="
-
+  user_id_param = context.request.query_params["user_id"]?
   mode = context.request.query_params["mode"]?
   connection_type = context.request.query_params["type"]?
   is_observer = mode == "full" && connection_type == "observer"
 
+  # On crée le user_id ici
   user_id = if is_observer
-    puts "=== Adding observer with mode: #{mode} ==="
-    observer_id = PoieticGenerator.current_session.add_observer(socket)
-    puts "=== Observer added with ID: #{observer_id} ==="
-    observer_id
+    PoieticGenerator.current_session.add_observer(socket)
   else
-    puts "=== Adding regular user ==="
-    # Démarrer une nouvelle session si c'est le premier utilisateur régulier
     if PoieticGenerator.current_session.users.empty?
-      puts "=== Premier utilisateur connecté, démarrage d'une nouvelle session ==="
       API.recorder.start_new_session
     end
-    PoieticGenerator.current_session.add_user(socket)
+    PoieticGenerator.current_session.add_user(socket, user_id_param)
   end
 
   socket.on_message do |message|
@@ -590,24 +600,18 @@ ws "/updates" do |socket, context|
           parsed_message["color"].as_s
         )
       elsif parsed_message["type"] == "heartbeat"
-        PoieticGenerator.current_session.update_user_activity(user_id)
+        PoieticGenerator.current_session.handle_heartbeat(user_id)
       end
     rescue ex
-      puts "Error processing message: #{ex.message}"
+      # puts "Error processing message: #{ex.message}"
     end
   end
 
   socket.on_close do
-    puts "=== Socket closed for #{user_id} ==="
     if is_observer
       PoieticGenerator.current_session.remove_observer(user_id)
     else
-      PoieticGenerator.current_session.remove_user(user_id)
-      # Vérifier si c'était le dernier utilisateur régulier
-      if PoieticGenerator.current_session.users.empty?
-        puts "=== Dernier utilisateur déconnecté, fin de la session ==="
-        API.recorder.end_current_session
-      end
+      PoieticGenerator.current_session.handle_disconnect(user_id)
     end
   end
 end
@@ -615,13 +619,14 @@ end
 # Ajoutez cette tâche périodique pour vérifier l'inactivité
 spawn do
   loop do
-    sleep 30.seconds
+    sleep 2.seconds
     PoieticGenerator.current_session.check_inactivity
+    PoieticGenerator.current_session.check_pending_disconnects
   end
 end
 
 ws "/record" do |socket, context|
-  puts "=== Nouvelle connexion WebSocket sur /record ==="
+  # puts "=== Nouvelle connexion WebSocket sur /record ==="
 
   token = context.ws_route_lookup.params["token"]?
   unless token == "secret_token_123"
@@ -631,22 +636,22 @@ ws "/record" do |socket, context|
 
   API.sockets << socket
   if API.sockets.size == 1
-    puts "=== Premier utilisateur connecté, démarrage d'une nouvelle session ==="
+    # puts "=== Premier utilisateur connecté, démarrage d'une nouvelle session ==="
     API.recorder.start_new_session
   end
 
   API.recorders << socket
-  puts "=== Recorder authentifié et connecté (total users: #{API.sockets.size}) ==="
+  # puts "=== Recorder authentifié et connecté (total users: #{API.sockets.size}) ==="
 
   socket.on_close do
     API.sockets.delete(socket)
     API.recorders.delete(socket)
 
     if API.sockets.empty?
-      puts "=== Dernier utilisateur déconnecté, fin de la session ==="
+      # puts "=== Dernier utilisateur déconnecté, fin de la session ==="
       API.recorder.end_current_session
     end
-    puts "=== Socket closed (remaining users: #{API.sockets.size}) ==="
+    # puts "=== Socket closed (remaining users: #{API.sockets.size}) ==="
   end
 end
 
@@ -699,15 +704,15 @@ Kemal.config.port = port
 Kemal.config.env = "development"  # Forcer le mode développement pour l'instant
 Kemal.config.host_binding = "0.0.0.0"  # Écouter sur toutes les interfaces
 
-puts "=== Configuration du serveur principal ==="
-puts "  Port: #{port}"
-puts "  Environment: #{Kemal.config.env}"
-puts "  Host: #{Kemal.config.host_binding}"
-puts "  Logging: enabled"
+# puts "=== Configuration du serveur principal ==="
+# puts "  Port: #{port}"
+# puts "  Environment: #{Kemal.config.env}"
+# puts "  Host: #{Kemal.config.host_binding}"
+# puts "  Logging: enabled"
 
 # Activer les logs pour le débogage
 logging true
 
 # Garder toutes les routes et configurations existantes
-serve_static false
+public_folder "public"
 Kemal.run

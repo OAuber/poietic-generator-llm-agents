@@ -4,7 +4,9 @@ import { ColorGenerator } from './poietic-color-generator.js';
 import { generateRandomColor } from './poietic-random-color.js';
 
 const SESSION_KEY = 'poieticClientActive';
-const SESSION_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+const SESSION_TIMEOUT = 1 * 60 * 1000; // 1 minute (verrouillage navigateur)
+const INACTIVITY_TIMEOUT = 180 * 1000; // 3 minutes (doit matcher le serveur)
+const RECONNECTION_TIMEOUT = 180 * 1000; // 3 minutes (doit matcher le serveur)
 
 function isSessionActive() {
     const lastActive = parseInt(localStorage.getItem(SESSION_KEY) || '0', 10);
@@ -50,6 +52,10 @@ setInterval(() => {
     localStorage.setItem(SESSION_KEY, Date.now().toString());
 }, 10000);
 
+function isClientConnected() {
+    return window.poieticClient && window.poieticClient.isConnected;
+}
+
 class PoieticClient {
     constructor() {
         // Singleton classique
@@ -70,7 +76,6 @@ class PoieticClient {
         // État de l'application
         this.cells = new Map();
         this.userPositions = new Map();
-        this.userColors = new Map();
         this.gridSize = 1;
         this.cellSize = 0;
         this.subCellSize = 0;
@@ -90,7 +95,8 @@ class PoieticClient {
         this.reconnectTimeout = null;
         this.heartbeatInterval = null;
         this.inactivityTimer = null;
-        this.inactivityTimeout = 180 * 1000;  // 3 * 60 * 1000
+        this.inactivityTimeout = INACTIVITY_TIMEOUT;
+        this.reconnectionTimeout = RECONNECTION_TIMEOUT;
         this.isLocalUpdate = false;
 
         // Propriétés de layout
@@ -149,18 +155,21 @@ class PoieticClient {
         this.lastActionElement = document.getElementById('last-action-value');
 
         if (this.sessionTimerInterval) clearInterval(this.sessionTimerInterval);
-        this.sessionTimerInterval = setInterval(() => this.updateSessionTimerText(), 1000);
-        this.updateSessionTimerText();
+        this.sessionTimerInterval = setInterval(() => this.updateSessionTimer(), 1000);
+        this.updateSessionTimer();
+
+        this.lastDisconnectReason = null; // 'inactivity' ou 'network'
+        this.isOffline = false; // Mode offline
     }
 
     initialize() {
         // Afficher l'overlay de bienvenue
         document.body.classList.add('welcoming');
         
-        // Le retirer après 1 seconde
+        // Le retirer après 3 secondes (3000 ms)
         setTimeout(() => {
             document.body.classList.remove('welcoming');
-        }, 1000);
+        }, 3000);
 
         this.initializeLayout();
         this.initializeColorPalette();
@@ -246,31 +255,45 @@ class PoieticClient {
     // SECTION: Gestion de la connexion WebSocket
     connect() {
         if (this.isConnected) {
-            console.log('Déjà connecté, déconnexion avant reconnexion');
             this.disconnect();
         }
-
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.host;  // Utilise l'hôte actuel au lieu de localhost en dur
-        
-        console.log('Tentative de connexion WebSocket:', `${wsProtocol}//${wsHost}/updates`);
-        
-        this.socket = new WebSocket(`${wsProtocol}//${wsHost}/updates`);
+        const wsHost = window.location.host;
+        // AJOUT : récupération du user_id
+        const storedUserId = localStorage.getItem('poieticUserId');
+        const url = storedUserId
+            ? `${wsProtocol}//${wsHost}/updates?user_id=${storedUserId}`
+            : `${wsProtocol}//${wsHost}/updates`;
+        this.socket = new WebSocket(url);
         this.socket.onopen = () => {
-            console.log('Connexion WebSocket établie');
             this.isConnected = true;
+            if (this.disconnectionTimer) clearTimeout(this.disconnectionTimer);
+            if (this.autoReconnectInterval) clearInterval(this.autoReconnectInterval);
+            document.body.classList.remove('disconnected');
+            this.hideNetworkIssueOverlay();
+            this.hideDisconnectOverlay();
+            const overlay = document.getElementById('disconnect-overlay');
+            if (overlay) overlay.style.display = 'none';
             this.startHeartbeat();
+            this.startInactivityTimer();
+            this.enableDrawingArea();
+            this.reconnectAttempt = 0;
+            this.maxReconnectAttempts = 10;
         };
         this.socket.onmessage = (event) => {
             const message = JSON.parse(event.data);
-            console.log('Message reçu:', message.type);  // Log pour debug
             this.handleMessage(message);
+            this.resetInactivityTimer();
         };
         this.socket.onclose = () => {
-            console.log('Connexion WebSocket fermée');
             this.isConnected = false;
             this.disconnectedAt = Date.now();
-            this.updateActivityDisplay();
+            this.isOffline = true;
+            if (this.lastDisconnectReason !== 'inactivity') {
+                this.showNetworkIssueOverlay();
+                this.startAutoReconnect();
+            }
+            this.lastDisconnectReason = null;
         };
         this.socket.onerror = (error) => {
             console.error('Erreur WebSocket:', error);
@@ -278,17 +301,40 @@ class PoieticClient {
     }
 
     disconnect() {
-        console.log('Dconnexion...');
         clearInterval(this.heartbeatInterval);
         if (this.socket) {
             this.socket.close();
         }
         this.isConnected = false;
-        
+        // Supprimer l'UUID stocké lors de la déconnexion
+        localStorage.removeItem('poieticUserId');
+        if (this.sessionTimerInterval) {
+            clearInterval(this.sessionTimerInterval);
+            this.sessionTimerInterval = null;
+        }
         if (this.sessionDurationInterval) {
             clearInterval(this.sessionDurationInterval);
             this.sessionDurationInterval = null;
         }
+        if (this.inactivityTimer) {
+            clearTimeout(this.inactivityTimer);
+            this.inactivityTimer = null;
+        }
+        if (this.disconnectionTimer) {
+            clearTimeout(this.disconnectionTimer);
+            this.disconnectionTimer = null;
+        }
+        if (this.autoReconnectInterval) {
+            clearInterval(this.autoReconnectInterval);
+            this.autoReconnectInterval = null;
+        }
+        if (this.zoomInactivityTimer) {
+            clearTimeout(this.zoomInactivityTimer);
+            this.zoomInactivityTimer = null;
+        }
+        this.lastDisconnectReason = 'inactivity';
+        this.disconnect();
+        this.disableAllCustomOverlays();
     }
 
     startHeartbeat() {
@@ -296,7 +342,7 @@ class PoieticClient {
             if (this.isConnected) {
                 this.socket.send(JSON.stringify({ type: 'heartbeat' }));
             }
-        }, 20000);
+        }, 5000);
     }
 
     // SECTION: Gestion des messages
@@ -318,10 +364,14 @@ class PoieticClient {
                 }
                 break;
             case 'cell_update':
-                this.updateSubCell(message.user_id, message.sub_x, message.sub_y, message.color);
+                this.updateSubCell(message.user_id, message.sub_x, message.sub_y, message.color, true);
+                // Si l'overlay USERS est ouvert, rafraîchir son contenu
+                if (document.getElementById('users-overlay')?.classList.contains('active')) {
+                    updateUsersOverlay();
+                }
                 break;
             case 'zoom_update':
-                this.updateZoom(message.grid_size, message.grid_state, message.user_colors, message.sub_cell_states);
+                this.updateZoom(message.grid_size, message.grid_state, message.sub_cell_states);
                 break;
             case 'user_disconnected':
                 this.handleUserDisconnected(message);
@@ -333,34 +383,38 @@ class PoieticClient {
 
     // SECTION: Gestion de l'état
     handleInitialState(state) {
+        const wasOffline = this.isOffline;
+
+        // Réinitialisation minimale de la grille et des cellules
+        if (this.grid) this.grid.innerHTML = '';
+        this.cells.clear();
+        this.userPositions.clear();
+        this.initialColors.clear();
+
+        // Reconstruire la grille à partir de l'état reçu
+        this.isOffline = false;
+        this.disconnectedAt = null;
         this.gridSize = state.grid_size;
-        this.userColors = new Map(Object.entries(state.user_colors));
         this.myUserId = state.my_user_id;
-        
-        // Générer les couleurs de la palette
-        this.initialColors = new Map();
-        this.initialColors.set(this.myUserId, ColorGenerator.generateInitialColors(this.myUserId));
-    
-        // Utiliser une couleur aléatoire comme couleur initiale
+        if (this.isConnected) {
+            localStorage.setItem('poieticUserId', this.myUserId);
+        }
+
+        let palette = ColorGenerator.generateInitialColors(this.myUserId);
+        if (!palette || palette.length !== 400) {
+            palette = this.initialColors.get(this.myUserId) || [];
+        }
+        this.initialColors.set(this.myUserId, palette);
         this.currentColor = generateRandomColor();
         this.lastSelectedColor = this.currentColor;
         this.updateColorPreview();
     
-        // Nettoyer la grille existante
-        if (this.grid) {
-            this.grid.innerHTML = '';
-        }
+        this.updateLayout();
     
-        // Ajouter ici l'appel à updateLayout
-        this.updateLayout();  // <-- ICI !
-    
-        // Initialiser toutes les cellules
         const gridState = JSON.parse(state.grid_state);
         Object.entries(gridState.user_positions).forEach(([userId, position]) => {
             this.updateCell(userId, position[0], position[1]);
         });
-    
-        // Initialiser les sous-cellules
         if (state.sub_cell_states) {
             Object.entries(state.sub_cell_states).forEach(([userId, subCells]) => {
                 Object.entries(subCells).forEach(([coords, color]) => {
@@ -369,17 +423,49 @@ class PoieticClient {
                 });
             });
         }
-
-        // Utiliser le timestamp de début de session au lieu du timestamp du message
         this.sessionStartTime = state.session_start_time;
-        
-        // Mettre à jour l'affichage de la date et l'heure de début
         this.updateSessionStartDisplay();
-        
-        // Démarrer la mise à jour de la durée
         this.startSessionDurationUpdate();
-
         this.updateUserCount();
+
+        // Affichage des overlays
+        this.hideNetworkIssueOverlay();
+        this.hideDisconnectOverlay();
+        const oldId = localStorage.getItem('poieticUserId');
+        if (wasOffline && state.my_user_id && oldId && state.my_user_id === oldId) {
+            // On n'affiche l'overlay CONNECTED que si c'est une vraie reconnexion rapide (même UUID)
+            this.showNetworkBackOverlay();
+        }
+        // Réinitialiser le timer et le curseur d'activité après reconnexion
+        this.updateLastActivity();
+        this.resetInactivityTimer();
+        this.updateActivityDisplay();
+    }
+
+    // Ajoute cette méthode si elle n'existe pas déjà
+    showNetworkBackOverlay() {
+        // Affiche l'overlay dans la zone 3b
+        const zone3b = document.getElementById('zone-3b');
+        let overlay = document.getElementById('network-back-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'network-back-overlay';
+            overlay.className = 'network-back-overlay';
+            overlay.innerHTML = `
+                <div class="network-back-message">
+                    <span class="network-back-title">CONNECTED</span>
+                </div>
+            `;
+            if (zone3b) {
+                zone3b.appendChild(overlay);
+            } else {
+                document.body.appendChild(overlay); // fallback
+            }
+        }
+        overlay.style.display = 'flex';
+        setTimeout(() => {
+            overlay.style.display = 'none';
+        }, 2000);
     }
 
     updateSessionStartDisplay() {
@@ -439,7 +525,10 @@ class PoieticClient {
         }
     
         cell.innerHTML = '';
-        const initialColors = this.initialColors.get(userId) || [];
+        if (!this.initialColors.has(userId)) {
+            this.initialColors.set(userId, ColorGenerator.generateInitialColors(userId));
+        }
+        const initialColors = this.initialColors.get(userId);
         for (let i = 0; i < 20; i++) {
             for (let j = 0; j < 20; j++) {
                 const subCell = document.createElement('div');
@@ -460,7 +549,7 @@ class PoieticClient {
         }
     }
     
-    updateSubCell(userId, subX, subY, color) {
+    updateSubCell(userId, subX, subY, color, isUserAction = false) {
         const cell = this.cells.get(userId);
         if (cell) {
             const subCell = cell.children[subY * 20 + subX];
@@ -471,6 +560,11 @@ class PoieticClient {
     
         if (userId === this.myUserId && this.isLocalUpdate) {
             this.updateLastActivity();
+        }
+
+        if (isUserAction) {
+            if (!this.lastUpdates) this.lastUpdates = new Map();
+            this.lastUpdates.set(userId, Date.now());
         }
     }
 
@@ -609,6 +703,7 @@ class PoieticClient {
     }
 
     handleColorBorrowing(event, userId) {
+        this.resetInactivityTimer();
         const cell = this.cells.get(userId);
         const rect = cell.getBoundingClientRect();
         const x = (event.clientX || event.touches[0].clientX) - rect.left;
@@ -660,6 +755,7 @@ class PoieticClient {
         if (!this.isConnected || !this.myUserId) return;
         
         this.isDrawing = true;
+        this.resetInactivityTimer();
         
         // Si on commence à dessiner en mode zoom manuel,
         // on arrête immédiatement tout drag en cours
@@ -677,7 +773,36 @@ class PoieticClient {
     }
 
     draw(event) {
-        if (!this.isDrawing || !this.isConnected || !this.myUserId) return;
+        if (!this.isDrawing || !this.myUserId) return;
+        // En mode offline, autoriser le dessin local (optionnel)
+        if (this.isOffline) {
+            // Dessin local uniquement sur sa propre cellule
+            const myCell = this.cells.get(this.myUserId);
+            if (!myCell) return;
+            const gridRect = this.grid.getBoundingClientRect();
+            const myCellRect = myCell.getBoundingClientRect();
+            let x, y;
+            if (event.type.startsWith('touch')) {
+                x = event.touches[0].clientX - gridRect.left;
+                y = event.touches[0].clientY - gridRect.top;
+            } else {
+                x = event.clientX - gridRect.left;
+                y = event.clientY - gridRect.top;
+            }
+            if (x >= myCellRect.left - gridRect.left && x <= myCellRect.right - gridRect.left &&
+                y >= myCellRect.top - gridRect.top && y <= myCellRect.bottom - gridRect.top) {
+                const subX = Math.floor((x - (myCellRect.left - gridRect.left)) / (myCellRect.width / 20));
+                const subY = Math.floor((y - (myCellRect.top - gridRect.top)) / (myCellRect.height / 20));
+                this.isLocalUpdate = true;
+                this.updateSubCell(this.myUserId, subX, subY, this.currentColor, true);
+                this.updateLastActivity();
+            }
+            this.lastUpdates.set(this.myUserId, Date.now());
+            return;
+        }
+        // ... code existant pour le mode online ...
+        if (!this.isConnected) return;
+        this.resetInactivityTimer();
 
         // Mise à jour du timestamp pendant le dessin
         if (this.zoomState.isAutoZoom) {
@@ -706,14 +831,17 @@ class PoieticClient {
             const subY = Math.floor((y - (myCellRect.top - gridRect.top)) / (myCellRect.height / 20));
 
             this.isLocalUpdate = true;
-            this.updateSubCell(this.myUserId, subX, subY, this.currentColor);
+            this.updateSubCell(this.myUserId, subX, subY, this.currentColor, true);
             this.updateLastActivity();
             this.sendCellUpdate(subX, subY, this.currentColor);
         }
+
+        this.lastUpdates.set(this.myUserId, Date.now());
     }
 
     stopDrawing() {
         this.isDrawing = false;
+        this.resetInactivityTimer();
         // Mise à jour du timestamp à la fin du dessin
         if (this.zoomState.isAutoZoom) {
             this.zoomState.lastActivityTime = Date.now();
@@ -737,28 +865,25 @@ class PoieticClient {
 
     // SECTION: Gestion des utilisateurs
     addNewUser(userId, position, color) {
-        this.userColors.set(userId, color);
         this.updateCell(userId, position[0], position[1]);
         this.updateUserCount();
     }
 
     removeUser(userId) {
         const cell = this.cells.get(userId);
-        if (cell) {
+        if (cell && cell.parentNode === this.grid) {
             this.grid.removeChild(cell);
-            this.cells.delete(userId);
         }
+        this.cells.delete(userId);
         this.userPositions.delete(userId);
-        this.userColors.delete(userId);
         this.initialColors.delete(userId);
         this.updateUserCount();
     }
 
     // SECTION: Gestion du zoom et de la mise à jour
-    updateZoom(newGridSize, gridState, userColors, subCellStates) {
+    updateZoom(newGridSize, gridState, subCellStates) {
         // Mettre à jour d'abord la taille de la grille
         this.gridSize = newGridSize;
-        this.userColors = new Map(Object.entries(userColors));
     
         // Récupérer les nouvelles positions
         const parsedGridState = JSON.parse(gridState);
@@ -767,7 +892,9 @@ class PoieticClient {
         // Supprimer d'abord les cellules qui n'existent plus
         this.cells.forEach((cell, userId) => {
             if (!userPositions[userId]) {
+                if (cell && cell.parentNode === this.grid) {
                 this.grid.removeChild(cell);
+                }
                 this.cells.delete(userId);
                 this.userPositions.delete(userId);
             }
@@ -886,31 +1013,88 @@ class PoieticClient {
     }
 
     startInactivityTimer() {
-        this.resetInactivityTimer();
+        if (this.inactivityTimer) clearTimeout(this.inactivityTimer);
+        this.inactivityTimer = setTimeout(() => {
+            this.handleInactivityTimeout();
+        }, this.inactivityTimeout);
     }
 
     resetInactivityTimer() {
-        clearTimeout(this.inactivityTimer);
-        this.inactivityTimer = setTimeout(
-            () => this.handleInactivityTimeout(), 
-            this.inactivityTimeout
-        );
+        if (this.inactivityTimer) clearTimeout(this.inactivityTimer);
+        this.startInactivityTimer();
     }
 
     handleInactivityTimeout() {
-        console.log('Inactivité détectée, déconnexion...');
-        this.disconnect();
-        
-        // Afficher l'overlay avec transition
+        console.log('Timer d\'inactivité expiré, déconnexion !');
+        this.lastDisconnectReason = 'inactivity';
+        // Retirer explicitement la cellule de l'utilisateur courant
+        if (this.myUserId) {
+            this.removeUser(this.myUserId);
+        }
+        // Supprimer l'UUID stocké lors du timeout d'inactivité
+        localStorage.removeItem('poieticUserId');
+        this.disableAllCustomOverlays();
+        // Afficher l'overlay de déconnexion AVANT la déconnexion
         const overlay = document.getElementById('disconnect-overlay');
         if (overlay) {
             overlay.style.display = 'block';
-            // Force un reflow pour que la transition fonctionne
             overlay.offsetHeight;
             document.body.classList.add('disconnected');
         }
-        
-        this.showReconnectButton();
+        this.disconnect();
+        // Fermer la WebSocket proprement
+        if (this.socket) this.socket.close();
+        // Stopper toute reconnexion automatique
+        if (this.autoReconnectInterval) {
+            clearInterval(this.autoReconnectInterval);
+            this.autoReconnectInterval = null;
+        }
+        if (this.reconnectButton) {
+            this.reconnectButton.style.display = 'none';
+        }
+    }
+
+    startDisconnectionTimer() {
+        if (this.disconnectionTimer) clearTimeout(this.disconnectionTimer);
+        this.disconnectionTimer = setTimeout(() => {
+            if (!document.body.classList.contains('disconnected')) {
+                this.disableAllCustomOverlays();
+                // Stopper toute reconnexion automatique
+                if (this.autoReconnectInterval) {
+                    clearInterval(this.autoReconnectInterval);
+                    this.autoReconnectInterval = null;
+                }
+            }
+        }, this.disconnectionTimeout);
+    }
+
+    startAutoReconnect() {
+        if (this.autoReconnectInterval) clearInterval(this.autoReconnectInterval);
+        let startTime = Date.now();
+        this.autoReconnectInterval = setInterval(() => {
+            if (document.body.classList.contains('disconnected')) {
+                clearInterval(this.autoReconnectInterval);
+                this.autoReconnectInterval = null;
+                this.hideNetworkIssueOverlay();
+                return;
+            }
+            if (!this.isConnected) {
+                // Arrêter la reconnexion si le délai de reconnexion rapide est dépassé
+                if (Date.now() - this.disconnectedAt > this.reconnectionTimeout) {
+                    clearInterval(this.autoReconnectInterval);
+                    this.autoReconnectInterval = null;
+                    this.showDisconnectOverlay();
+                    return;
+                }
+                this.reconnectAttempt = (this.reconnectAttempt || 0) + 1;
+                this.showNetworkIssueOverlay();
+                this.connect();
+                if (this.reconnectAttempt >= this.maxReconnectAttempts) {
+                    clearInterval(this.autoReconnectInterval);
+                    this.autoReconnectInterval = null;
+                }
+            }
+        }, 5000); // toutes les 5 secondes
     }
 
     // SECTION: Gestion de l'interface graphique
@@ -985,6 +1169,42 @@ class PoieticClient {
                 }
             });
         });
+
+        const z3a1circle = document.querySelector('#zone-3a1 .tool-circle');
+        if (z3a1circle) z3a1circle.addEventListener('click', () => {
+            if (!isClientConnected()) {
+                document.getElementById('disconnect-overlay').classList.add('active');
+                return;
+            }
+            showCustomOverlay('session-overlay', updateSessionOverlay, [this.sessionStartTime]);
+        });
+
+        const z3a2circle = document.querySelector('#zone-3a2 .tool-circle');
+        if (z3a2circle) z3a2circle.addEventListener('click', () => {
+            if (!isClientConnected()) {
+                document.getElementById('disconnect-overlay').classList.add('active');
+                return;
+            }
+            showCustomOverlay('users-overlay', updateUsersOverlay);
+        });
+
+        const z3c1circle = document.querySelector('#zone-3c1 .tool-circle');
+        if (z3c1circle) z3c1circle.addEventListener('click', () => {
+            if (!isClientConnected()) {
+                document.getElementById('disconnect-overlay').classList.add('active');
+                return;
+            }
+            showCustomOverlay('time-out-overlay', updateTimeoutOverlay);
+        });
+
+        const z3c2circle = document.querySelector('#zone-3c2 .tool-circle');
+        if (z3c2circle) z3c2circle.addEventListener('click', () => {
+            if (!isClientConnected()) {
+                document.getElementById('disconnect-overlay').classList.add('active');
+                return;
+            }
+            showCustomOverlay('stats-overlay');
+        });
     }
 
     handleGridEnter() {
@@ -1047,7 +1267,7 @@ class PoieticClient {
 
     // SECTION: Utilitaires
     reconnect() {
-        console.log('Tentative de reconnexion...');
+        // console.log('Tentative de reconnexion...');
         
         // Retirer l'overlay sans transition
         document.body.classList.remove('disconnected');
@@ -1067,7 +1287,6 @@ class PoieticClient {
     resetClientState() {
         this.cells.clear();
         this.userPositions.clear();
-        this.userColors.clear();
         this.gridSize = 1;
         this.cellSize = 0;
         this.subCellSize = 0;
@@ -1080,6 +1299,8 @@ class PoieticClient {
         this.initialColors.clear();
         this.isConnected = false;
         this.cache.clear();
+        // Supprimer l'UUID stocké lors de la réinitialisation
+        localStorage.removeItem('poieticUserId');
 
         if (this.grid) {
             this.grid.innerHTML = '';
@@ -1089,8 +1310,6 @@ class PoieticClient {
         clearTimeout(this.inactivityTimer);
         this.lastActivity = Date.now();
         this.disconnectedAt = null;
-
-        console.log('tat du client réinitialisé');
     }
 
     handleUserDisconnected(message) {
@@ -1101,13 +1320,13 @@ class PoieticClient {
     }
 
     handlePositionFree(position) {
-        console.log('Position libre:', position);
+        // console.log('Position libre:', position);
     }
 
     toggleZoom() {
         const zoomButton = document.getElementById('zone-2a1');
         zoomButton.classList.toggle('zoomed');
-        console.log('Zoom toggled'); // Pour débugger
+        // console.log('Zoom toggled'); // Pour débugger
     }
 
     initializeThemeButton() {
@@ -1136,8 +1355,8 @@ class PoieticClient {
         // Nouveaux gestionnaires pour le drag and drop
         this.drawingArea.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         this.drawingArea.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        this.drawingArea.addEventListener('mouseup', () => this.handleMouseUp());
-        this.drawingArea.addEventListener('mouseleave', () => this.handleMouseUp());
+        this.drawingArea.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+        this.drawingArea.addEventListener('mouseleave', (e) => this.handleMouseUp(e));
 
         // Empêcher le drag and drop par défaut
         this.drawingArea.addEventListener('dragstart', (e) => e.preventDefault());
@@ -1423,24 +1642,24 @@ class PoieticClient {
 
     // Ajoutons une méthode pour vérifier la structure DOM
     checkDOMStructure() {
-        console.log('Structure DOM du color-palette:');
+        // console.log('Structure DOM du color-palette:');
         const colorPalette = document.getElementById('color-palette');
-        console.log(colorPalette.innerHTML);
+        // console.log(colorPalette.innerHTML);
         
-        console.log('Dimensions du color-palette:');
+        // console.log('Dimensions du color-palette:');
         const rect = colorPalette.getBoundingClientRect();
-        console.log({
-            width: rect.width,
-            height: rect.height,
-            top: rect.top,
-            left: rect.left
-        });
+        // console.log({
+        //     width: rect.width,
+        //     height: rect.height,
+        //     top: rect.top,
+        //     left: rect.left
+        // });
         
-        console.log('Styles calculés du gradient-palette:');
-        console.log(window.getComputedStyle(this.gradientPalette));
+        // console.log('Styles calculés du gradient-palette:');
+        // console.log(window.getComputedStyle(this.gradientPalette));
         
-        console.log('Styles calculés du user-palette:');
-        console.log(window.getComputedStyle(this.userPalette));
+        // console.log('Styles calculés du user-palette:');
+        // console.log(window.getComputedStyle(this.userPalette));
     }
 
     updateGradientPalette() {
@@ -1677,18 +1896,76 @@ class PoieticClient {
     updateUserCount() {
         const userCountSpan = document.getElementById('user-count-value');
         if (userCountSpan) {
-            userCountSpan.textContent = this.userColors.size;
+            userCountSpan.textContent = this.cells.size;
         }
     }
 
-    updateSessionTimerText() {
+    updateSessionTimer() {
         if (!this.sessionStartTime) return;
         const now = Date.now();
         const elapsed = Math.floor((now - this.sessionStartTime) / 1000);
         const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
         const seconds = String(elapsed % 60).padStart(2, '0');
-        const timerSpan = document.getElementById('session-timer-value');
+        const timerSpan = document.getElementById('session-timer');
         if (timerSpan) timerSpan.textContent = `${minutes}:${seconds}`;
+    }
+
+    getUserStats() {
+        // n = total users
+        const n = this.cells.size;
+        // n2 = users ayant dessiné au moins une fois
+        let n2 = 0;
+        this.cells.forEach((_, userId) => {
+            // Vérifiez si l'utilisateur a dessiné (présence dans lastUpdates ou autre critère)
+            if (this.lastUpdates && this.lastUpdates.has(userId)) {
+                n2++;
+            }
+        });
+        // n1 = n - n2
+        const n1 = n - n2;
+        return { n, n1, n2 };
+    }
+
+    showNetworkIssueOverlay() {
+        const overlay = document.getElementById('network-issue-overlay');
+        if (overlay) overlay.style.display = 'flex';
+        const disconnectOverlay = document.getElementById('disconnect-overlay');
+        if (disconnectOverlay) disconnectOverlay.style.display = 'none';
+    }
+    hideNetworkIssueOverlay() {
+        const overlay = document.getElementById('network-issue-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+    showDisconnectOverlay() {
+        const overlay = document.getElementById('disconnect-overlay');
+        if (overlay) {
+            overlay.style.display = 'block';
+        }
+        const networkOverlay = document.getElementById('network-issue-overlay');
+        if (networkOverlay) networkOverlay.style.display = 'none';
+    }
+    hideDisconnectOverlay() {
+        const overlay = document.getElementById('disconnect-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    disableDrawingArea() {
+        if (this.grid) {
+            this.grid.style.pointerEvents = 'none';
+            this.grid.style.opacity = '0.5'; // Optionnel : effet visuel
+        }
+    }
+    enableDrawingArea() {
+        if (this.grid) {
+            this.grid.style.pointerEvents = 'auto';
+            this.grid.style.opacity = '1';
+        }
+    }
+
+    disableAllCustomOverlays() {
+        document.querySelectorAll('.custom-overlay').forEach(ov => ov.classList.remove('active'));
+        // Désactive aussi les overlays techniques
+        document.getElementById('network-issue-overlay')?.classList.remove('active');
     }
 }
 
@@ -1713,7 +1990,137 @@ document.addEventListener('DOMContentLoaded', function() {
     if (monthSpan) monthSpan.textContent = month;
 });
 
-// Lance la mise à jour toutes les secondes
-setInterval(updateSessionTimerText, 1000);
-// Appelle une première fois au chargement
-updateSessionTimerText();
+function showCustomOverlay(id, updateFn, updateArgs = [], timeout = 5000) {
+    // Empêcher l'ouverture si déconnecté
+    if (document.body.classList.contains('disconnected')) return;
+
+    // Masquer tous les overlays personnalisés
+    document.querySelectorAll('.custom-overlay').forEach(ov => ov.classList.remove('active'));
+    // Mettre à jour les valeurs si besoin
+    if (typeof updateFn === 'function') updateFn(...updateArgs);
+
+    // Afficher l'overlay demandé
+    const overlay = document.getElementById(id);
+    if (!overlay) return;
+    overlay.classList.add('active');
+
+    // Masquer après timeout, sauf si l'utilisateur agit dessus
+    let hideTimeout = setTimeout(() => {
+        overlay.classList.remove('active');
+    }, timeout);
+
+    // Si l'utilisateur clique ou touche l'overlay, on annule le timeout
+    overlay.addEventListener('pointerdown', () => {
+        clearTimeout(hideTimeout);
+    }, { once: true });
+}
+
+// === OVERLAYS DYNAMIQUES ===
+
+// Utilitaire pour formater les dates et durées
+function pad2(n) { return n.toString().padStart(2, '0'); }
+
+// Met à jour l'overlay SESSION
+function updateSessionOverlay(sessionStartTime) {
+    if (!sessionStartTime) return;
+    const start = new Date(sessionStartTime);
+    document.getElementById('session-date').textContent =
+        `${start.getFullYear()}:${pad2(start.getMonth() + 1)}:${pad2(start.getDate())}`;
+    document.getElementById('session-time').textContent =
+        `${pad2(start.getHours())}:${pad2(start.getMinutes())}:${pad2(start.getSeconds())}`;
+    // Durée écoulée
+    const now = Date.now();
+    const elapsed = Math.floor((now - sessionStartTime) / 1000);
+    const min = pad2(Math.floor(elapsed / 60));
+    const sec = pad2(elapsed % 60);
+    document.getElementById('session-duration').textContent = `${min}:${sec}`;
+}
+
+// Met à jour l'overlay USERS
+function updateUsersOverlay() {
+    const stats = window.poieticClient.getUserStats();
+    document.getElementById('users-n').textContent = stats.n;
+    document.getElementById('users-n1').textContent = stats.n1;
+    document.getElementById('users-n2').textContent = stats.n2;
+}
+
+// Met à jour l'overlay TIME OUT
+function updateTimeoutOverlay() {
+    // Temps restant avant déconnexion
+    const s1 = parseInt(document.getElementById('remaining-time')?.textContent) || 0;
+
+    // Temps depuis la dernière action de l'utilisateur courant
+    let s2 = 0;
+    if (window.poieticClient && window.poieticClient.lastActivity) {
+        s2 = Math.floor((Date.now() - window.poieticClient.lastActivity) / 1000);
+    }
+
+    document.getElementById('timeout-s1').textContent = s1;
+    document.getElementById('timeout-s2').textContent = s2;
+}
+
+// Intégration listeners après chargement du DOM
+document.addEventListener('DOMContentLoaded', function() {
+    // Variables dynamiques à adapter selon votre logique
+    let sessionStartTime = window.poieticClient?.sessionStartTime || Date.now();
+    let userCount = window.poieticClient?.userColors?.size || 2;
+    let userCountUndefined = 1; // À calculer selon votre logique
+    let userCountHumans = 1;    // À calculer selon votre logique
+    let timeoutRemaining = parseInt(document.getElementById('remaining-time')?.textContent) || 120;
+    let timeSinceLastAction = 10; // À calculer selon votre logique
+
+    // Ajout des listeners sur les zones
+    const z3a1 = document.getElementById('zone-3a1');
+    const z3a2 = document.getElementById('zone-3a2');
+    const z3c1 = document.getElementById('zone-3c1');
+    const z3c2 = document.getElementById('zone-3c2');
+
+    if (z3a1) z3a1.addEventListener('click', () => {
+        if (!isClientConnected()) {
+            document.getElementById('disconnect-overlay').classList.add('active');
+            return;
+        }
+        showCustomOverlay('session-overlay', updateSessionOverlay, [sessionStartTime]);
+    });
+    if (z3a2) z3a2.addEventListener('click', () => {
+        if (!isClientConnected()) {
+            document.getElementById('disconnect-overlay').classList.add('active');
+            return;
+        }
+        showCustomOverlay('users-overlay', updateUsersOverlay);
+    });
+    if (z3c1) z3c1.addEventListener('click', () => {
+        if (!isClientConnected()) {
+            document.getElementById('disconnect-overlay').classList.add('active');
+            return;
+        }
+        showCustomOverlay('time-out-overlay', updateTimeoutOverlay);
+    });
+    if (z3c2) z3c2.addEventListener('click', () => {
+        if (!isClientConnected()) {
+            document.getElementById('disconnect-overlay').classList.add('active');
+            return;
+        }
+        showCustomOverlay('stats-overlay');
+    });
+
+    // Mise à jour automatique de la durée de session et du timeout
+    setInterval(() => {
+        sessionStartTime = window.poieticClient?.sessionStartTime || sessionStartTime;
+        userCount = window.poieticClient?.userColors?.size || userCount;
+        // userCountUndefined et userCountHumans : à calculer selon votre logique
+        timeoutRemaining = parseInt(document.getElementById('remaining-time')?.textContent) || timeoutRemaining;
+        // timeSinceLastAction : à calculer selon votre logique
+
+        if (document.getElementById('session-overlay').classList.contains('active')) {
+            updateSessionOverlay(sessionStartTime);
+        }
+        if (document.getElementById('users-overlay').classList.contains('active')) {
+            updateUsersOverlay();
+        }
+        if (document.getElementById('time-out-overlay').classList.contains('active')) {
+            updateTimeoutOverlay();
+        }
+    }, 1000);
+
+});
