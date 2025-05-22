@@ -34,22 +34,24 @@ log "Création des binaires de production..."
 log "Copie des binaires sur le serveur..."
 scp -i "$SSH_KEY" bin/poietic-generator-api bin/poietic-recorder "$SERVER:$DEPLOY_DIR/" || error "Échec de la copie des fichiers"
 
+# # 2b. Copie des fichiers statiques (public, favicon, etc.)
+# log "Copie des fichiers statiques sur le serveur..."
+# scp -i "$SSH_KEY" -r public "$SERVER:/home/debian/poietic-data/"
+
 # 3. Déploiement sur le serveur
 log "Déploiement sur le serveur..."
 ssh -i "$SSH_KEY" "$SERVER" << 'ENDSSH'
     # Dossier de travail pour les données et la base
-    export WORKDIR="/home/debian/poietic-data"
-    export DBDIR="\$WORKDIR/db"
+    sudo mkdir -p /home/debian/poietic-data/db
+    sudo chown debian:debian /home/debian/poietic-data /home/debian/poietic-data/db
 
     # Arrêt des services AVANT toute manipulation
     sudo systemctl stop poietic-generator.service
     sudo systemctl stop poietic-recorder.service
 
-    # Création du dossier de travail et de la base si besoin
-    sudo mkdir -p "\$DBDIR"
-    sudo chown debian:debian "\$WORKDIR" "\$DBDIR"
-    if [ ! -f "\$DBDIR/recorder.db" ]; then
-        sudo -u debian sqlite3 "\$DBDIR/recorder.db" ".databases"
+    # Création de la base si besoin
+    if [ ! -f "/home/debian/poietic-data/db/recorder.db" ]; then
+        sudo -u debian sqlite3 "/home/debian/poietic-data/db/recorder.db" ".databases"
     fi
 
     # Sauvegarde des versions actuelles
@@ -66,8 +68,13 @@ ssh -i "$SSH_KEY" "$SERVER" << 'ENDSSH'
         echo "Attention : des processus utilisent encore les ports 3001 et 3002"
     fi
 
-    # Redémarrage des services
+    # Redémarrage du service principal
     sudo systemctl start poietic-generator.service
+
+    # # Attendre 100 secondes pour laisser le temps à la base de se stabiliser
+    #sleep 100
+
+    # Redémarrage du recorder
     sudo systemctl start poietic-recorder.service
 
     # Vérification du statut

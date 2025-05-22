@@ -11,21 +11,21 @@ export class ShareManager {
     setupShareButton() {
         const shareButton = document.querySelector('#zone-2c2');
         if (shareButton) {
-            console.log('Share button found, adding listener');
+            // console.log('Share button found, adding listener');
             shareButton.addEventListener('mousedown', (e) => {
                 e.preventDefault();
-                console.log('Share button clicked');
+                // console.log('Share button clicked');
                 this.handleShare();
             });
         } else {
-            console.error('Share button not found (#zone-2c2)');
+            // console.error('Share button not found (#zone-2c2)');
         }
     }
 
     async handleShare() {
-        console.log('Handling share action');
+        // console.log('Handling share action');
         if (!this.client.isConnected) {
-            console.log('Client not connected, cannot share');
+            // console.log('Client not connected, cannot share');
             return;
         }
 
@@ -33,7 +33,7 @@ export class ShareManager {
             const canvas = await this.captureGridState();
             this.showShareDialog(canvas);
         } catch (error) {
-            console.error('Error during share:', error);
+            // console.error('Error during share:', error);
         }
     }
 

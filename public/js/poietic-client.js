@@ -1,10 +1,13 @@
+// Poietic Generator Client - vX.Y.Z - 2024-05-22
+// Gestion reconnexion rapide et offline/online robuste
+
 import { ImageImporter } from './poietic-import.js';
 import { ShareManager } from './poietic-share.js';
 import { ColorGenerator } from './poietic-color-generator.js';
 import { generateRandomColor } from './poietic-random-color.js';
 
 const SESSION_KEY = 'poieticClientActive';
-const SESSION_TIMEOUT = 1 * 60 * 1000; // 1 minute (verrouillage navigateur)
+const SESSION_TIMEOUT = 20 * 1000; // 20 secondes (verrouillage navigateur)
 const INACTIVITY_TIMEOUT = 180 * 1000; // 3 minutes (doit matcher le serveur)
 const RECONNECTION_TIMEOUT = 180 * 1000; // 3 minutes (doit matcher le serveur)
 
@@ -13,12 +16,16 @@ function isSessionActive() {
     return (Date.now() - lastActive) < SESSION_TIMEOUT;
 }
 
-if (isSessionActive()) {
+// Juste après les imports
+const now = Date.now();
+const lastActive = parseInt(localStorage.getItem(SESSION_KEY) || '0', 10);
+
+// Si le verrou est trop vieux (> 20s), on le considère comme expiré
+if (lastActive && (now - lastActive) < SESSION_TIMEOUT) {
     document.body.innerHTML = `
         <div style="text-align: center; margin-top: 20%;">
             <h2>A session is already active in this browser.</h2>
         </div>`;
-
     // === DEV ONLY: Bouton caché pour réinitialiser le localStorage ===
     if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
         const devBtn = document.createElement('button');
@@ -44,13 +51,14 @@ if (isSessionActive()) {
     throw new Error("Session already active in this browser.");
 }
 
-localStorage.setItem(SESSION_KEY, Date.now().toString());
+// On pose le verrou immédiatement
+localStorage.setItem(SESSION_KEY, now.toString());
 window.addEventListener('beforeunload', () => {
     localStorage.removeItem(SESSION_KEY);
 });
 setInterval(() => {
     localStorage.setItem(SESSION_KEY, Date.now().toString());
-}, 10000);
+}, 5000); // toutes les 5 secondes
 
 function isClientConnected() {
     return window.poieticClient && window.poieticClient.isConnected;
@@ -160,6 +168,17 @@ class PoieticClient {
 
         this.lastDisconnectReason = null; // 'inactivity' ou 'network'
         this.isOffline = false; // Mode offline
+        this.lastServerMessage = Date.now();
+        setInterval(() => {
+            // Allonger le délai de tolérance à 20s
+            if (this.isConnected && Date.now() - this.lastServerMessage > 20000) {
+                this.isConnected = false;
+                this.showNetworkIssueOverlay();
+                this.startAutoReconnect();
+            }
+        }, 2000);
+        this.wasNetworkIssue = false; // Pour détecter la sortie de NETWORK ISSUE
+        this.offlineActions = []; // Pour stocker les actions offline à synchroniser
     }
 
     initialize() {
@@ -279,10 +298,20 @@ class PoieticClient {
             this.enableDrawingArea();
             this.reconnectAttempt = 0;
             this.maxReconnectAttempts = 10;
+            console.log("Tentative de connexion avec user_id =", storedUserId);
         };
         this.socket.onmessage = (event) => {
-            const message = JSON.parse(event.data);
-            this.handleMessage(message);
+            // (log supprimé)
+            this.lastServerMessage = Date.now();
+            try {
+                const message = JSON.parse(event.data);
+                if (message.type && message.type === "pong") {
+                    return;
+                }
+                this.handleMessage(message);
+            } catch (e) {
+                // ignore
+            }
             this.resetInactivityTimer();
         };
         this.socket.onclose = () => {
@@ -303,11 +332,11 @@ class PoieticClient {
     disconnect() {
         clearInterval(this.heartbeatInterval);
         if (this.socket) {
-            this.socket.close();
+            this.socket.close(); // S'assurer que la WebSocket est bien fermée
         }
         this.isConnected = false;
-        // Supprimer l'UUID stocké lors de la déconnexion
-        localStorage.removeItem('poieticUserId');
+        // NE PAS supprimer l'UUID stocké lors d'une simple déconnexion réseau
+        // localStorage.removeItem('poieticUserId');
         if (this.sessionTimerInterval) {
             clearInterval(this.sessionTimerInterval);
             this.sessionTimerInterval = null;
@@ -333,7 +362,7 @@ class PoieticClient {
             this.zoomInactivityTimer = null;
         }
         this.lastDisconnectReason = 'inactivity';
-        this.disconnect();
+        // this.disconnect();   <-- SUPPRIMER CETTE LIGNE !
         this.disableAllCustomOverlays();
     }
 
@@ -347,6 +376,7 @@ class PoieticClient {
 
     // SECTION: Gestion des messages
     handleMessage(message) {
+        this.lastServerMessage = Date.now();
         this.isLocalUpdate = false;
         switch (message.type) {
             case 'initial_state':
@@ -432,14 +462,19 @@ class PoieticClient {
         this.hideNetworkIssueOverlay();
         this.hideDisconnectOverlay();
         const oldId = localStorage.getItem('poieticUserId');
-        if (wasOffline && state.my_user_id && oldId && state.my_user_id === oldId) {
-            // On n'affiche l'overlay CONNECTED que si c'est une vraie reconnexion rapide (même UUID)
+        // Afficher l'overlay CONNECTED si on sort de NETWORK ISSUE
+        if ((wasOffline || this.wasNetworkIssue) && state.my_user_id && oldId && state.my_user_id === oldId) {
             this.showNetworkBackOverlay();
+            this.wasNetworkIssue = false;
         }
         // Réinitialiser le timer et le curseur d'activité après reconnexion
         this.updateLastActivity();
         this.resetInactivityTimer();
         this.updateActivityDisplay();
+        // Synchroniser les actions offline à la reconnexion (TODO)
+        if (this.offlineActions && this.offlineActions.length > 0) {
+            this.syncOfflineActions();
+        }
     }
 
     // Ajoute cette méthode si elle n'existe pas déjà
@@ -773,9 +808,9 @@ class PoieticClient {
     }
 
     draw(event) {
-        if (!this.isDrawing || !this.myUserId) return;
-        // En mode offline, autoriser le dessin local (optionnel)
-        if (this.isOffline) {
+        // Permettre le dessin local si NETWORK ISSUE affiché ou mode offline
+        const isNetworkIssue = document.getElementById('network-issue-overlay')?.style.display === 'flex';
+        if (this.isOffline || isNetworkIssue) {
             // Dessin local uniquement sur sa propre cellule
             const myCell = this.cells.get(this.myUserId);
             if (!myCell) return;
@@ -796,6 +831,8 @@ class PoieticClient {
                 this.isLocalUpdate = true;
                 this.updateSubCell(this.myUserId, subX, subY, this.currentColor, true);
                 this.updateLastActivity();
+                // Stocker l'action offline pour synchronisation ultérieure
+                this.offlineActions.push({ subX, subY, color: this.currentColor, timestamp: Date.now() });
             }
             this.lastUpdates.set(this.myUserId, Date.now());
             return;
@@ -1032,7 +1069,7 @@ class PoieticClient {
             this.removeUser(this.myUserId);
         }
         // Supprimer l'UUID stocké lors du timeout d'inactivité
-        localStorage.removeItem('poieticUserId');
+        localStorage.removeItem('poieticUserId'); // <-- OK ici
         this.disableAllCustomOverlays();
         // Afficher l'overlay de déconnexion AVANT la déconnexion
         const overlay = document.getElementById('disconnect-overlay');
@@ -1071,30 +1108,33 @@ class PoieticClient {
     startAutoReconnect() {
         if (this.autoReconnectInterval) clearInterval(this.autoReconnectInterval);
         let startTime = Date.now();
-        this.autoReconnectInterval = setInterval(() => {
-            if (document.body.classList.contains('disconnected')) {
-                clearInterval(this.autoReconnectInterval);
-                this.autoReconnectInterval = null;
-                this.hideNetworkIssueOverlay();
-                return;
-            }
-            if (!this.isConnected) {
-                // Arrêter la reconnexion si le délai de reconnexion rapide est dépassé
-                if (Date.now() - this.disconnectedAt > this.reconnectionTimeout) {
+        // Ajoute un délai avant la première tentative
+        setTimeout(() => {
+            this.autoReconnectInterval = setInterval(() => {
+                if (document.body.classList.contains('disconnected')) {
                     clearInterval(this.autoReconnectInterval);
                     this.autoReconnectInterval = null;
-                    this.showDisconnectOverlay();
+                    this.hideNetworkIssueOverlay();
                     return;
                 }
-                this.reconnectAttempt = (this.reconnectAttempt || 0) + 1;
-                this.showNetworkIssueOverlay();
-                this.connect();
-                if (this.reconnectAttempt >= this.maxReconnectAttempts) {
-                    clearInterval(this.autoReconnectInterval);
-                    this.autoReconnectInterval = null;
+                if (!this.isConnected) {
+                    // Arrêter la reconnexion si le délai de reconnexion rapide est dépassé
+                    if (Date.now() - this.disconnectedAt > this.reconnectionTimeout) {
+                        clearInterval(this.autoReconnectInterval);
+                        this.autoReconnectInterval = null;
+                        this.showDisconnectOverlay();
+                        return;
+                    }
+                    this.reconnectAttempt = (this.reconnectAttempt || 0) + 1;
+                    this.showNetworkIssueOverlay();
+                    this.connect();
+                    if (this.reconnectAttempt >= this.maxReconnectAttempts) {
+                        clearInterval(this.autoReconnectInterval);
+                        this.autoReconnectInterval = null;
+                    }
                 }
-            }
-        }, 5000); // toutes les 5 secondes
+            }, 5000); // toutes les 5 secondes
+        }, 1000); // 1 seconde de délai
     }
 
     // SECTION: Gestion de l'interface graphique
@@ -1931,6 +1971,7 @@ class PoieticClient {
         if (overlay) overlay.style.display = 'flex';
         const disconnectOverlay = document.getElementById('disconnect-overlay');
         if (disconnectOverlay) disconnectOverlay.style.display = 'none';
+        this.wasNetworkIssue = true;
     }
     hideNetworkIssueOverlay() {
         const overlay = document.getElementById('network-issue-overlay');
@@ -1966,6 +2007,22 @@ class PoieticClient {
         document.querySelectorAll('.custom-overlay').forEach(ov => ov.classList.remove('active'));
         // Désactive aussi les overlays techniques
         document.getElementById('network-issue-overlay')?.classList.remove('active');
+    }
+
+    syncOfflineActions() {
+        if (!this.isConnected || !this.offlineActions || this.offlineActions.length === 0) return;
+        // On envoie chaque action dans l'ordre
+        for (const action of this.offlineActions) {
+            const message = {
+                type: 'cell_update',
+                sub_x: action.subX,
+                sub_y: action.subY,
+                color: action.color
+            };
+            this.socket.send(JSON.stringify(message));
+        }
+        // On vide la file après envoi
+        this.offlineActions = [];
     }
 }
 

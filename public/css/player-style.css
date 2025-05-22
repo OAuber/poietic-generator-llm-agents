@@ -488,3 +488,69 @@ body.light-mode .main-zone {
 .secondary-button:hover {
     background: #5a6268;
 }
+
+.session-timer-container {
+    position: relative;
+    width: 80%;
+    height: 80%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-timer-icon {
+    width: 120%;
+    height: 120%;
+    display: block;
+    z-index: 1;
+    color: #fff;
+}
+
+body.light-mode .session-timer-icon {
+    color: #000;
+}
+
+.session-timer-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    font-size: 0.55em;   /* Plus petit pour "MIN" */
+    font-weight: bold;
+    color: #fff;
+    font-family: monospace;
+    z-index: 2;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.08em;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.10);
+    text-transform: uppercase;
+}
+body.light-mode .session-timer-label {
+    color: #000;
+}
+
+.session-minutes, .session-seconds {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #888;
+    font-family: monospace;
+    z-index: 2;
+    background: none;
+    pointer-events: none;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+}
+
+.session-minutes {
+    left: 0.5%;
+    text-align: right;
+}
+
+.session-seconds {
+    right: 0.5%;
+    text-align: left;
+}

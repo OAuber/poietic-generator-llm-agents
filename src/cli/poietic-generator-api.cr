@@ -172,6 +172,8 @@ class Session
   end
 
   def add_user(socket : HTTP::WebSocket, forced_id : String? = nil) : String
+    # Gestion reconnexion rapide : si un client tente de se reconnecter avec un user_id déjà utilisé,
+    # on ferme l'ancienne socket, on place le user_id dans pending_disconnects, puis on accepte la reconnexion.
     user_id = forced_id
 
     # 1. Si reconnexion dans le délai de grâce
@@ -182,6 +184,32 @@ class Session
       send_initial_state(user_id)
       broadcast_new_user(user_id)
       broadcast_zoom_update
+      puts "Connexion avec user_id=#{user_id} (pending=#{@pending_disconnects.has_key?(user_id)})"
+      return user_id
+    end
+
+    # 1bis. Si user_id déjà utilisé (connexion concurrente ou reconnexion rapide avant fermeture de l'ancienne socket)
+    if user_id && @users.has_key?(user_id)
+      # Fermer l'ancienne socket si elle existe encore
+      old_socket = @users[user_id]
+      begin
+        old_socket.close
+      rescue ex
+        # ignore
+      end
+      # Placer immédiatement dans pending_disconnects
+      @pending_disconnects[user_id] = Time.utc
+      @users.delete(user_id)
+      @last_activity.delete(user_id)
+      @last_heartbeat.delete(user_id)
+      # On continue comme si c'était une reconnexion dans le délai de grâce
+      @pending_disconnects.delete(user_id)
+      @users[user_id] = socket
+      @last_heartbeat[user_id] = Time.utc
+      send_initial_state(user_id)
+      broadcast_new_user(user_id)
+      broadcast_zoom_update
+      puts "Connexion avec user_id=#{user_id} (pending=force_reconnect)"
       return user_id
     end
 
@@ -198,6 +226,7 @@ class Session
     send_initial_state(user_id)
     broadcast_new_user(user_id)
     broadcast_zoom_update
+    puts "Connexion avec user_id=#{user_id} (pending=#{@pending_disconnects.has_key?(user_id)})"
     user_id
   end
 
@@ -372,9 +401,9 @@ class Session
   end
 
   def handle_disconnect(user_id : String)
+    puts "handle_disconnect: ajout de #{user_id} à pending_disconnects"
     @pending_disconnects[user_id] = Time.utc
     # NE PAS retirer de @users ici (il reste visible)
-    # (optionnel) broadcast_user_disconnected(user_id) si tu veux signaler la déconnexion
   end
 
   def broadcast_new_user(new_user_id : String)
@@ -435,12 +464,16 @@ class Session
 
   def check_pending_disconnects
     now = Time.utc
+    to_delete = [] of String
     @pending_disconnects.each do |user_id, disconnect_time|
       if now - disconnect_time > RECONNECTION_TIMEOUT
+        puts "check_pending_disconnects: suppression définitive de #{user_id}"
         remove_user(user_id)
         @last_heartbeat.delete(user_id)
+        to_delete << user_id
       end
     end
+    to_delete.each { |user_id| @pending_disconnects.delete(user_id) }
   end
 
   private def broadcast_to_recorders(message : String)
@@ -578,6 +611,8 @@ ws "/updates" do |socket, context|
   connection_type = context.request.query_params["type"]?
   is_observer = mode == "full" && connection_type == "observer"
 
+  puts "Tentative de connexion avec user_id=#{user_id_param} (pending_disconnects=#{PoieticGenerator.current_session.pending_disconnects.keys})"
+
   # On crée le user_id ici
   user_id = if is_observer
     PoieticGenerator.current_session.add_observer(socket)
@@ -585,6 +620,7 @@ ws "/updates" do |socket, context|
     if PoieticGenerator.current_session.users.empty?
       API.recorder.start_new_session
     end
+    puts "Tentative de reconnexion avec user_id=#{user_id_param} (pending_disconnects=#{PoieticGenerator.current_session.pending_disconnects})"
     PoieticGenerator.current_session.add_user(socket, user_id_param)
   end
 
@@ -601,6 +637,8 @@ ws "/updates" do |socket, context|
         )
       elsif parsed_message["type"] == "heartbeat"
         PoieticGenerator.current_session.handle_heartbeat(user_id)
+        # PATCH: répondre au heartbeat pour garder la connexion vivante
+        socket.send({type: "pong"}.to_json)
       end
     rescue ex
       # puts "Error processing message: #{ex.message}"
@@ -611,6 +649,7 @@ ws "/updates" do |socket, context|
     if is_observer
       PoieticGenerator.current_session.remove_observer(user_id)
     else
+      puts "WebSocket fermé pour user_id=#{user_id}"
       PoieticGenerator.current_session.handle_disconnect(user_id)
     end
   end
@@ -686,6 +725,15 @@ get "/api/current-session" do |env|
   end
 end
 
+get "/js/twint_ch.js" do |env|
+  env.response.headers["Content-Type"] = "application/javascript"
+  ""
+end
+
+get "/js/lkk_ch.js" do |env|
+  env.response.headers["Content-Type"] = "application/javascript"
+  ""
+end
 
 # Configuration du port
 port = if ARGV.includes?("--port")

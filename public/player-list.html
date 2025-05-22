@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Poietic Generator - Sessions</title>
+    <style>
+        .session-row {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .session-row > * {
+            margin-right: 15px;
+        }
+        .session-id {
+            width: 200px;
+        }
+        .session-duration {
+            width: 150px;
+        }
+        .session-events {
+            width: 100px;
+        }
+        .delete-btn {
+            color: red;
+            cursor: pointer;
+            margin-left: auto;
+        }
+    </style>
+  </head>
+  <body>
+    <div id="sessions-container">
+        <div class="session-row header">
+            <div class="session-id">Session</div>
+            <div class="session-duration">Durée</div>
+            <div class="session-events">Événements</div>
+            <div class="actions">Actions</div>
+        </div>
+    </div>
+
+    <script>
+        async function deleteSession(sessionId) {
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    // Recharger la liste des sessions
+                    location.reload();
+                } else {
+                    const data = await response.json();
+                    console.error('Erreur:', data.message);
+                    alert('Erreur lors de la suppression: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur lors de la suppression');
+            }
+        }
+
+        fetch('/api/sessions')
+            .then(response => response.json())
+            .then(sessions => {
+                const container = document.getElementById('sessions-container');
+                sessions.forEach(session => {
+                    const sessionId = session.id.replace('session_', '');
+                    const duration = session.end_time 
+                        ? formatDuration(session.end_time - session.start_time)
+                        : "En cours";
+
+                    container.innerHTML += `
+                        <div class="session-row">
+                            <div class="session-id">
+                                <a href="/player/${session.id}">${sessionId}</a>
+                            </div>
+                            <div class="session-duration">${duration}</div>
+                            <div class="session-events">${session.event_count} événements</div>
+                            <div class="delete-btn" onclick="deleteSession('${session.id}')">🗑️</div>
+                        </div>
+                    `;
+                });
+            });
+
+        function formatDuration(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            return `${hours}h${minutes % 60}m`;
+        }
+    </script>
+  </body>
+</html> 

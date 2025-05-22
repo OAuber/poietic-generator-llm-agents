@@ -1,3 +1,18 @@
+## vX.Y.Z (2024-05-22)
+
+### Nouvelles fonctionnalités
+- **Reconnexion rapide** : restauration de l'utilisateur et de son dessin après coupure réseau ou reconnexion, même brutale.
+- **Mode offline** : possibilité de dessiner hors-ligne, synchronisation automatique des actions à la reconnexion.
+- **Robustesse accrue** : gestion correcte des overlays NETWORK ISSUE et CONNECTED, plus de "session déjà active" intempestif.
+
+### Corrections
+- Correction de la gestion du verrou de session dans le localStorage.
+- Correction de la logique serveur pour la reconnexion rapide (fermeture de l'ancienne WebSocket si besoin).
+- Nettoyage du code, suppression des logs de debug.
+
+### Notes de migration
+- Aucun changement de protocole, rétrocompatibilité assurée.
+
 Résumé des améliorations apportées à l'application Poietic Generator
 1. Déconnexion automatique et reconnexion
 Problèmes résolus :
