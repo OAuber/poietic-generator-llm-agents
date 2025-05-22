@@ -32,3 +32,28 @@ vendor/bundle
 
 .aider*
 .env
+
+# SQLite temporary files
+db/*.db-shm
+db/*.db-wal
+
+# Compiled binaries and archives
+*.tgz 
+# Ou plus spécifiquement si tu veux garder /bin/ pour des scripts
+# mais pas les binaires compilés directement dans /bin/
+# /bin/poietic-generator-api 
+# /bin/poietic-recorder
+# poietic_generator_bin.tgz
+
+# Local dev database (si tu ne veux jamais la commiter)
+# recordings.db
+# recordings.db-journal
+
+# Dossiers de dépendances (gérés par shards)
+lib/
+.shards/
+
+# Fichiers de l'éditeur/IDE
+.idea/
+.vscode/
+*.swp
