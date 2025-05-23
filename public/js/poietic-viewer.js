@@ -149,27 +149,23 @@ export class PoieticViewer {
     handleInitialState(message) {
         console.log('Processing initial state');
         this.gridSize = message.grid_size;
+        this.userColors = new Map();
 
         // Traiter le grid_state
         if (message.grid_state) {
             const gridState = typeof message.grid_state === 'string' ?
                 JSON.parse(message.grid_state) : message.grid_state;
 
-            // Mettre à jour les positions des utilisateurs
+            // Mettre à jour les positions des utilisateurs ET générer leurs couleurs initiales
             if (gridState.user_positions) {
                 Object.entries(gridState.user_positions).forEach(([userId, position]) => {
+                    // Générer et stocker les couleurs initiales pour cet utilisateur
+                    const initialColorsPalette = ColorGenerator.generateInitialColors(userId);
+                    this.userColors.set(userId, initialColorsPalette);
+                    // Mettre à jour/créer la cellule, elle utilisera this.userColors
                     this.updateCell(userId, position[0], position[1]);
                 });
             }
-        }
-
-        // Générer les couleurs des utilisateurs localement
-        if (message.user_colors) {
-            this.userColors = new Map();
-            Object.keys(message.user_colors).forEach(userId => {
-                const colors = ColorGenerator.generateInitialColors(userId);
-                this.userColors.set(userId, colors);
-            });
         }
 
         // Mettre à jour les états des sous-cellules
@@ -221,23 +217,36 @@ export class PoieticViewer {
     updateCell(userId, x, y) {
         console.log(`Creating/updating cell for user ${userId} at (${x}, ${y})`);
         let cell = this.cells.get(userId);
+        const isNewCell = !cell;
 
         if (!cell) {
             cell = document.createElement('div');
             cell.className = 'user-cell';
+            this.grid.appendChild(cell);
+            this.cells.set(userId, cell);
+        }
 
-            for (let y = 0; y < 20; y++) {
-                for (let x = 0; x < 20; x++) {
+        // Si c'est une nouvelle cellule, ou si elle n'a pas de subCells (pour une raison quelconque)
+        // il faut la peupler avec les couleurs initiales.
+        if (isNewCell || cell.children.length !== 400) {
+            cell.innerHTML = ''; // Nettoyer au cas où
+            const initialColorsPalette = this.userColors.get(userId);
+            if (!initialColorsPalette) {
+                console.warn(`No initial colors found for user ${userId} in updateCell`);
+                return; // Ne pas continuer si la palette n'est pas là
+            }
+
+            for (let sub_y = 0; sub_y < 20; sub_y++) {
+                for (let sub_x = 0; sub_x < 20; sub_x++) {
                     const subCell = document.createElement('div');
                     subCell.className = 'sub-cell';
-                    subCell.dataset.x = x.toString();
-                    subCell.dataset.y = y.toString();
+                    subCell.dataset.x = sub_x.toString();
+                    subCell.dataset.y = sub_y.toString();
+                    // Appliquer la couleur initiale déterministe
+                    subCell.style.backgroundColor = initialColorsPalette[sub_y * 20 + sub_x] || '#FFFFFF'; // Fallback blanc
                     cell.appendChild(subCell);
                 }
             }
-
-            this.grid.appendChild(cell);
-            this.cells.set(userId, cell);
         }
 
         this.userPositions.set(userId, {x, y});
