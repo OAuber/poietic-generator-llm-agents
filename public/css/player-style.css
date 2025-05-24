@@ -105,6 +105,33 @@ body {
         width: 90vw;
         margin: 0 auto;
     }
+
+    .control-panel.left-panel .session-list-container {
+        /* max-height: calc(100% - 4rem); */
+    }
+
+    .control-panel.left-panel { /* Cible spécifiquement le panneau du haut */
+        /* height: auto; /* Laisse la hauteur s'adapter au contenu */
+        padding: 0.5rem 1rem; /* Un peu de padding */
+        /* justify-content: flex-start; /* Aligner en haut plutôt que centrer */
+    }
+
+    .control-panel.left-panel .session-list-container {
+        /* max-height: none; /* Enlève la max-height pour l'instant */
+        width: 100%;
+    }
+    .control-panel.left-panel .session-list-container h2 {
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+        text-align: center;
+    }
+    .control-panel.left-panel .pagination-controls {
+        /* S'assurer qu'ils sont visibles */
+        width: 100%;
+        display: flex;
+        justify-content: space-between; /* ou center */
+        align-items: center;
+    }
 }
 
 /* Media query pour format presque carré */
@@ -210,12 +237,16 @@ body {
     grid-template-rows: repeat(20, 1fr);
     overflow: hidden;
     transition: all 0.3s ease;
+    /* AJOUTER POUR DEBUG si les cellules n'ont pas de dimensions: */
+    /* border: 1px solid red;  */
 }
 
 .sub-cell {
     width: 100%;
     height: 100%;
     transition: background-color 0.3s ease;
+    /* AJOUTER POUR DEBUG si elles n'ont pas de couleur: */
+    /* border: 1px solid blue; */
 }
 
 /* Overlay pour le player */
@@ -344,16 +375,6 @@ body.light-mode .main-zone {
     width: 24px;
     height: 24px;
     color: white;
-}
-
-/* En mode portrait */
-@media (orientation: portrait) {
-    .control-panel {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.5rem;
-    }
 }
 
 /* Styles pour la modal de partage */
@@ -553,4 +574,83 @@ body.light-mode .session-timer-label {
 .session-seconds {
     right: 0.5%;
     text-align: left;
+}
+
+.session-list-container {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+ul#session-list-ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0.5rem 0;
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+.pagination-controls {
+    padding-top: 0.5rem;
+    border-top: 1px solid #333;
+    flex-shrink: 0;
+}
+
+.control-panel.left-panel {
+    display: flex;
+    flex-direction: column;
+    max-height: 100vh;
+}
+
+@media (orientation: portrait) {
+    .control-panel.left-panel .session-list-container {
+        /* max-height: calc(100% - 4rem); */
+    }
+}
+
+ul#session-list-ul.session-list-overlay {
+    position: absolute; /* Pour se superposer à la grille */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.85); /* Fond semi-transparent */
+    color: white;
+    list-style: none;
+    padding: 20px;
+    margin: 0;
+    overflow-y: auto;
+    z-index: 1500; /* Au-dessus de la grille, en dessous de l'overlay de démarrage */
+    display: none; /* Cachée par défaut, JS la montrera */
+    box-sizing: border-box;
+}
+
+ul#session-list-ul.session-list-overlay.visible {
+    display: block;
+}
+
+ul#session-list-ul.session-list-overlay li {
+    padding: 8px 10px; /* Un peu moins de padding */
+    border-bottom: 1px solid #444;
+    cursor: pointer;
+    font-size: 0.85em; /* Typo plus petite */
+    line-height: 1.4; /* Ajuster pour la lisibilité */
+    /* Empêcher les sauts de ligne si possible, mais attention à la lisibilité */
+    /* white-space: nowrap; */ /* Peut rendre les lignes trop longues */
+    /* overflow: hidden; */
+    /* text-overflow: ellipsis; */
+}
+
+ul#session-list-ul.session-list-overlay li:hover {
+    background-color: #2a2a2a;
+}
+
+ul#session-list-ul.session-list-overlay li.selected {
+    background-color: #007bff; /* Ou une autre couleur de sélection */
+    color: white;
+}
+
+ul#session-list-ul.session-list-overlay li strong {
+    font-weight: 600; /* Un peu moins gras si besoin */
 }

@@ -8,7 +8,7 @@ require "./file_storage"
 
 class PoieticRecorder
   DEFAULT_DB_PATH = "db/recorder.db"
-  CACHE_DURATION = 5 * 60  # 5 minutes en secondes
+  # CACHE_DURATION = 5 * 60  # 5 minutes en secondes # Commenté car on ne cache plus la liste paginée complète
 
   # Constantes pour les critères de nettoyage
   MIN_SESSION_DURATION = 3 * 60 * 1000  # 3 minutes en millisecondes
@@ -19,8 +19,8 @@ class PoieticRecorder
   @processing : Bool = false
   @current_session_id : String?
   @players : Hash(String, HTTP::WebSocket)
-  @sessions_cache : Array(Hash(String, JSON::Any))?
-  @last_cache_update : Time?
+  # @sessions_cache : Array(Hash(String, JSON::Any))? # Supprimé, on ne cache plus la liste complète
+  # @last_cache_update : Time? # Supprimé
 
   def initialize(db_path : String = DEFAULT_DB_PATH)
     # Créer le dossier de la base de données si nécessaire
@@ -35,13 +35,13 @@ class PoieticRecorder
     @event_queue = Channel(JSON::Any).new(1000)
     @current_session_id = nil
     @players = {} of String => HTTP::WebSocket
-    @sessions_cache = nil
-    @last_cache_update = nil
+    # @sessions_cache = nil # Supprimé
+    # @last_cache_update = nil # Supprimé
     
     # Configuration et démarrage
     private_setup_database
-    ensure_test_session
-    cleanup_invalid_sessions
+    # ensure_test_session
+    # cleanup_invalid_sessions # <--- COMMENTER POUR TEST
     spawn process_event_queue
     # puts "=== Initialisation du PoieticRecorder avec DB: #{db_path} ==="
   end
@@ -50,7 +50,9 @@ class PoieticRecorder
     @db.exec "CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       start_time INTEGER NOT NULL,
-      end_time INTEGER
+      end_time INTEGER,
+      event_count INTEGER DEFAULT 0,
+      user_count INTEGER DEFAULT 0
     )"
 
     @db.exec "CREATE TABLE IF NOT EXISTS events (
@@ -123,47 +125,71 @@ class PoieticRecorder
     # puts "=== Événement sauvegardé pour la session #{@current_session_id} ==="
   end
 
-  private def update_sessions_cache
-    puts "=== Mise à jour du cache des sessions ==="
+  # Ancienne méthode mise en commentaire ou à supprimer
+  # private def update_sessions_cache
+  #   puts "=== Mise à jour du cache des sessions ==="
+  #   sessions = [] of Hash(String, JSON::Any)
+  #   @db.query(
+  #     "SELECT 
+  #        s.id, 
+  #        s.start_time, 
+  #        s.end_time,
+  #        s.event_count,
+  #        s.user_count
+  #      FROM sessions s
+  #      ORDER BY start_time DESC"
+  #   ) do |rs|
+  #     rs.each do
+  #       session = {
+  #         "id" => JSON::Any.new(rs.read(String)),
+  #         "start_time" => JSON::Any.new(rs.read(Int64)),
+  #         "end_time" => rs.read(Int64?).try { |t| JSON::Any.new(t) } || JSON::Any.new(nil),
+  #         "event_count" => JSON::Any.new(rs.read(Int32)),
+  #         "user_count" => JSON::Any.new(rs.read(Int32))
+  #       }
+  #       sessions << session
+  #     end
+  #   end
+  #   @sessions_cache = sessions
+  #   @last_cache_update = Time.utc
+  #   puts "=== Cache des sessions mis à jour avec #{sessions.size} sessions ==="
+  # end
+
+  def get_sessions(page = 1, limit = 20) # Valeurs par défaut pour page et limit
+    offset = (page - 1) * limit
     sessions = [] of Hash(String, JSON::Any)
+    total_sessions = 0
+
+    # Obtenir le nombre total de sessions
+    total_sessions = @db.query_one("SELECT COUNT(*) FROM sessions", as: Int32)
+
+    # Obtenir les sessions pour la page courante
     @db.query(
       "SELECT 
          s.id, 
          s.start_time, 
          s.end_time,
-         (SELECT COUNT(*) FROM events WHERE session_id = s.id) as event_count,
-         (SELECT COUNT(DISTINCT json_extract(event_data, '$.user_id')) 
-          FROM events 
-          WHERE session_id = s.id 
-          AND json_extract(event_data, '$.type') NOT IN ('observer_joined', 'observer_left')
-         ) as user_count
+         s.event_count,
+         s.user_count
        FROM sessions s
-       ORDER BY start_time DESC"
+       ORDER BY start_time DESC
+       LIMIT ? OFFSET ?",
+      limit, offset
     ) do |rs|
       rs.each do
         session = {
           "id" => JSON::Any.new(rs.read(String)),
           "start_time" => JSON::Any.new(rs.read(Int64)),
           "end_time" => rs.read(Int64?).try { |t| JSON::Any.new(t) } || JSON::Any.new(nil),
-          "event_count" => JSON::Any.new(rs.read(Int64)),
-          "user_count" => JSON::Any.new(rs.read(Int64))
+          "event_count" => JSON::Any.new(rs.read(Int32)),
+          "user_count" => JSON::Any.new(rs.read(Int32))
         }
         sessions << session
       end
     end
-    @sessions_cache = sessions
-    @last_cache_update = Time.utc
-    puts "=== Cache des sessions mis à jour avec #{sessions.size} sessions ==="
-  end
-
-  def get_sessions
-    # Vérifier si le cache est valide
-    if @sessions_cache.nil? || @last_cache_update.nil? || 
-       (Time.utc - @last_cache_update.not_nil!) > Time::Span.new(seconds: CACHE_DURATION)
-      update_sessions_cache
-    end
-
-    @sessions_cache.not_nil!
+    
+    # Retourner les sessions paginées et le nombre total
+    { "sessions" => sessions, "total_sessions" => total_sessions, "page" => page, "limit" => limit }
   end
 
   def get_recent_events(limit = 20)
@@ -277,7 +303,7 @@ class PoieticRecorder
 
   # Appelé quand le premier utilisateur se connecte
   def start_new_session
-    @sessions_cache = nil  # Invalider le cache
+    # @sessions_cache = nil  # Invalider le cache # Plus pertinent si on ne cache plus la liste complète
     return if @current_session_id
 
     @current_session_id = "session_#{Time.utc.to_unix_ms}"
@@ -302,21 +328,41 @@ class PoieticRecorder
 
   # Appelé quand le dernier utilisateur se déconnecte ou quand le serveur s'arrête
   def end_current_session
-    @sessions_cache = nil  # Invalider le cache
+    # @sessions_cache = nil  # Invalider le cache # Plus pertinent
     return unless current_session_id = @current_session_id
 
     # Attendre un court instant pour s'assurer que tous les événements sont traités
     sleep(200.milliseconds)
 
-    # puts "=== Fin de la session : #{current_session_id} ==="
+    # Calculer event_count et user_count pour la session qui se termine
+    event_count_for_session = 0
+    user_ids_for_session = Set(String).new
+
+    @db.query("SELECT event_type, event_data FROM events WHERE session_id = ?", current_session_id) do |rs|
+      rs.each do
+        event_count_for_session += 1
+        event_data_json = JSON.parse(rs.read(String))
+        if user_id = event_data_json["user_id"]?.try(&.as_s?)
+          # Exclure les observateurs du comptage des utilisateurs si nécessaire
+          event_type = event_data_json["type"]?.try(&.as_s?)
+          unless event_type && (event_type == "observer_joined" || event_type == "observer_left")
+            user_ids_for_session.add(user_id)
+          end
+        end
+      end
+    end
+    user_count_for_session = user_ids_for_session.size
+
+    puts "=== Fin de la session : #{current_session_id} ==="
+    puts "    Event count: #{event_count_for_session}, User count: #{user_count_for_session}"
     @db.exec(
-      "UPDATE sessions SET end_time = ? WHERE id = ?",
-      Time.utc.to_unix_ms, current_session_id
+      "UPDATE sessions SET end_time = ?, event_count = ?, user_count = ? WHERE id = ?",
+      Time.utc.to_unix_ms, event_count_for_session, user_count_for_session, current_session_id
     )
     @current_session_id = nil
     
     # Lancer le nettoyage après la fin de la session
-    cleanup_invalid_sessions
+    # cleanup_invalid_sessions # Garder commenté pour l'instant
   end
 
   def get_current_session
@@ -479,11 +525,13 @@ class PoieticRecorder
 
     # Routes pour le player
     get "/api/player/sessions" do |env|
-      # puts "=== Récupération des sessions demandée ==="
+      page = env.params.query["page"]?.try(&.to_i) || 1
+      limit = env.params.query["limit"]?.try(&.to_i) || 20 # Default 20 items per page
+      limit = Math.min(limit, 100) # Max 100 items per page
+
+      data = get_sessions(page, limit)
       env.response.content_type = "application/json"
-      sessions = get_sessions
-      # puts "=== Sessions trouvées: #{sessions.inspect} ==="
-      sessions.to_json
+      data.to_json
     end
 
     get "/api/player/sessions/:id/events" do |env|
@@ -598,7 +646,7 @@ class PoieticRecorder
   end
 
   private def cleanup_invalid_sessions
-    @sessions_cache = nil  # Invalider le cache avant le nettoyage
+    # @sessions_cache = nil  # Invalider le cache avant le nettoyage
     puts "=== Début du nettoyage des sessions invalides ==="
     
     max_retries = 5

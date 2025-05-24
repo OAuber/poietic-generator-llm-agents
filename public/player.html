@@ -14,10 +14,14 @@
     <div class="container">
         <!-- Colonne gauche / Partie haute -->
         <div class="control-panel left-panel">
-            <div class="session-label">Select a session</div>
-            <select id="session-select" class="control-item">
-                <option value="">Select a session...</option>
-            </select>
+            <div class="session-list-container">
+                <h2>Available Sessions (<span id="total-sessions-display">0</span>)</h2>
+                <div class="pagination-controls">
+                    <button id="prev-page" disabled>&laquo; Prev</button>
+                    <span id="page-info">Page 1 / 1</span>
+                    <button id="next-page" disabled>Next &raquo;</button>
+                </div>
+            </div>
             <div class="share-button" id="share-button">
                 <svg class="share-icon" viewBox="0 0 24 24" width="24" height="24">
                     <circle cx="6" cy="12" r="3" fill="currentColor"/>
@@ -33,21 +37,24 @@
                           stroke-linecap="round"/>
                 </svg>
             </div>
+            <button id="btn-change-session" style="margin-top: 10px;">Change Session</button>
         </div>
 
-        <!-- Zone centrale (grille) -->
+        <!-- Zone centrale (grille ET liste des sessions) -->
         <div class="grid-container">
             <div class="main-zone">
                 <div id="poietic-grid"></div>
+                <ul id="session-list-ul" class="session-list-overlay">
+                </ul>
                 <div id="player-overlay">
                     <div class="player-overlay-title">Poietic Generator</div>
                     <div class="player-overlay-subtitle">Pixel Love since 1986</div>
                     <div class="player-overlay-message">
-                        <button id="play-button" class="control-button" onclick="window.location.href='https://poietic-generator.net'">
+                        <button id="play-button" class="control-button">
                             <span>PLAY</span>
                         </button>
                         <div class="or-separator">or</div>
-                        <a href="https://poietic-generator.net/player/" class="replay-link">REPLAY</a>
+                        <button id="btn-select-session-overlay" class="replay-link">REPLAY / SELECT</button>
                     </div>
                     <div class="player-overlay-footer">Copyleft, Free Art License</div>
                 </div>
