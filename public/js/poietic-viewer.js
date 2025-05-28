@@ -13,14 +13,15 @@ export class PoieticViewer {
         this.isObserver = isObserver;
         this.instanceId = instanceId;
 
-        // Initialiser les structures de données
         this.cells = new Map();
         this.userPositions = new Map();
-        this.userColors = new Map();
+        this.userColors = new Map(); // Stockera les palettes de 400 couleurs initiales par userId
         this.gridSize = 1;
         this.cellSize = 0;
         this.subCellSize = 0;
         this.isConnected = false;
+        this.socket = null;
+        this.reconnectTimeoutId = null;
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => this.initialize());
@@ -51,10 +52,10 @@ export class PoieticViewer {
 
     resetViewerState() {
         console.log('Resetting viewer state');
-        if (this.socket) {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             this.socket.close();
-            this.socket = null;
         }
+        this.socket = null;
 
         if (this.grid) {
             this.grid.innerHTML = '';
@@ -64,13 +65,12 @@ export class PoieticViewer {
         this.userPositions.clear();
         this.userColors.clear();
         this.gridSize = 1;
-        this.cellSize = 0;
-        this.subCellSize = 0;
-        this.isConnected = false;
+        this.updateGridDisplay();
 
         if (this.overlay) {
             this.overlay.classList.add('visible');
         }
+        this.isConnected = false;
     }
 
     connect() {
@@ -86,6 +86,10 @@ export class PoieticViewer {
             this.socket.onopen = () => {
                 console.log('WebSocket connection established in viewer mode');
                 this.isConnected = true;
+                if (this.reconnectTimeoutId) {
+                    clearTimeout(this.reconnectTimeoutId);
+                    this.reconnectTimeoutId = null;
+                }
             };
 
             this.socket.onclose = (event) => {
@@ -96,13 +100,13 @@ export class PoieticViewer {
                     timestamp: new Date().toISOString()
                 });
                 this.isConnected = false;
-
-                setTimeout(() => {
+                if (this.reconnectTimeoutId) clearTimeout(this.reconnectTimeoutId);
+                this.reconnectTimeoutId = setTimeout(() => {
                     if (!this.isConnected) {
                         console.log('Attempting to reconnect...');
                         this.connect();
                     }
-                }, 1000);
+                }, 3000);
             };
 
             this.socket.onerror = (error) => {
@@ -122,8 +126,8 @@ export class PoieticViewer {
                         case 'initial_state':
                             this.handleInitialState(message);
                             break;
-                        case 'user_update':
-                            this.handleUserUpdate(message);
+                        case 'new_user':
+                            this.handleNewUser(message);
                             break;
                         case 'cell_update':
                             this.handleCellUpdate(message);
@@ -148,44 +152,54 @@ export class PoieticViewer {
 
     handleInitialState(message) {
         console.log('Processing initial state');
-        this.gridSize = message.grid_size;
-        this.userColors = new Map();
+        this.gridSize = message.grid_size || 1;
+        
+        this.grid.innerHTML = '';
+        this.cells.clear();
+        this.userPositions.clear();
+        this.userColors.clear();
 
-        // Traiter le grid_state
         if (message.grid_state) {
             const gridState = typeof message.grid_state === 'string' ?
                 JSON.parse(message.grid_state) : message.grid_state;
 
-            // Mettre à jour les positions des utilisateurs ET générer leurs couleurs initiales
             if (gridState.user_positions) {
-                Object.entries(gridState.user_positions).forEach(([userId, position]) => {
-                    // Générer et stocker les couleurs initiales pour cet utilisateur
-                    const initialColorsPalette = ColorGenerator.generateInitialColors(userId);
-                    this.userColors.set(userId, initialColorsPalette);
-                    // Mettre à jour/créer la cellule, elle utilisera this.userColors
-                    this.updateCell(userId, position[0], position[1]);
+                Object.entries(gridState.user_positions).forEach(([userId, positionArray]) => {
+                    if (!this.userColors.has(userId)) {
+                        // Générer et stocker la palette initiale localement
+                        const initialColorsPalette = ColorGenerator.generateInitialColors(userId);
+                        this.userColors.set(userId, initialColorsPalette);
+                    }
+                    this.updateCell(userId, positionArray[0], positionArray[1]);
                 });
             }
         }
 
-        // Mettre à jour les états des sous-cellules
         if (message.sub_cell_states) {
             Object.entries(message.sub_cell_states).forEach(([userId, subCells]) => {
-                Object.entries(subCells).forEach(([coords, color]) => {
-                    const [subX, subY] = coords.split(',').map(Number);
-                    this.updateSubCell(userId, subX, subY, color);
-                });
+                if (this.cells.has(userId)) {
+                    Object.entries(subCells).forEach(([coords, color]) => {
+                        const [subX, subY] = coords.split(',').map(Number);
+                        this.updateSubCell(userId, subX, subY, color);
+                    });
+                }
             });
         }
-
-        this.updateGridSize();
+        this.updateGridDisplay();
     }
 
-    handleUserUpdate(message) {
-        if (message.user_positions) {
-            Object.entries(message.user_positions).forEach(([userId, position]) => {
-                this.updateCell(userId, position[0], position[1]);
-            });
+    handleNewUser(message) {
+        const { user_id, position } = message;
+        console.log(`Adding new user ${user_id} at position (${position[0]}, ${position[1]})`);
+        if (!this.userColors.has(user_id)) {
+            // Générer et stocker la palette initiale localement
+            const initialColorsPalette = ColorGenerator.generateInitialColors(user_id);
+            this.userColors.set(user_id, initialColorsPalette);
+        }
+        this.updateCell(user_id, position[0], position[1]);
+
+        if (this.overlay && this.cells.size > 0) {
+            this.overlay.classList.remove('visible');
         }
     }
 
@@ -205,12 +219,43 @@ export class PoieticViewer {
 
     handleZoomUpdate(message) {
         if (typeof message.grid_size === 'number') {
-            this.updateZoom(
-                message.grid_size,
-                message.grid_state,
-                message.user_colors,
-                message.sub_cell_states
-            );
+            this.gridSize = message.grid_size;
+            
+            const gridState = typeof message.grid_state === 'string' ? 
+                JSON.parse(message.grid_state) : message.grid_state;
+
+            if (gridState.user_positions) {
+                const presentUserIds = new Set();
+                Object.entries(gridState.user_positions).forEach(([userId, positionArray]) => {
+                    presentUserIds.add(userId);
+                    if (!this.userColors.has(userId)) {
+                        // Générer et stocker la palette initiale localement si l'utilisateur est nouveau
+                        const initialColorsPalette = ColorGenerator.generateInitialColors(userId);
+                        this.userColors.set(userId, initialColorsPalette);
+                    }
+                    this.updateCell(userId, positionArray[0], positionArray[1]);
+                });
+
+                this.cells.forEach((_, userId) => {
+                    if (!presentUserIds.has(userId)) {
+                        this.removeUser(userId);
+                    }
+                });
+            }
+
+            // user_colors n'est plus attendu du serveur.
+            // Les sub_cell_states sont appliqués par-dessus les palettes initiales gérées localement.
+            if (message.sub_cell_states) {
+                Object.entries(message.sub_cell_states).forEach(([userId, subCells]) => {
+                    if (this.cells.has(userId)) {
+                        Object.entries(subCells).forEach(([coords, color]) => {
+                            const [subX, subY] = coords.split(',').map(Number);
+                            this.updateSubCell(userId, subX, subY, color);
+                        });
+                    }
+                });
+            }
+            this.updateGridDisplay();
         }
     }
 
@@ -226,24 +271,27 @@ export class PoieticViewer {
             this.cells.set(userId, cell);
         }
 
-        // Si c'est une nouvelle cellule, ou si elle n'a pas de subCells (pour une raison quelconque)
-        // il faut la peupler avec les couleurs initiales.
+        // S'assurer que la palette de couleurs existe dans this.userColors
+        // Elle devrait avoir été créée par handleInitialState, handleNewUser ou handleZoomUpdate
+        const palette = this.userColors.get(userId);
+        if (!palette) {
+            console.error(`[${this.instanceId}] CRITICAL: Palette for ${userId} is missing in updateCell. This should not happen.`);
+            // En fallback extrême, on pourrait la générer ici, mais cela indique un problème en amont.
+            // const emergencyPalette = ColorGenerator.generateInitialColors(userId);
+            // this.userColors.set(userId, emergencyPalette);
+            // palette = emergencyPalette;
+            return; // Ou retourner pour éviter d'afficher une cellule mal initialisée
+        }
+        
         if (isNewCell || cell.children.length !== 400) {
-            cell.innerHTML = ''; // Nettoyer au cas où
-            const initialColorsPalette = this.userColors.get(userId);
-            if (!initialColorsPalette) {
-                console.warn(`No initial colors found for user ${userId} in updateCell`);
-                return; // Ne pas continuer si la palette n'est pas là
-            }
-
+            cell.innerHTML = ''; 
             for (let sub_y = 0; sub_y < 20; sub_y++) {
                 for (let sub_x = 0; sub_x < 20; sub_x++) {
                     const subCell = document.createElement('div');
                     subCell.className = 'sub-cell';
                     subCell.dataset.x = sub_x.toString();
                     subCell.dataset.y = sub_y.toString();
-                    // Appliquer la couleur initiale déterministe
-                    subCell.style.backgroundColor = initialColorsPalette[sub_y * 20 + sub_x] || '#FFFFFF'; // Fallback blanc
+                    subCell.style.backgroundColor = palette[sub_y * 20 + sub_x] || '#B0B0B0'; // Fallback gris si une couleur manque dans la palette
                     cell.appendChild(subCell);
                 }
             }
@@ -282,16 +330,6 @@ export class PoieticViewer {
         }
     }
 
-    addNewUser(userId, position, color) {
-        console.log(`Adding new user ${userId} at position (${position[0]}, ${position[1]})`);
-        this.userColors.set(userId, color);
-        this.updateCell(userId, position[0], position[1]);
-
-        if (this.overlay && this.cells.size > 0) {
-            this.overlay.classList.remove('visible');
-        }
-    }
-
     removeUser(userId) {
         console.log(`Removing user ${userId}`);
         const cell = this.cells.get(userId);
@@ -307,28 +345,9 @@ export class PoieticViewer {
         }
     }
 
-    updateZoom(newGridSize, gridState, userColors, subCellStates) {
-        this.gridSize = newGridSize;
-        this.userColors = new Map(Object.entries(userColors));
-
-        const parsedGridState = JSON.parse(gridState);
-        Object.entries(parsedGridState.user_positions).forEach(([userId, position]) => {
-            this.updateCell(userId, position[0], position[1]);
-        });
-
-        Object.entries(subCellStates).forEach(([userId, subCells]) => {
-            Object.entries(subCells).forEach(([coords, color]) => {
-                const [subX, subY] = coords.split(',').map(Number);
-                this.updateSubCell(userId, subX, subY, color);
-            });
-        });
-
-        this.updateGridSize();
-    }
-
-    updateGridSize() {
+    updateGridDisplay() {
         const screenSize = Math.min(window.innerWidth, window.innerHeight);
-        this.cellSize = screenSize / this.gridSize;
+        this.cellSize = this.gridSize > 0 ? screenSize / this.gridSize : screenSize;
         this.subCellSize = this.cellSize / 20;
 
         this.grid.style.width = `${screenSize}px`;
@@ -344,7 +363,7 @@ export class PoieticViewer {
 
     addResizeListener() {
         window.addEventListener('resize', () => {
-            this.updateGridSize();
+            this.updateGridDisplay();
         });
     }
 }
