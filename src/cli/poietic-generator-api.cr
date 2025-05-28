@@ -7,17 +7,17 @@ require "../file_storage"
 class Grid
   property user_positions : Hash(String, Tuple(Int32, Int32))
   property sub_cell_states : Hash(String, Hash(Tuple(Int32, Int32), String))
-  property initial_colors : Hash(String, Array(String))
+  # property initial_colors : Hash(String, Array(String)) # Supprimé
 
   def initialize
     @user_positions = Hash(String, Tuple(Int32, Int32)).new
     @sub_cell_states = Hash(String, Hash(Tuple(Int32, Int32), String)).new
-    @initial_colors = Hash(String, Array(String)).new
+    # @initial_colors = Hash(String, Array(String)).new # Supprimé
   end
 
   def set_user_position(user_id : String, position : Tuple(Int32, Int32))
     @user_positions[user_id] = position
-    @initial_colors[user_id] = generate_initial_colors(user_id) unless @initial_colors.has_key?(user_id)
+    # @initial_colors[user_id] = generate_initial_colors(user_id) unless @initial_colors.has_key?(user_id) # Supprimé
     @sub_cell_states[user_id] ||= Hash(Tuple(Int32, Int32), String).new
   end
 
@@ -39,13 +39,15 @@ class Grid
           end
         end
       end
+      # Le champ "initial_colors" n'est plus nécessaire ici car il est supprimé de la classe
+      # Si vous aviez une sérialisation pour initial_colors, elle serait retirée.
     end
   end
 
   def remove_user(user_id : String)
     @user_positions.delete(user_id)
     @sub_cell_states.delete(user_id)
-    @initial_colors.delete(user_id)
+    # @initial_colors.delete(user_id) # Supprimé
   end
 
   def find_next_available_position : Tuple(Int32, Int32)
@@ -102,54 +104,14 @@ class Grid
     n.even? ? n + 1 : n
   end
 
-  private def generate_initial_colors(user_id : String)
-    # Créer un générateur de nombres pseudo-aléatoires avec l'UUID comme seed
-    seed = user_id.bytes.reduce(0) { |acc, b| (acc << 8) + b }
-    rng = Random.new(seed)
-
-    # Générer une couleur de base pour cet utilisateur
-    base_h = rng.rand # Teinte de base (0.0 - 1.0)
-    base_s = 0.6 + (rng.rand * 0.4) # Saturation (0.6 - 1.0)
-    base_l = 0.4 + (rng.rand * 0.2) # Luminosité (0.4 - 0.6)
-
-    # Générer 400 variations autour de cette couleur
-    Array.new(400) do |i|
-      # Faire varier la teinte autour de la teinte de base
-      h = (base_h + (rng.rand * 0.2) - 0.1) % 1.0
-      # Faire varier la saturation
-      s = (base_s + (rng.rand * 0.2) - 0.1).clamp(0.0, 1.0)
-      # Faire varier la luminosité
-      l = (base_l + (rng.rand * 0.2) - 0.1).clamp(0.0, 1.0)
-
-      # Convertir HSL en RGB puis en hex
-      hsl_to_hex(h, s, l)
-    end
-  end
-
-  private def hue_to_rgb(p : Float64, q : Float64, t : Float64) : Float64
-    t += 1.0 if t < 0
-    t -= 1.0 if t > 1
-    return p + (q - p) * 6 * t if t < 1.0/6
-    return q if t < 1.0/2
-    return p + (q - p) * (2.0/3 - t) * 6 if t < 2.0/3
-    return p
-  end
-
-  private def hsl_to_hex(h : Float64, s : Float64, l : Float64) : String
-    q = l < 0.5 ? l * (1 + s) : l + s - l * s
-    p = 2 * l - q
-
-    r = (hue_to_rgb(p, q, h + 1.0/3) * 255).round.to_i
-    g = (hue_to_rgb(p, q, h) * 255).round.to_i
-    b = (hue_to_rgb(p, q, h - 1.0/3) * 255).round.to_i
-
-    "#%02x%02x%02x" % [r, g, b]
-  end
+  # private def generate_initial_colors(user_id : String) ... (Méthode entièrement supprimée)
+  # private def hue_to_rgb(p : Float64, q : Float64, t : Float64) : Float64 ... (Méthode entièrement supprimée)
+  # private def hsl_to_hex(h : Float64, s : Float64, l : Float64) : String ... (Méthode entièrement supprimée)
 end
 
 class Session
   INACTIVITY_TIMEOUT = 180.seconds
-  RECONNECTION_TIMEOUT = 180.seconds
+  RECONNECTION_TIMEOUT = 15.seconds # Temporairement réduit de 180.seconds
 
   property users : Hash(String, HTTP::WebSocket)
   property observers : Hash(String, HTTP::WebSocket)
@@ -172,61 +134,77 @@ class Session
   end
 
   def add_user(socket : HTTP::WebSocket, forced_id : String? = nil) : String
-    # Gestion reconnexion rapide : si un client tente de se reconnecter avec un user_id déjà utilisé,
-    # on ferme l'ancienne socket, on place le user_id dans pending_disconnects, puis on accepte la reconnexion.
     user_id = forced_id
+    # puts "--- add_user --- Debut. forced_id: #{forced_id}" # LOG AJOUTÉ
 
     # 1. Si reconnexion dans le délai de grâce
     if user_id && @pending_disconnects.has_key?(user_id)
+      # puts "--- add_user --- Cas 1: Reconnexion depuis pending_disconnects pour user_id: #{user_id}" # LOG AJOUTÉ
       @pending_disconnects.delete(user_id)
       @users[user_id] = socket
       @last_heartbeat[user_id] = Time.utc
       send_initial_state(user_id)
       broadcast_new_user(user_id)
       broadcast_zoom_update
-      puts "Connexion avec user_id=#{user_id} (pending=#{@pending_disconnects.has_key?(user_id)})"
+      # puts "Connexion avec user_id=#{user_id} (pending=#{@pending_disconnects.has_key?(user_id)})"
       return user_id
     end
 
     # 1bis. Si user_id déjà utilisé (connexion concurrente ou reconnexion rapide avant fermeture de l'ancienne socket)
     if user_id && @users.has_key?(user_id)
-      # Fermer l'ancienne socket si elle existe encore
+      # puts "--- add_user --- Cas 1bis: user_id déjà dans @users: #{user_id}. Fermeture ancienne socket." # LOG AJOUTÉ
       old_socket = @users[user_id]
       begin
         old_socket.close
       rescue ex
         # ignore
       end
-      # Placer immédiatement dans pending_disconnects
       @pending_disconnects[user_id] = Time.utc
       @users.delete(user_id)
       @last_activity.delete(user_id)
       @last_heartbeat.delete(user_id)
-      # On continue comme si c'était une reconnexion dans le délai de grâce
-      @pending_disconnects.delete(user_id)
+      
+      @pending_disconnects.delete(user_id) # On le retire aussitôt pour le réassigner
       @users[user_id] = socket
       @last_heartbeat[user_id] = Time.utc
       send_initial_state(user_id)
       broadcast_new_user(user_id)
       broadcast_zoom_update
-      puts "Connexion avec user_id=#{user_id} (pending=force_reconnect)"
+      # puts "Connexion avec user_id=#{user_id} (pending=force_reconnect)"
       return user_id
     end
 
     # 2. Nouvelle connexion (ou user_id obsolète)
-    user_id = UUID.random.to_s
+    original_user_id_if_forced = user_id # Garder une trace si un ID forcé était fourni mais non reconnu
+    user_id = UUID.random.to_s # Génère un nouvel ID
+    # puts "--- add_user --- Cas 2: Nouvelle connexion ou forced_id non reconnu ('#{original_user_id_if_forced}'). Nouvel user_id généré: #{user_id}" # LOG AJOUTÉ
+    
+    # === AJOUT : Déclencher start_new_session du recorder si c'est le PREMIER utilisateur de CETTE session API ===
+    was_session_empty = @users.empty? # Vérifier AVANT d'ajouter le nouvel utilisateur
 
     @users[user_id] = socket
     @last_activity[user_id] = Time.utc
     @last_heartbeat[user_id] = Time.utc
     position = @grid.find_next_available_position
     @grid.set_user_position(user_id, position)
-    # Nettoyer toute sous-cellule personnalisée pour ce nouvel utilisateur
     @grid.sub_cell_states[user_id] = Hash(Tuple(Int32, Int32), String).new
-    send_initial_state(user_id)
+
+    if was_session_empty # Si la session API était vide avant cet utilisateur
+      # puts "--- API: Session#add_user --- Premier utilisateur pour cette session API. Appel de API.recorder.start_new_session."
+      API.recorder.start_new_session 
+      # Maintenant, le recorder devrait avoir un @current_session_id.
+      # La logique pour set_first_user_for_session viendra après send_initial_state
+    end
+        
+    send_initial_state(user_id) # Ceci doit venir après start_new_session pour que session_start_time soit correct
+    
+    # La logique pour set_first_user_uuid doit utiliser le user_id réel de CETTE session
+    if was_session_empty && (current_recorder_session_id = API.recorder.current_session_id)
+         API.recorder.set_first_user_for_session(current_recorder_session_id, user_id) # Utiliser user_id (le nouveau)
+    end
+
     broadcast_new_user(user_id)
     broadcast_zoom_update
-    puts "Connexion avec user_id=#{user_id} (pending=#{@pending_disconnects.has_key?(user_id)})"
     user_id
   end
 
@@ -298,24 +276,31 @@ class Session
       grid_size: calculate_grid_size,
       user_positions: @grid.user_positions.transform_values { |pos| [pos[0], pos[1]] },
       sub_cell_states: serialize_sub_cell_states
-    }
+    }# 
     # puts "=== État initial: #{state.inspect} ==="
     broadcast(state.to_json)
   end
 
   def remove_user(user_id : String)
+    # puts "--- API: Session#remove_user --- Appelé pour user_id: #{user_id}"
     if position = @grid.get_user_position(user_id)
       API.recorder.record_user_left(user_id)
-      broadcast_user_left(user_id, position)
+      broadcast_user_left(user_id, position) # Assurez-vous que c'est le bon appel ici
       @grid.remove_user(user_id)
       @users.delete(user_id)
       @last_activity.delete(user_id)
       @last_heartbeat.delete(user_id)
       @pending_disconnects.delete(user_id)
+      # puts "--- API: Session#remove_user --- Utilisateur #{user_id} retiré. Utilisateurs restants: #{@users.size}"
       broadcast_zoom_update
       if @users.empty?
+        # puts "--- API: Session#remove_user --- Plus d'utilisateurs. Appel de API.recorder.end_current_session."
         API.recorder.end_current_session
       end
+    else
+      # puts "--- API: Session#remove_user --- Utilisateur #{user_id} non trouvé dans la grille. Retrait simple."
+      @users.delete(user_id)
+      @pending_disconnects.delete(user_id)
     end
   end
 
@@ -401,7 +386,7 @@ class Session
   end
 
   def handle_disconnect(user_id : String)
-    puts "handle_disconnect: ajout de #{user_id} à pending_disconnects"
+    # puts "handle_disconnect: ajout de #{user_id} à pending_disconnects"
     @pending_disconnects[user_id] = Time.utc
     # NE PAS retirer de @users ici (il reste visible)
   end
@@ -467,7 +452,7 @@ class Session
     to_delete = [] of String
     @pending_disconnects.each do |user_id, disconnect_time|
       if now - disconnect_time > RECONNECTION_TIMEOUT
-        puts "check_pending_disconnects: suppression définitive de #{user_id}"
+        # puts "check_pending_disconnects: suppression définitive de #{user_id}"
         remove_user(user_id)
         @last_heartbeat.delete(user_id)
         to_delete << user_id
@@ -620,28 +605,7 @@ ws "/updates" do |socket, context|
     user_id_for_socket = PoieticGenerator.current_session.add_observer(socket)
     # puts "Observer connecté: #{user_id_for_socket}"
   else
-    # On vérifie si la session applicative est vide AVANT d'ajouter l'utilisateur.
-    # Si elle est vide, alors cet utilisateur va initier la création d'une nouvelle session
-    # par le recorder (via l'appel à API.recorder.start_new_session dans Session#add_user).
-    is_initiating_user_for_recorder_session = PoieticGenerator.current_session.users.empty?
-    
-    actual_user_id = PoieticGenerator.current_session.add_user(socket, user_id_param)
-    user_id_for_socket = actual_user_id
-    # puts "Utilisateur (potentiellement nouveau ou reconnecté): #{user_id_for_socket}. Initiateur pour recorder? #{is_initiating_user_for_recorder_session}"
-
-    if is_initiating_user_for_recorder_session
-      # À ce point, Session#add_user a dû appeler API.recorder.start_new_session si la session était vide.
-      # Nous devons donc avoir un current_session_id dans le recorder.
-      current_recorder_session_id = API.recorder.current_session_id 
-      
-      if recorder_session_id_val = current_recorder_session_id # Vérifie non-nil et assigne
-        API.recorder.set_first_user_for_session(recorder_session_id_val, actual_user_id)
-        # puts "=== API a demandé à Recorder de MAJ first_user_uuid: #{actual_user_id} pour session recorder: #{recorder_session_id_val} ==="
-      else
-        # Ce cas ne devrait idéalement pas arriver si la logique est correcte.
-        # puts "=== ATTENTION API: is_initiating_user était vrai, mais API.recorder.current_session_id est nil. Pas de MAJ de first_user_uuid. ==="
-      end
-    end
+    user_id_for_socket = PoieticGenerator.current_session.add_user(socket, user_id_param)
   end
   
   user_id_for_message_handling = user_id_for_socket 
@@ -676,14 +640,20 @@ ws "/updates" do |socket, context|
   end
 end
 
-# Ajoutez cette tâche périodique pour vérifier l'inactivité
 spawn do
   loop do
-    sleep 2.seconds
-    PoieticGenerator.current_session.check_inactivity
-    PoieticGenerator.current_session.check_pending_disconnects
+    #puts "--- API TÂCHE FOND --- Vérification activité/déconnexions ---"
+    sleep 2.seconds # <<< MODIFIEZ CECI (par exemple, revenez à 2 secondes)
+    begin
+      PoieticGenerator.current_session.check_inactivity
+      PoieticGenerator.current_session.check_pending_disconnects
+    rescue ex
+      # puts "!!! API TÂCHE FOND EXCEPTION: #{ex.message} !!!"
+      # puts ex.backtrace 
+    end
   end
 end
+# =============================================================================
 
 ws "/record" do |socket, context|
   # puts "=== Nouvelle connexion WebSocket sur /record ==="

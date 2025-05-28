@@ -41,7 +41,7 @@ class PoieticRecorder
     # Configuration et démarrage
     private_setup_database
     # ensure_test_session
-    # cleanup_invalid_sessions # <--- COMMENTER POUR TEST
+    # cleanup_invalid_sessions # <--- ASSUREZ-VOUS QUE CETTE LIGNE EST COMMENTÉE
     spawn process_event_queue
     # puts "=== Initialisation du PoieticRecorder avec DB: #{db_path} ==="
   end
@@ -351,66 +351,107 @@ class PoieticRecorder
 
   # Appelé quand le premier utilisateur se connecte
   def start_new_session
-    # @sessions_cache = nil  # Invalider le cache # Plus pertinent si on ne cache plus la liste complète
     return if @current_session_id
 
-    @current_session_id = "session_#{Time.utc.to_unix_ms}"
-    # puts "=== Création d'une nouvelle session : #{@current_session_id} ==="
+    new_id = "session_#{Time.utc.to_unix_ms}"
+    puts "--- RECORDER: PoieticRecorder#start_new_session --- Tentative de création de session avec ID: #{new_id}"
 
-    @db.transaction do |tx|
-      tx.connection.exec(
-        "INSERT INTO sessions (id, start_time) VALUES (?, ?)",
-        @current_session_id, Time.utc.to_unix_ms
-      )
+    begin
+      @db.transaction do |tx|
+        tx.connection.exec(
+          "INSERT INTO sessions (id, start_time) VALUES (?, ?)",
+          new_id, Time.utc.to_unix_ms
+        )
+        puts "--- RECORDER: PoieticRecorder#start_new_session --- INSERT dans sessions RÉUSSI pour ID: #{new_id}"
 
-      # Enregistrer l'événement de début de session directement
-      tx.connection.exec(
-        "INSERT INTO events (session_id, timestamp, event_type, event_data)
-         VALUES (?, ?, 'session_start', ?)",
-        @current_session_id,
-        Time.utc.to_unix_ms,
-        JSON.build { |json| json.object { json.field "type", "session_start" } }
-      )
+        tx.connection.exec(
+          "INSERT INTO events (session_id, timestamp, event_type, event_data)
+           VALUES (?, ?, 'session_start', ?)",
+          new_id,
+          Time.utc.to_unix_ms,
+          JSON.build { |json| json.object { json.field "type", "session_start" } }
+        )
+        puts "--- RECORDER: PoieticRecorder#start_new_session --- INSERT de l'événement session_start RÉUSSI pour ID: #{new_id}"
+      end
+      @current_session_id = new_id # Assigner seulement si la transaction réussit
+      puts "--- RECORDER: PoieticRecorder#start_new_session --- @current_session_id mis à #{new_id}"
+    rescue ex
+      puts "--- RECORDER: PoieticRecorder#start_new_session --- ERREUR lors de la création de la session #{new_id}: #{ex.message}"
+      @current_session_id = nil # S'assurer qu'il est nil en cas d'erreur
     end
   end
 
   # Appelé quand le dernier utilisateur se déconnecte ou quand le serveur s'arrête
   def end_current_session
-    # @sessions_cache = nil  # Invalider le cache # Plus pertinent
-    return unless current_session_id = @current_session_id
+    # === VÉRIFIEZ QUE CE LOG EST PRÉSENT ET NON COMMENTÉ ===
+    puts "--- RECORDER: PoieticRecorder#end_current_session --- Début."
+    original_session_id_to_end = @current_session_id
+    
+    unless current_session_id = @current_session_id
+      puts "--- RECORDER: PoieticRecorder#end_current_session --- ERREUR: current_session_id est nil. Sortie."
+      return
+    end
+    
+    puts "--- RECORDER: PoieticRecorder#end_current_session --- Session ID à terminer: #{current_session_id}"
 
     # Attendre un court instant pour s'assurer que tous les événements sont traités
-    sleep(200.milliseconds)
+    # sleep(200.milliseconds) # Vous pouvez commenter/décommenter ceci pour voir si ça a un impact
 
     # Calculer event_count et user_count pour la session qui se termine
     event_count_for_session = 0
     user_ids_for_session = Set(String).new
 
-    @db.query("SELECT event_type, event_data FROM events WHERE session_id = ?", current_session_id) do |rs|
-      rs.each do
-        event_count_for_session += 1
-        event_data_json = JSON.parse(rs.read(String))
-        if user_id = event_data_json["user_id"]?.try(&.as_s?)
-          # Exclure les observateurs du comptage des utilisateurs si nécessaire
-          event_type = event_data_json["type"]?.try(&.as_s?)
-          unless event_type && (event_type == "observer_joined" || event_type == "observer_left")
-            user_ids_for_session.add(user_id)
+    begin
+      @db.query("SELECT event_type, event_data FROM events WHERE session_id = ?", current_session_id) do |rs|
+        rs.each do
+          event_count_for_session += 1
+          
+          event_type_str = rs.read(String)  # Lire la colonne event_type
+          event_data_str = rs.read(String)  # Lire la colonne event_data
+          
+          puts "--- RECORDER DEBUG: event_type_str: #{event_type_str}, event_data_str avant parse: #{event_data_str}" # Log modifié
+          
+          begin
+            event_data_json = JSON.parse(event_data_str) # Parser event_data_str
+            if user_id = event_data_json["user_id"]?.try(&.as_s?)
+              # Exclure les observateurs du comptage des utilisateurs si nécessaire
+              # Utiliser event_data_json["type"] ou event_type_str selon votre besoin
+              current_event_type = event_data_json["type"]?.try(&.as_s?) || event_type_str
+              unless current_event_type && (current_event_type == "observer_joined" || current_event_type == "observer_left")
+                user_ids_for_session.add(user_id)
+              end
+            end
+          rescue ex_parse : JSON::ParseException
+            puts "--- RECORDER: PoieticRecorder#end_current_session --- ERREUR JSON.parse pour event_data: '#{event_data_str}'. Erreur: #{ex_parse.message}"
+            # Décidez si vous voulez quand même compter cet événement ou non
+            # event_count_for_session pourrait déjà être incrémenté.
+            # user_ids_for_session ne sera pas mis à jour pour cet événement.
           end
         end
       end
+    rescue ex_query # Exception pour la requête DB elle-même
+      puts "--- RECORDER: PoieticRecorder#end_current_session --- ERREUR lors de la requête DB des événements: #{ex_query.message}"
     end
+    
     user_count_for_session = user_ids_for_session.size
 
-    puts "=== Fin de la session : #{current_session_id} ==="
-    puts "    Event count: #{event_count_for_session}, User count: #{user_count_for_session}"
-    @db.exec(
-      "UPDATE sessions SET end_time = ?, event_count = ?, user_count = ? WHERE id = ?",
-      Time.utc.to_unix_ms, event_count_for_session, user_count_for_session, current_session_id
-    )
+    puts "--- RECORDER: PoieticRecorder#end_current_session --- Calculs avant UPDATE: Session ID: #{current_session_id}, Event count: #{event_count_for_session}, User count: #{user_count_for_session}, End time à écrire: #{Time.utc.to_unix_ms}"
+    
+    begin
+      @db.exec(
+        "UPDATE sessions SET end_time = ?, event_count = ?, user_count = ? WHERE id = ?",
+        Time.utc.to_unix_ms, event_count_for_session, user_count_for_session, current_session_id
+      )
+      puts "--- RECORDER: PoieticRecorder#end_current_session --- UPDATE de la table sessions RÉUSSI pour session ID: #{current_session_id}."
+    rescue ex
+      puts "--- RECORDER: PoieticRecorder#end_current_session --- ERREUR lors de l'UPDATE de la table sessions pour ID #{current_session_id}: #{ex.message}"
+    end
+    
     @current_session_id = nil
+    puts "--- RECORDER: PoieticRecorder#end_current_session --- Terminé. @current_session_id mis à nil. ID de session traité: #{original_session_id_to_end}"
     
     # Lancer le nettoyage après la fin de la session
-    # cleanup_invalid_sessions # Garder commenté pour l'instant
+    # cleanup_invalid_sessions # <--- Doit être commenté pour les tests
   end
 
   def get_current_session
@@ -792,9 +833,9 @@ class PoieticRecorder
   end
 
   # Ajouter une méthode pour forcer le nettoyage
-  def force_cleanup
-    cleanup_invalid_sessions
-  end
+  # def force_cleanup
+  #   cleanup_invalid_sessions #
+  # end
 
   def set_first_user_for_session(session_id : String, user_uuid : String)
     puts "=== Recorder: Tentative de MAJ first_user_uuid = #{user_uuid} pour session #{session_id} ==="

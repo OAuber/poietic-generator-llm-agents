@@ -443,13 +443,13 @@ class PoieticClient {
     
         const gridState = JSON.parse(state.grid_state);
         Object.entries(gridState.user_positions).forEach(([userId, position]) => {
-            this.updateCell(userId, position[0], position[1]);
+            this.updateCell(userId, position[0], position[1]); // updateCell génère et applique déjà la palette initiale
         });
         if (state.sub_cell_states) {
             Object.entries(state.sub_cell_states).forEach(([userId, subCells]) => {
                 Object.entries(subCells).forEach(([coords, color]) => {
                     const [subX, subY] = coords.split(',').map(Number);
-                    this.updateSubCell(userId, subX, subY, color);
+                    this.updateSubCell(userId, subX, subY, color); // Applique les modifications par-dessus
                 });
             });
         }
@@ -559,18 +559,18 @@ class PoieticClient {
             this.cells.set(userId, cell);
         }
     
-        cell.innerHTML = '';
-        if (!this.initialColors.has(userId)) {
+        cell.innerHTML = ''; // Efface pour redessiner
+        if (!this.initialColors.has(userId)) { // Calcule si pas déjà fait
             this.initialColors.set(userId, ColorGenerator.generateInitialColors(userId));
         }
         const initialColors = this.initialColors.get(userId);
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 20; i++) { // Applique la palette initiale
             for (let j = 0; j < 20; j++) {
                 const subCell = document.createElement('div');
                 subCell.className = 'sub-cell';
                 subCell.dataset.x = i;
                 subCell.dataset.y = j;
-                subCell.style.backgroundColor = initialColors[i * 20 + j] || this.getRandomColor();
+                subCell.style.backgroundColor = initialColors[i * 20 + j] || this.getRandomColor(); // Fallback au cas où
                 cell.appendChild(subCell);
             }
         }

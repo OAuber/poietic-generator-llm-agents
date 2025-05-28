@@ -129,14 +129,14 @@ class PoieticPlayer {
                 }
             }
         } else {
-        for (let y = 0; y < 20; y++) {
-            for (let x = 0; x < 20; x++) {
-                const subCell = document.createElement('div');
-                subCell.className = 'sub-cell';
-                subCell.dataset.x = x.toString();
-                subCell.dataset.y = y.toString();
+            for (let y = 0; y < 20; y++) {
+                for (let x = 0; x < 20; x++) {
+                    const subCell = document.createElement('div');
+                    subCell.className = 'sub-cell';
+                    subCell.dataset.x = x.toString();
+                    subCell.dataset.y = y.toString();
                     subCell.style.backgroundColor = initialColorsPalette[y * 20 + x] || '#FFFFFF';
-                cell.appendChild(subCell);
+                    cell.appendChild(subCell);
                 }
             }
         }
@@ -364,11 +364,11 @@ class PoieticPlayer {
             if (sessions && sessions.length > 0) {
                 sessions.forEach(session => {
                     const listItem = document.createElement('li');
-                    const startTime = new Date(session.start_time);
-                    const dateStr = startTime.toISOString().slice(0,10).replace(/-/g,'/');
-                    const timeStr = startTime.toTimeString().slice(0,8);
+                const startTime = new Date(session.start_time);
+                const dateStr = startTime.toISOString().slice(0,10).replace(/-/g,'/');
+                const timeStr = startTime.toTimeString().slice(0,8);
                     const duration = session.end_time ? (new Date(session.end_time) - startTime) : (Date.now() - startTime); // Recalcul de la durée
-                    const durationStr = new Date(duration).toISOString().slice(11,19);
+                const durationStr = new Date(duration).toISOString().slice(11,19);
                     // const sessionIdShort = session.id.replace(/^session_/, ''); // Non utilisé
 
                     const firstUserUUID = session.first_user_uuid; // Récupéré de l'API
@@ -435,7 +435,7 @@ class PoieticPlayer {
                                 1 
                             );
                         }
-                        this.setReplayView(); 
+                        this.setReplayView();
                         sessionListUL.querySelectorAll('li').forEach(li => li.classList.remove('selected'));
                         listItem.classList.add('selected');
                     });
@@ -741,7 +741,7 @@ class PoieticPlayer {
             //console.error("[Player DEBUG] Grid element not found at start of applyInitialState");
             return;
         }   
-        
+
         this.clearGridAndState(); 
         this.state.gridSize = initialEvent.grid_size || 1;
         console.log(`[APPLY INITIAL STATE] Actual gridSize from event: ${this.state.gridSize}`); // LOG 5
@@ -783,7 +783,6 @@ class PoieticPlayer {
         });
 
         this.state.userPositions.forEach((position, userId) => {
-            //console.log(`[Player DEBUG] applyInitialState: Loop for creating cell for user ${userId} with position:`, position, `at gridSize ${this.state.gridSize}`);
             this.createUserCell(userId);
         });
 
