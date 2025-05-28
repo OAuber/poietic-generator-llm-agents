@@ -611,46 +611,67 @@ ws "/updates" do |socket, context|
   connection_type = context.request.query_params["type"]?
   is_observer = mode == "full" && connection_type == "observer"
 
-  puts "Tentative de connexion avec user_id=#{user_id_param} (pending_disconnects=#{PoieticGenerator.current_session.pending_disconnects.keys})"
+  # puts "Tentative de connexion WS: user_id_param=#{user_id_param}, mode=#{mode}, type=#{connection_type}, is_observer=#{is_observer}"
+  # puts "État actuel (avant add_user/add_observer): PoieticGenerator.current_session.users.keys: #{PoieticGenerator.current_session.users.keys}, pending_disconnects: #{PoieticGenerator.current_session.pending_disconnects.keys}"
 
-  # On crée le user_id ici
-  user_id = if is_observer
-    PoieticGenerator.current_session.add_observer(socket)
+  user_id_for_socket = "" 
+
+  if is_observer
+    user_id_for_socket = PoieticGenerator.current_session.add_observer(socket)
+    # puts "Observer connecté: #{user_id_for_socket}"
   else
-    if PoieticGenerator.current_session.users.empty?
-      API.recorder.start_new_session
+    # On vérifie si la session applicative est vide AVANT d'ajouter l'utilisateur.
+    # Si elle est vide, alors cet utilisateur va initier la création d'une nouvelle session
+    # par le recorder (via l'appel à API.recorder.start_new_session dans Session#add_user).
+    is_initiating_user_for_recorder_session = PoieticGenerator.current_session.users.empty?
+    
+    actual_user_id = PoieticGenerator.current_session.add_user(socket, user_id_param)
+    user_id_for_socket = actual_user_id
+    # puts "Utilisateur (potentiellement nouveau ou reconnecté): #{user_id_for_socket}. Initiateur pour recorder? #{is_initiating_user_for_recorder_session}"
+
+    if is_initiating_user_for_recorder_session
+      # À ce point, Session#add_user a dû appeler API.recorder.start_new_session si la session était vide.
+      # Nous devons donc avoir un current_session_id dans le recorder.
+      current_recorder_session_id = API.recorder.current_session_id 
+      
+      if recorder_session_id_val = current_recorder_session_id # Vérifie non-nil et assigne
+        API.recorder.set_first_user_for_session(recorder_session_id_val, actual_user_id)
+        # puts "=== API a demandé à Recorder de MAJ first_user_uuid: #{actual_user_id} pour session recorder: #{recorder_session_id_val} ==="
+      else
+        # Ce cas ne devrait idéalement pas arriver si la logique est correcte.
+        # puts "=== ATTENTION API: is_initiating_user était vrai, mais API.recorder.current_session_id est nil. Pas de MAJ de first_user_uuid. ==="
+      end
     end
-    puts "Tentative de reconnexion avec user_id=#{user_id_param} (pending_disconnects=#{PoieticGenerator.current_session.pending_disconnects})"
-    PoieticGenerator.current_session.add_user(socket, user_id_param)
   end
+  
+  user_id_for_message_handling = user_id_for_socket 
 
   socket.on_message do |message|
     begin
       parsed_message = JSON.parse(message)
       if parsed_message["type"] == "cell_update" && !is_observer
-        PoieticGenerator.current_session.update_user_activity(user_id)
+        PoieticGenerator.current_session.update_user_activity(user_id_for_message_handling)
         PoieticGenerator.current_session.handle_cell_update(
-          user_id,
+          user_id_for_message_handling,
           parsed_message["sub_x"].as_i,
           parsed_message["sub_y"].as_i,
           parsed_message["color"].as_s
         )
       elsif parsed_message["type"] == "heartbeat"
-        PoieticGenerator.current_session.handle_heartbeat(user_id)
-        # PATCH: répondre au heartbeat pour garder la connexion vivante
+        PoieticGenerator.current_session.handle_heartbeat(user_id_for_message_handling)
         socket.send({type: "pong"}.to_json)
       end
     rescue ex
-      # puts "Error processing message: #{ex.message}"
+      # puts "Error processing message for #{user_id_for_message_handling}: #{ex.message}"
     end
   end
 
   socket.on_close do
     if is_observer
-      PoieticGenerator.current_session.remove_observer(user_id)
+      PoieticGenerator.current_session.remove_observer(user_id_for_socket)
     else
-      puts "WebSocket fermé pour user_id=#{user_id}"
-      PoieticGenerator.current_session.handle_disconnect(user_id)
+      # puts "WebSocket fermé pour user_id=#{user_id_for_socket}"
+      PoieticGenerator.current_session.handle_disconnect(user_id_for_socket)
     end
   end
 end

@@ -15,9 +15,9 @@ class PoieticRecorder
   MIN_PARTICIPANTS = 2
 
   property db : DB::Database
+  getter current_session_id : String?
   @event_queue : Channel(JSON::Any)
   @processing : Bool = false
-  @current_session_id : String?
   @players : Hash(String, HTTP::WebSocket)
   # @sessions_cache : Array(Hash(String, JSON::Any))? # Supprimé, on ne cache plus la liste complète
   # @last_cache_update : Time? # Supprimé
@@ -52,7 +52,8 @@ class PoieticRecorder
       start_time INTEGER NOT NULL,
       end_time INTEGER,
       event_count INTEGER DEFAULT 0,
-      user_count INTEGER DEFAULT 0
+      user_count INTEGER DEFAULT 0,
+      first_user_uuid TEXT
     )"
 
     @db.exec "CREATE TABLE IF NOT EXISTS events (
@@ -155,34 +156,81 @@ class PoieticRecorder
   #   puts "=== Cache des sessions mis à jour avec #{sessions.size} sessions ==="
   # end
 
-  def get_sessions(page = 1, limit = 20) # Valeurs par défaut pour page et limit
+  def get_sessions(page = 1, limit = 20, year = nil, month = nil, min_duration = nil, max_duration = nil, min_users = nil, max_users = nil)
     offset = (page - 1) * limit
     sessions = [] of Hash(String, JSON::Any)
     total_sessions = 0
 
-    # Obtenir le nombre total de sessions
-    total_sessions = @db.query_one("SELECT COUNT(*) FROM sessions", as: Int32)
+    # Construire les conditions WHERE dynamiquement
+    where_conditions = [] of String
+    params = [] of (String | Int32 | Int64)
 
-    # Obtenir les sessions pour la page courante
-    @db.query(
-      "SELECT 
+    # Filtrage par année
+    if year && year >= 2015
+      where_conditions << "strftime('%Y', datetime(start_time/1000, 'unixepoch')) = ?"
+      params << year.to_s
+    end
+
+    # Filtrage par mois (seulement si année spécifiée)
+    if month && year && year >= 2015 && month >= 1 && month <= 12
+      where_conditions << "strftime('%m', datetime(start_time/1000, 'unixepoch')) = ?"
+      params << month.to_s.rjust(2, '0')
+    end
+
+    # Filtrage par durée (en secondes)
+    if min_duration
+      where_conditions << "(end_time - start_time) >= ?"
+      params << (min_duration * 1000).to_i64  # Convertir en millisecondes
+    end
+
+    if max_duration
+      where_conditions << "(end_time - start_time) <= ?"
+      params << (max_duration * 1000).to_i64  # Convertir en millisecondes
+    end
+
+    # Filtrage par nombre d'utilisateurs
+    if min_users
+      where_conditions << "user_count >= ?"
+      params << min_users.to_i32
+    end
+
+    if max_users
+      where_conditions << "user_count <= ?"
+      params << max_users.to_i32
+    end
+
+    # Construire la clause WHERE
+    where_clause = where_conditions.empty? ? "" : "WHERE " + where_conditions.join(" AND ")
+
+    # Obtenir le nombre total de sessions avec filtres
+    count_query = "SELECT COUNT(*) FROM sessions #{where_clause}"
+    total_sessions = @db.query_one(count_query, args: params, as: Int32)
+
+    # Obtenir les sessions pour la page courante avec filtres
+    sessions_query = "SELECT 
          s.id, 
          s.start_time, 
          s.end_time,
          s.event_count,
-         s.user_count
+         s.user_count,
+         s.first_user_uuid
        FROM sessions s
+     #{where_clause}
        ORDER BY start_time DESC
-       LIMIT ? OFFSET ?",
-      limit, offset
-    ) do |rs|
+     LIMIT ? OFFSET ?"
+    
+    # Ajouter limit et offset aux paramètres
+    query_params = params + [limit, offset]
+
+    @db.query(sessions_query, args: query_params) do |rs|
       rs.each do
         session = {
           "id" => JSON::Any.new(rs.read(String)),
           "start_time" => JSON::Any.new(rs.read(Int64)),
           "end_time" => rs.read(Int64?).try { |t| JSON::Any.new(t) } || JSON::Any.new(nil),
           "event_count" => JSON::Any.new(rs.read(Int32)),
-          "user_count" => JSON::Any.new(rs.read(Int32))
+          "user_count" => JSON::Any.new(rs.read(Int32)),
+          "first_user_uuid" => rs.read(String?).try { |uid| JSON::Any.new(uid) } || JSON::Any.new(nil)
         }
         sessions << session
       end
@@ -529,7 +577,15 @@ class PoieticRecorder
       limit = env.params.query["limit"]?.try(&.to_i) || 20 # Default 20 items per page
       limit = Math.min(limit, 100) # Max 100 items per page
 
-      data = get_sessions(page, limit)
+      # Nouveaux paramètres de filtrage
+      year = env.params.query["year"]?.try(&.to_i)
+      month = env.params.query["month"]?.try(&.to_i)
+      min_duration = env.params.query["min_duration"]?.try(&.to_i)
+      max_duration = env.params.query["max_duration"]?.try(&.to_i)
+      min_users = env.params.query["min_users"]?.try(&.to_i)
+      max_users = env.params.query["max_users"]?.try(&.to_i)
+
+      data = get_sessions(page, limit, year, month, min_duration, max_duration, min_users, max_users)
       env.response.content_type = "application/json"
       data.to_json
     end
@@ -738,5 +794,18 @@ class PoieticRecorder
   # Ajouter une méthode pour forcer le nettoyage
   def force_cleanup
     cleanup_invalid_sessions
+  end
+
+  def set_first_user_for_session(session_id : String, user_uuid : String)
+    puts "=== Recorder: Tentative de MAJ first_user_uuid = #{user_uuid} pour session #{session_id} ==="
+    begin
+      @db.exec(
+        "UPDATE sessions SET first_user_uuid = ? WHERE id = ?",
+        user_uuid, session_id
+      )
+      puts "=== Recorder: first_user_uuid MIS A JOUR pour session #{session_id} avec #{user_uuid} ==="
+    rescue ex
+      puts "=== Recorder ERREUR lors de la MAJ de first_user_uuid pour session #{session_id}: #{ex.message} ==="
+    end
   end
 end

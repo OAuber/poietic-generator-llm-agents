@@ -304,11 +304,11 @@ class PoieticClient {
             // (log supprimé)
             this.lastServerMessage = Date.now();
             try {
-                const message = JSON.parse(event.data);
+            const message = JSON.parse(event.data);
                 if (message.type && message.type === "pong") {
                     return;
                 }
-                this.handleMessage(message);
+            this.handleMessage(message);
             } catch (e) {
                 // ignore
             }

@@ -3,6 +3,8 @@
 # Produire les binaires
 shards build --production
 
+# crystal build ./scripts/populate_first_user_uuid.cr -o ./bin/populate_script --release --no-debug
+
 cat > ./bin/run.sh <<-MARK
 # Lancer le serveur d'enregistrement sur le port 3002
 

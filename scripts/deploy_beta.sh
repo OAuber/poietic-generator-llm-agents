@@ -27,12 +27,15 @@ if [ ! -f "$SSH_KEY" ]; then
 fi
 
 # 1. Création des binaires
-log "Création des binaires de production..."
+log "Création des binaires de production (y compris le script de peuplement)..."
 ./scripts/build.sh || error "Échec de la création des binaires"
+# Assurez-vous que build.sh compile aussi populate_first_user_uuid.cr
+# Exemple dans build.sh:
+# crystal build ./scripts/populate_first_user_uuid.cr -o ./bin/populate_script --release --no-debug
 
-# 2. Copie des binaires sur le serveur
-log "Copie des binaires sur le serveur..."
-scp -i "$SSH_KEY" bin/poietic-generator-api bin/poietic-recorder "$SERVER:$DEPLOY_DIR/" || error "Échec de la copie des fichiers"
+# 2. Copie des binaires ET DU SCRIPT DE PEUPLEMENT sur le serveur
+log "Copie des binaires et du script de peuplement sur le serveur..."
+scp -i "$SSH_KEY" bin/poietic-generator-api bin/poietic-recorder bin/populate_script "$SERVER:$DEPLOY_DIR/" || error "Échec de la copie des fichiers"
 
 # # 2b. Copie des fichiers statiques (public, favicon, etc.)
 # log "Copie des fichiers statiques sur le serveur..."
@@ -57,6 +60,13 @@ ssh -i "$SSH_KEY" "$SERVER" << 'ENDSSH'
     # Sauvegarde des versions actuelles
     sudo cp /usr/local/bin/poietic-generator-api /usr/local/bin/poietic-generator-api.backup
     sudo cp /usr/local/bin/poietic-recorder /usr/local/bin/poietic-recorder.backup
+
+    # PEUPLEMENT DE LA COLONNE (À FAIRE UNE SEULE FOIS pour les données existantes)
+    # Commentez/supprimez cette section après la première exécution réussie.
+    echo "Tentative de peuplement de first_user_uuid pour les sessions existantes..."
+    sudo -u debian $HOME/deploy-beta/populate_script
+    echo "Peuplement terminé."
+    # FIN DE LA SECTION DE PEUPLEMENT
 
     # Installation des nouveaux binaires
     sudo mv ~/deploy-beta/poietic-* /usr/local/bin/
