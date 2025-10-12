@@ -13,6 +13,8 @@ class PoieticRecorder
   # Constantes pour les critères de nettoyage
   MIN_SESSION_DURATION = 3 * 60 * 1000  # 3 minutes en millisecondes
   MIN_PARTICIPANTS = 2
+  MIN_SESSION_DURATION_CLEANUP = 4 * 60 * 1000  # 4 minutes en millisecondes
+  MIN_EVENT_COUNT_CLEANUP = 400
 
   property db : DB::Database
   getter current_session_id : String?
@@ -44,6 +46,13 @@ class PoieticRecorder
     # cleanup_invalid_sessions # <--- ASSUREZ-VOUS QUE CETTE LIGNE EST COMMENTÉE
     spawn process_event_queue
     # puts "=== Initialisation du PoieticRecorder avec DB: #{db_path} ==="
+
+    # === NETTOYAGE AU DÉMARRAGE ===
+    puts "--- RECORDER: initialize --- Lancement du nettoyage initial des sessions."
+    cleanup_invalid_sessions # Décommentez cet appel
+    
+    spawn process_event_queue
+    puts "--- RECORDER: initialize --- Initialisation du PoieticRecorder terminée."
   end
 
   private def private_setup_database
@@ -383,7 +392,6 @@ class PoieticRecorder
 
   # Appelé quand le dernier utilisateur se déconnecte ou quand le serveur s'arrête
   def end_current_session
-    # === VÉRIFIEZ QUE CE LOG EST PRÉSENT ET NON COMMENTÉ ===
     puts "--- RECORDER: PoieticRecorder#end_current_session --- Début."
     original_session_id_to_end = @current_session_id
     
@@ -450,8 +458,9 @@ class PoieticRecorder
     @current_session_id = nil
     puts "--- RECORDER: PoieticRecorder#end_current_session --- Terminé. @current_session_id mis à nil. ID de session traité: #{original_session_id_to_end}"
     
-    # Lancer le nettoyage après la fin de la session
-    # cleanup_invalid_sessions # <--- Doit être commenté pour les tests
+    # === NETTOYAGE DE LA SESSION ACHEVÉE (et des autres si nécessaire) ===
+    puts "--- RECORDER: end_current_session --- Lancement du nettoyage des sessions après la fin de la session #{original_session_id_to_end}."
+    cleanup_invalid_sessions # Décommentez cet appel
   end
 
   def get_current_session
@@ -649,18 +658,28 @@ class PoieticRecorder
 
     # Routes pour les CSS
     get "/css/:file" do |env|
-      file = env.params.url["file"]
+      file_param = env.params.url["file"].split("?").first
       env.response.headers["Content-Type"] = "text/css"
-      file = FileStorage.get("css/#{file}")
-      file.gets_to_end
+      begin
+        file_content = FileStorage.get("css/#{file_param}")
+        file_content.gets_to_end
+      rescue ex
+        env.response.status_code = 404
+        "File not found: css/#{file_param}"
+      end
     end
 
     # Routes pour les JS
     get "/js/:file" do |env|
-      file = env.params.url["file"]
+      file_param = env.params.url["file"].split("?").first
       env.response.headers["Content-Type"] = "application/javascript"
-      file = FileStorage.get("js/#{file}")
-      file.gets_to_end
+      begin
+        file_content = FileStorage.get("js/#{file_param}")
+        file_content.gets_to_end
+      rescue ex
+        env.response.status_code = 404
+        "File not found: js/#{file_param}"
+      end
     end
 
     # Démarrer le serveur
@@ -743,92 +762,74 @@ class PoieticRecorder
   end
 
   private def cleanup_invalid_sessions
-    # @sessions_cache = nil  # Invalider le cache avant le nettoyage
-    puts "=== Début du nettoyage des sessions invalides ==="
+    puts "--- RECORDER: cleanup_invalid_sessions --- Début du nettoyage des sessions invalides."
     
     max_retries = 5
     retry_count = 0
-    retry_delay = 1.0  # secondes
+    retry_delay = 1.0.seconds
 
     while retry_count < max_retries
       begin
         @db.transaction do |tx|
-          # 1. Supprimer d'abord les événements orphelins
-          puts "=== Suppression des événements orphelins (tentative #{retry_count + 1}/#{max_retries}) ==="
-          tx.connection.exec(
-            "DELETE FROM events WHERE session_id NOT IN (SELECT id FROM sessions)"
-          )
+          sessions_to_delete = [] of String
+          # Critère 1: Durée < MIN_SESSION_DURATION_CLEANUP (et session terminée)
+          # Critère 2: event_count < MIN_EVENT_COUNT_CLEANUP (et session terminée)
+          query = <<-SQL
+            SELECT id FROM sessions
+            WHERE end_time IS NOT NULL 
+            AND (
+                   ((end_time - start_time) < ?)
+                OR (event_count < ?)
+            )
+          SQL
+          
+          tx.connection.query(query, MIN_SESSION_DURATION_CLEANUP, MIN_EVENT_COUNT_CLEANUP) do |rs_sessions_to_delete|
+            rs_sessions_to_delete.each do
+              sessions_to_delete << rs_sessions_to_delete.read(String)
+            end
+          end
 
-          # 2. Supprimer les sessions trop courtes ou inactives
-          puts "=== Suppression des sessions invalides ==="
-          tx.connection.exec(
-            "DELETE FROM events WHERE session_id IN (
-               SELECT id FROM sessions 
-               WHERE ((end_time - start_time) < ? AND end_time IS NOT NULL)
-               OR (
-                 end_time IS NULL 
-                 AND (? - start_time) > ? 
-                 AND (
-                   SELECT COUNT(DISTINCT json_extract(event_data, '$.user_id'))
-                   FROM events 
-                   WHERE session_id = sessions.id
-                   AND json_extract(event_data, '$.type') NOT IN ('observer_joined', 'observer_left')
-                 ) < ?
-               )
-             )",
-            MIN_SESSION_DURATION,
-            Time.utc.to_unix_ms,
-            MIN_SESSION_DURATION,
-            MIN_PARTICIPANTS
-          )
+          if sessions_to_delete.empty?
+            puts "--- RECORDER: cleanup_invalid_sessions --- Aucune session à nettoyer selon les critères."
+          else
+            puts "--- RECORDER: cleanup_invalid_sessions --- Sessions à supprimer (ID): #{sessions_to_delete.join(", ")}"
+            placeholders = sessions_to_delete.map { "?" }.join(",")
+            
+            delete_events_sql = "DELETE FROM events WHERE session_id IN (#{placeholders})"
+            tx.connection.exec(delete_events_sql, args: sessions_to_delete.map { |id| id.as(DB::Any) })
+            puts "--- RECORDER: cleanup_invalid_sessions --- Événements supprimés pour les sessions identifiées."
 
-          # 3. Supprimer les sessions sans événements de dessin dans une requête séparée
-          puts "=== Suppression des sessions sans dessin ==="
-          tx.connection.exec(
-            "DELETE FROM events WHERE session_id IN (
-               SELECT s.id 
-               FROM sessions s
-               WHERE NOT EXISTS (
-                 SELECT 1 
-                 FROM events e 
-                 WHERE e.session_id = s.id
-                 AND json_extract(e.event_data, '$.type') = 'cell_update'
-                 AND json_extract(e.event_data, '$.initial') IS NULL
-               )
-             )"
-          )
-
-          # 4. Nettoyer les sessions sans événements
-          puts "=== Nettoyage final des sessions sans événements ==="
-          tx.connection.exec(
-            "DELETE FROM sessions WHERE id NOT IN (
-               SELECT DISTINCT session_id FROM events
-             )"
-          )
+            delete_sessions_sql = "DELETE FROM sessions WHERE id IN (#{placeholders})"
+            tx.connection.exec(delete_sessions_sql, args: sessions_to_delete.map { |id| id.as(DB::Any) })
+            puts "--- RECORDER: cleanup_invalid_sessions --- Sessions supprimées de la table 'sessions'."
+          end
         end
-        puts "=== Nettoyage des sessions terminé avec succès ==="
-        return  # Sortir de la boucle si tout s'est bien passé
+        puts "--- RECORDER: cleanup_invalid_sessions --- Nettoyage terminé avec succès."
+        return 
+      
       rescue ex : SQLite3::Exception
         if ex.message.try(&.includes?("database is locked"))
           retry_count += 1
           if retry_count < max_retries
-            puts "=== Base de données verrouillée, nouvelle tentative dans #{retry_delay} secondes (#{retry_count}/#{max_retries}) ==="
-            sleep(retry_delay.seconds)  # Utilisation de Time::Span
-            retry_delay *= 1.5  # Augmenter progressivement le délai
+            puts "--- RECORDER: cleanup_invalid_sessions --- Base de données verrouillée, nouvelle tentative dans #{retry_delay} secondes (#{retry_count}/#{max_retries})"
+            sleep(retry_delay)
+            retry_delay *= 1.5
           else
-            puts "=== ERREUR : Impossible d'accéder à la base de données après #{max_retries} tentatives ==="
-            puts ex.message
+            puts "--- RECORDER: cleanup_invalid_sessions --- ERREUR CRITIQUE: Impossible d'accéder à la base de données après #{max_retries} tentatives. Abandon du nettoyage."
+            # puts ex.message # Déjà inclus dans le message ci-dessus
+            return 
           end
         else
-          puts "=== ERREUR pendant le nettoyage des sessions: #{ex.message} ==="
-          puts ex.backtrace.join("\n")
-          break  # Sortir de la boucle pour les autres types d'erreurs
+          puts "--- RECORDER: cleanup_invalid_sessions --- ERREUR SQLite3 pendant le nettoyage: #{ex.message}"
+          return 
         end
-      rescue ex
-        puts "=== ERREUR pendant le nettoyage des sessions: #{ex.message} ==="
-        puts ex.backtrace.join("\n")
-        break  # Sortir de la boucle pour les autres types d'erreurs
+      rescue ex 
+        puts "--- RECORDER: cleanup_invalid_sessions --- ERREUR INATTENDUE pendant le nettoyage: #{ex.message}"
+        return 
       end
+    end
+    if retry_count >= max_retries
+        puts "--- RECORDER: cleanup_invalid_sessions --- Nettoyage non complété à cause de verrous persistants sur la base de données."
     end
   end
 

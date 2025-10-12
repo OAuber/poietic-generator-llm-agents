@@ -541,7 +541,7 @@ before_all do |env|
   })
 end
 
-["", "monitoring", "viewer", "bot", "addbot"].each do |page|
+["", "monitoring", "viewer", "bot", "addbot", "ai-player"].each do |page|
   get "/#{page}" do |env|
     env.response.headers["Content-Type"] = "text/html"
     file = FileStorage.get("#{page.empty? ? "index" : page}.html")
@@ -571,6 +571,60 @@ get "/js/bots/:file" do |env|
   env.response.headers["Content-Type"] = "application/javascript"
   file = FileStorage.get("js/bots/#{file}")
   file.gets_to_end
+end
+
+# Route pour les adaptateurs LLM
+get "/js/llm-adapters/:file" do |env|
+  file = env.params.url["file"].split("?").first
+  env.response.headers["Content-Type"] = "application/javascript"
+  file = FileStorage.get("js/llm-adapters/#{file}")
+  file.gets_to_end
+end
+
+# Route spécifique pour le manuel LLM
+get "/MANUEL_PRATIQUE_LLM.md" do |env|
+  env.response.headers["Content-Type"] = "text/markdown; charset=utf-8"
+  begin
+    file = FileStorage.get("MANUEL_PRATIQUE_LLM.md")
+    file.gets_to_end
+  rescue ex
+    env.response.status_code = 404
+    "File not found: MANUEL_PRATIQUE_LLM.md (#{ex.message})"
+  end
+end
+
+# Routes pour les manuels spécifiques par modèle
+get "/MANUEL_ANTHROPIC.md" do |env|
+  env.response.headers["Content-Type"] = "text/markdown; charset=utf-8"
+  begin
+    file = FileStorage.get("MANUEL_ANTHROPIC.md")
+    file.gets_to_end
+  rescue ex
+    env.response.status_code = 404
+    "File not found: MANUEL_ANTHROPIC.md (#{ex.message})"
+  end
+end
+
+get "/MANUEL_OPENAI.md" do |env|
+  env.response.headers["Content-Type"] = "text/markdown; charset=utf-8"
+  begin
+    file = FileStorage.get("MANUEL_OPENAI.md")
+    file.gets_to_end
+  rescue ex
+    env.response.status_code = 404
+    "File not found: MANUEL_OPENAI.md (#{ex.message})"
+  end
+end
+
+get "/MANUEL_OLLAMA.md" do |env|
+  env.response.headers["Content-Type"] = "text/markdown; charset=utf-8"
+  begin
+    file = FileStorage.get("MANUEL_OLLAMA.md")
+    file.gets_to_end
+  rescue ex
+    env.response.status_code = 404
+    "File not found: MANUEL_OLLAMA.md (#{ex.message})"
+  end
 end
 
 # Redirection des anciennes routes bot vers les nouvelles
@@ -725,6 +779,8 @@ get "/js/lkk_ch.js" do |env|
   env.response.headers["Content-Type"] = "application/javascript"
   ""
 end
+
+# Routes proxy LLM déplacées vers poietic_ai_server.py (port 8003)
 
 # Configuration du port
 port = if ARGV.includes?("--port")

@@ -77,18 +77,21 @@
         </div>
 
         <!-- Zone centrale (grille ET liste des sessions) -->
-        <div class="main-zone">
+            <div class="main-zone">
             <!-- Overlay de démarrage/fin -->
             <div id="player-overlay" class="visible">
-                <div class="player-overlay-title">Poietic Generator</div>
-                <div class="player-overlay-subtitle">Player</div>
-                <div class="player-overlay-message">
-                    <button id="btn-select-session-overlay" class="replay-link">SELECT SESSION</button>
+                    <div class="player-overlay-title">Poietic Generator</div>
+                <div class="player-overlay-subtitle">Pixel Love since 1986</div>
+                    <div class="player-overlay-message">
+                    History files <br>
+                    Available sessions: <span id="total-sessions-display-overlay">0</span>
+                        <br>
+                    <button id="btn-select-session-overlay" class="replay-link">-> Replay a session</button>
                     <div class="player-overlay-message-details">
-                        (or select one from the list if available)
+                    <a href="https://poietic-generator.net/" class="replay-link">-> Back to play</a>
                     </div>
                 </div>
-                <div class="player-overlay-footer">Poietic.org - 2024</div>
+                <div class="player-overlay-footer">Copyleft, Free Art License</div>
             </div>
 
             <!-- Conteneur pour la grille et la liste des sessions -->
@@ -136,17 +139,17 @@
                     <span class="total-time" id="total-time">00:00</span>
                 </div>
                 <div class="playback-and-speed-row">
-                    <div class="playback-controls">
-                        <button id="btn-reset" class="control-btn">⏮</button>
-                        <button id="btn-play" class="control-btn">▶</button>
-                        <button id="btn-pause" class="control-btn">⏸</button>
-                    </div>
+            <div class="playback-controls">
+                <button id="btn-reset" class="control-btn">⏮</button>
+                <button id="btn-play" class="control-btn">▶</button>
+                <button id="btn-pause" class="control-btn">⏸</button>
+            </div>
                     <div class="speed-control">
                         <button class="speed-btn" data-speed="1">x1</button>
                         <button class="speed-btn" data-speed="2">x2</button>
                         <button class="speed-btn" data-speed="5">x5</button>
                         <button class="speed-btn" data-speed="10">x10</button>
-                    </div>
+            </div>
                 </div>
             </div>
         </div>

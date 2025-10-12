@@ -94,8 +94,8 @@ body {
 }
 
 .sub-cell {
-    width: 100%;
-    height: 100%;
+         width: 100%; 
+         height: 100%;
     min-width: 1px;
     min-height: 1px;
 }
@@ -121,7 +121,7 @@ body {
 
 .session-header {
     display: flex;
-    align-items: center;
+        align-items: center;
     justify-content: center;
     gap: 0.5em;
     flex-shrink: 0;
@@ -129,10 +129,10 @@ body {
 
 .session-actions,
 .session-change {
-    display: flex;
+        display: flex;
     flex-direction: column;
     gap: 0.3rem;
-    align-items: center;
+        align-items: center;
     flex-shrink: 0;
 }
 
@@ -161,12 +161,12 @@ body {
     flex-direction: column;
     gap: 0.2rem;
     font-size: 0.75rem;
-    width: 100%;
-}
+        width: 100%;
+    }
 
 .filter-row {
-    display: flex;
-    gap: 0.25rem;
+        display: flex;
+        gap: 0.25rem;
     align-items: center;
 }
 
@@ -219,7 +219,7 @@ body {
 
 .range-input {
     position: absolute;
-    width: 100%;
+        width: 100%;
     height: 20px;
     background: transparent;
     outline: none;
@@ -309,7 +309,7 @@ body {
     flex-shrink: 0;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+            align-items: center;
     padding: 0.3rem 0;
     font-size: 0.75rem;
     width: 100%;
@@ -450,7 +450,7 @@ body {
         gap: 0.2rem;
     }
     .control-panel.left-panel .current-session-info {
-        height: 100%; 
+    height: 100%;
     display: flex;
     flex-direction: column;
     }
@@ -508,7 +508,7 @@ body {
         height: 100vw; 
     }
     .main-zone { 
-        width: 100%;
+    width: 100%;
         height: min(100vw, 66.66vh);
         flex: 0 0 auto;
         border-top: 1px solid #333; 
@@ -591,10 +591,10 @@ body {
     }
     .control-panel.left-panel .filters-container {
         flex-grow: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
     .control-panel.left-panel .pagination-controls {
         flex-grow: 1;
         display: flex;
@@ -627,7 +627,7 @@ body {
     }
     .range-input { 
         width: 100% !important; 
-        position: absolute;
+    position: absolute;
         z-index: 1;
         left: 0;
         right: 0;
@@ -719,18 +719,18 @@ body {
         gap: 0.15rem;
         justify-content: flex-start;
         flex-grow: 1;
-        display: flex;
+    display: flex;
         flex-direction: column;
     }
     .pagination-controls {
         margin: 0 !important;
         padding: 0 !important;
         gap: 0.15rem;
-        justify-content: space-between;
+    justify-content: space-between;
         flex-shrink: 0;
         display: flex;
         flex-direction: row;
-        align-items: center;
+    align-items: center;
         height: auto;
         min-height: 28px;
     }
@@ -763,7 +763,7 @@ body {
     .control-panel.left-panel .current-session-info .session-action {
         padding: 0.2rem 0.3rem;
         font-size: 0.7rem;
-        width: 100%;
+    width: 100%;
         min-height: 28px;
     }
 
@@ -856,7 +856,7 @@ body {
         gap: 0.15rem !important; /* Réduit: Diminuer distance entre bord inférieur main zone et track */
     }
     .playback-and-speed-row {
-        display: flex;
+    display: flex;
         flex-direction: row !important; /* Boutons de lecture et vitesse en ligne */
         align-items: center !important;
         justify-content: center !important; /* Centrer horizontalement cette ligne de boutons */
@@ -944,7 +944,7 @@ body {
         justify-content: center !important; 
         flex-shrink: 0 !important; 
         box-sizing: border-box !important; 
-        overflow: hidden; 
+    overflow: hidden;
         width: 100%; /* Assurer que chaque bouton prend toute la largeur de son conteneur */
         margin: 0.05rem 0 !important; /* Très petit espace vertical entre boutons si nécessaire, ou 0 */
     }

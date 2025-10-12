@@ -479,10 +479,8 @@ export class PlayerShareManager {
     }
 
     setupShareButton() {
-        const shareButton = document.querySelector('.share-button');
-        if (shareButton) {
-            shareButton.addEventListener('click', () => this.handleShare());
-        }
+        // L'event listener est maintenant géré dans le player principal
+        // Pas besoin de chercher l'ancien bouton .share-button
     }
     async handleShare() {
         if (!this.player.state?.currentSession) {

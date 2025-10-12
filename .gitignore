@@ -57,3 +57,58 @@ lib/
 .idea/
 .vscode/
 *.swp
+
+# Database files
+db/*.db
+db/*.db-shm
+db/*.db-wal
+*.db-journal
+recordings.db*
+
+# Binary builds
+poietic_generator_bin.tgz
+
+# Work notes / drafts
+AMELIORATIONS_*.md
+ANALYSE_*.md
+COMPARAISON_*.md
+CORRECTIONS_*.md
+DEPLOY_*.md
+FIX_*.md
+
+# Session notes and summaries
+IA_INTEGRATION_SUMMARY.md
+MANUELS_SPECIFIQUES.md
+OLLAMA_*.md
+README_AI_SERVER.md
+README_ANALYTICS.md
+REFACTORING_AI_SERVER.md
+SESSION_SUMMARY_*.md
+SIMPLIFICATION_*.md
+TOPO_AGENTS_IA.md
+
+# Logs
+api.log
+*.log
+
+# Docker (if not used)
+docker/
+
+# Python cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+.bridge_*.json
+.last_*.txt
+.last_*.json
+
+# Python virtual environment
+python/venv/
+
+# Backup files
+*-backup.css
+*.beta_from_server
+
+# Scripts (if deployment-specific)
+scripts/
+
