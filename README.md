@@ -4,9 +4,9 @@ Poietic Generator V.5 s'appuie sur Crystal et Javascript.
 
 ## Objectifs
 
-Poietic Generator est une application collaborative de dessin en temps réel historiue dont la première version date de 1986.  
+Poietic Generator est une application collaborative de dessin en temps réel historique dont la première version date de 1986.  
 Elle vise à :
-- Permettre à plusieurs utilisateurs de dessiner simultanément sur une grille partagée, chaque participant disposant de sa propre "cellule".
+- Permettre à plusieurs utilisateurs de dessiner simultanément sur une grille partagée, chaque participant disposant de sa propre "cellule" de nxn pixels.
 - Offrir une expérience fluide, même en cas de coupure réseau ou de reconnexion, grâce à une gestion avancée de la persistance et de la synchronisation.
 - Favoriser la créativité collective, l'expérimentation et l'observation de dynamiques émergentes.
 
