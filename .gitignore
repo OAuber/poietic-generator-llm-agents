@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node modules (if needed)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# API Keys (security)
+*_api_key.txt
+secrets/
+credentials/
+
+# Temporary files
+*.tmp
+*.bak
+temp/
+tmp/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+recordings.db-journal
+

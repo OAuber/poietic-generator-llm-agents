@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎨 AI Player - Poietic Generator</title>
+    <link rel="stylesheet" href="css/llm-player.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Panneau Viewer -->
+        <div class="viewer-panel">
+            <iframe id="viewer-frame" src="/viewer"></iframe>
+        </div>
+
+        <!-- Panneau de contrôle -->
+        <div class="control-panel">
+            <div class="header">
+                🎨 AI Player - Poietic Generator
+            </div>
+
+            <!-- Configuration -->
+            <div class="section">
+                <div class="section-title">🔑 Configuration</div>
+                
+                <div class="input-group">
+                    <label>Modèle LLM</label>
+                    <select id="llm-model-select">
+                        <option value="ollama" selected>🦙 Ollama Llama3.2 3B (Gratuit, OVH GPU)</option>
+                        <option value="anthropic">🤖 Anthropic Claude 3.5 Sonnet</option>
+                        <option value="openai">🔮 OpenAI GPT-4</option>
+                        <option value="claude-vision" disabled>👁️ Claude Vision (bientôt disponible)</option>
+                        <option value="dalle" disabled>🎨 DALL-E 3 (bientôt disponible)</option>
+                        <option value="gemini" disabled>💎 Google Gemini (bientôt disponible)</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label>API Key</label>
+                    <div style="display: flex; gap: 5px; align-items: center;">
+                        <input type="password" id="api-key" placeholder="sk-ant-api03-..." style="flex: 1;">
+                        <button id="btn-clear-key" style="flex: none; width: auto; padding: 10px 12px; background: #555; font-size: 12px;" title="Effacer la clé">🗑️</button>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Viewer URL <span class="viewer-url-toggle" id="toggle-viewer-url">▼ Changer</span></label>
+                    <select id="viewer-url" style="display: none;">
+                        <option value="/viewer" selected>Automatique (même serveur)</option>
+                        <option value="http://localhost:3001/viewer">Local (localhost:3001)</option>
+                        <option value="https://poietic-generator.net/viewer">Production (poietic-generator.net)</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label>Délai après itération (s)</label>
+                    <input type="number" id="interval" value="0" min="0" max="60">
+                </div>
+
+                <div class="input-group">
+                    <label>Prompt personnalisé (optionnel)</label>
+                    <textarea id="custom-prompt" placeholder="(Optionnel) Laissez vide pour liberté totale, sans suggestion."></textarea>
+                    <button id="btn-submit-prompt" class="secondary" style="margin-top: 8px; width: 100%;">📤 Envoyer prompt</button>
+                </div>
+
+                <div class="button-group">
+                    <button id="btn-start">▶ Démarrer</button>
+                    <button id="btn-pause" class="secondary" disabled>⏸ Pause</button>
+                </div>
+            </div>
+
+            <!-- État -->
+            <div class="section">
+                <div class="section-title">📊 État</div>
+                <div class="decision-box" style="margin-top:12px;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                        <span class="status-badge disconnected" id="status-badge">Déconnecté</span>
+                        <span class="status-badge disconnected" id="llm-status-badge">LLM: Inactif</span>
+                        <span style="margin-left:auto; font-size:11px; color:#888;" id="user-id-display">—</span>
+                        <span style="font-size:11px; color:#888;" id="llm-model">claude-3-5-sonnet-20241022</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px; color:#ccc;">
+                        <div>Tokens IN (dernière): <b id="tokens-in-last">0</b></div>
+                        <div>Tokens OUT (dernière): <b id="tokens-out-last">0</b></div>
+                        <div>Tokens IN (total): <b id="tokens-in-total">0</b></div>
+                        <div>Tokens OUT (total): <b id="tokens-out-total">0</b></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dernière décision -->
+            <div class="section">
+                <div class="section-title">🤖 Dernière décision</div>
+                <div class="decision-box" id="decision-box">
+                    <div class="decision-strategy">En attente...</div>
+                    <div class="decision-meta"></div>
+                </div>
+            </div>
+
+            <!-- Journal -->
+            <div class="section">
+                <div class="section-title">📜 Journal</div>
+                <div class="journal" id="journal">
+                    <div class="journal-entry">En attente de connexion...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="js/spatial-analysis.js?v=20251011-05"></script>
+    <script type="module" src="js/llm-adapters/anthropic.js?v=20251011-05"></script>
+    <script type="module" src="js/llm-adapters/ollama.js?v=20251011-23"></script>
+    <script type="module" src="js/ai-player.js?v=20251011-22"></script>
+</body>
+</html>
