@@ -641,11 +641,11 @@ class AIPlayer {
                 
                 // Si on a des images multiples, les passer comme tableau
                 if (images.length > 0) {
-                    imageBase64 = images.length === 1 ? images[0] : images;
-                    console.log('[AI Player] 📸 Images envoyées à LLaVA:', images.length, 'images');
-                    images.forEach((img, i) => {
-                        console.log(`[AI Player] Image ${i+1}: ${img.length} chars, début: ${img.substring(0, 30)}...`);
-                    });
+                    // WORKAROUND: Ollama/LLaVA ne supporte qu'une seule image
+                    // On prend la dernière (globale si disponible, sinon locale)
+                    imageBase64 = images[images.length - 1];
+                    console.log('[AI Player] 📸 Image envoyée à LLaVA:', images.length > 1 ? `dernière de ${images.length}` : '1 seule');
+                    console.log(`[AI Player] Image: ${imageBase64.length} chars, début: ${imageBase64.substring(0, 30)}...`);
                     
                     // Afficher les échantillons d'images dans l'interface
                     this.displayImageSamples(images);
@@ -670,10 +670,15 @@ class AIPlayer {
             }
             this.setLlmStatus('En attente', 'paused');
 
-            // Mettre à jour les compteurs de tokens
-            this.updateTokenCounters(response.usage);
+            // Mettre à jour les compteurs de tokens (si disponible)
+            if (response && response.usage) {
+                this.updateTokenCounters(response.usage);
+            }
 
-            const parsed = this.currentAdapter.parseResponse(response.content);
+            // Pour LLaVA, response est une string directe
+            // Pour les autres adapters, response est un objet {content: ...}
+            const responseContent = typeof response === 'string' ? response : response.content;
+            const parsed = this.currentAdapter.parseResponse(responseContent);
             
             // Gérer le cas où LLaVA explique son intention mais ne génère pas de pixels
             if (parsed && parsed.error === 'NO_PIXELS_GENERATED' && parsed.hasIntention) {
