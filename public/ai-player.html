@@ -5,12 +5,123 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🎨 AI Player - Poietic Generator</title>
     <link rel="stylesheet" href="css/llm-player.css">
+    <style>
+        .image-samples {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .image-sample-item {
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px;
+            background: #1a1a1a;
+        }
+        
+        .image-sample-title {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 5px;
+        }
+        
+        .image-sample-thumbnail {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .image-sample-thumbnail:hover {
+            opacity: 0.8;
+        }
+        
+        .image-sample-placeholder {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+        }
+        
+        .image-sample-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        
+        .image-sample-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+        
+        .image-sample-btn:hover {
+            background: #45a049;
+        }
+        
+        .image-sample-btn.secondary {
+            background: #666;
+        }
+        
+        .image-sample-btn.secondary:hover {
+            background: #777;
+        }
+
+        /* Modal pour afficher les images en grand */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+            cursor: pointer;
+        }
+
+        .image-modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 90%;
+            max-height: 90%;
+        }
+
+        .image-modal img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        .image-modal-close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: #fff;
+            font-size: 30px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .image-modal-close:hover {
+            color: #ccc;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <!-- Panneau Viewer -->
         <div class="viewer-panel">
-            <iframe id="viewer-frame" src="/viewer"></iframe>
+            <iframe id="viewer-frame" src="/viewer2"></iframe>
         </div>
 
         <!-- Panneau de contrôle -->
@@ -26,7 +137,8 @@
                 <div class="input-group">
                     <label>Modèle LLM</label>
                     <select id="llm-model-select">
-                        <option value="ollama" selected>🦙 Ollama Llama3.2 3B (Gratuit, OVH GPU)</option>
+                        <option value="ollama">🦙 Ollama Llama3.2 3B (Gratuit, OVH GPU)</option>
+                        <option value="llava" selected>👁️ LLaVA 7B Vision (Gratuit, OVH GPU)</option>
                         <option value="anthropic">🤖 Anthropic Claude 3.5 Sonnet</option>
                         <option value="openai">🔮 OpenAI GPT-4</option>
                         <option value="claude-vision" disabled>👁️ Claude Vision (bientôt disponible)</option>
@@ -46,8 +158,10 @@
                 <div class="input-group">
                     <label>Viewer URL <span class="viewer-url-toggle" id="toggle-viewer-url">▼ Changer</span></label>
                     <select id="viewer-url" style="display: none;">
-                        <option value="/viewer" selected>Automatique (même serveur)</option>
-                        <option value="http://localhost:3001/viewer">Local (localhost:3001)</option>
+                        <option value="/viewer">Viewer (avec initial state)</option>
+                        <option value="/viewer2" selected>Viewer2 (fond noir - LLM)</option>
+                        <option value="http://localhost:3001/viewer">Local viewer (localhost:3001)</option>
+                        <option value="http://localhost:3001/viewer2">Local viewer2 (localhost:3001)</option>
                         <option value="https://poietic-generator.net/viewer">Production (poietic-generator.net)</option>
                     </select>
                 </div>
@@ -66,6 +180,55 @@
                 <div class="button-group">
                     <button id="btn-start">▶ Démarrer</button>
                     <button id="btn-pause" class="secondary" disabled>⏸ Pause</button>
+                </div>
+            </div>
+
+            <!-- Mode toggle button -->
+            <div class="section">
+                <div class="button-group">
+                    <button id="toggle-mode-btn">Mode libre collaboratif</button>
+                </div>
+            </div>
+
+            <!-- Exercices (Entraînement) -->
+            <div class="section" id="training-panel" style="display: none;">
+                <div class="section-title">🧪 Exercices (Entraînement)</div>
+                <div class="input-group" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; align-items:center;">
+                    <label><input type="checkbox" id="training-enabled"> Activer l'entraînement</label>
+                    <span style="font-size:11px; color:#888;">Le prompt sera généré selon la phase/exercice</span>
+                    <div>
+                        <label>Phase</label>
+                        <select id="training-phase">
+                            <option value="A">Phase A — Dessin guidé</option>
+                            <option value="B">Phase B — Copie</option>
+                            <option value="C">Phase C — Création guidée</option>
+                            <option value="D">Phase D — Interaction</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Exercice</label>
+                        <select id="training-ex">
+                            <option value="A1">A1 — Coins+centre imposés</option>
+                            <option value="A2">A2 — Coins+centre, couleurs libres</option>
+                            <option value="A3">A3 — Coins+centre, positions libres</option>
+                            <option value="A4">A4 — Damier 2 couleurs</option>
+                            <option value="A5">A5 — Damier couleurs inversées</option>
+                            <option value="B6">B6 — Copier voisin cardinal</option>
+                            <option value="B7">B7 — Miroir voisin cardinal</option>
+                            <option value="B8">B8 — Copier voisin diagonal + rotation</option>
+                            <option value="C9">C9 — Dégradé centre→bord</option>
+                            <option value="C10">C10 — Paysage stylisé</option>
+                            <option value="C11">C11 — Visage sur paysage</option>
+                            <option value="D12">D12 — Compléter motif voisin</option>
+                            <option value="D13">D13 — Passerelle entre voisins</option>
+                            <option value="D14">D14 — Dessin libre</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="input-group" style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+                    <button id="btn-training-approve" class="secondary" title="Valider l'exercice" style="display:none;">✅ Valider exercice</button>
+                    <button id="btn-training-reject" class="secondary" title="Rejeter et réessayer" style="display:none;">↩️ Rejeter</button>
+                    <span id="training-validation-hint" style="font-size:11px; color:#888; display:none;">Validation manuelle requise pour cet exercice</span>
                 </div>
             </div>
 
@@ -97,6 +260,14 @@
                 </div>
             </div>
 
+            <!-- Échantillons d'images LLaVA -->
+            <div class="section">
+                <div class="section-title">📸 Images envoyées à LLaVA</div>
+                <div class="image-samples" id="image-samples">
+                    <div class="image-sample-placeholder">Aucune image envoyée</div>
+                </div>
+            </div>
+
             <!-- Journal -->
             <div class="section">
                 <div class="section-title">📜 Journal</div>
@@ -107,10 +278,20 @@
         </div>
     </div>
 
+    <!-- Modal pour afficher les images en grand -->
+    <div id="image-modal" class="image-modal">
+        <span class="image-modal-close">&times;</span>
+        <div class="image-modal-content">
+            <img id="modal-image" src="" alt="Image LLaVA">
+        </div>
+    </div>
+
     <!-- Scripts -->
-    <script type="module" src="js/spatial-analysis.js?v=20251011-05"></script>
-    <script type="module" src="js/llm-adapters/anthropic.js?v=20251011-05"></script>
-    <script type="module" src="js/llm-adapters/ollama.js?v=20251011-23"></script>
-    <script type="module" src="js/ai-player.js?v=20251011-22"></script>
+    <script type="module" src="js/spatial-analysis.js?v=20250116-49"></script>
+    <script type="module" src="js/llm-adapters/anthropic.js?v=20250116-49"></script>
+    <script type="module" src="js/llm-adapters/ollama.js?v=20250116-49"></script>
+    <script type="module" src="js/llm-adapters/llava.js?v=20250116-49"></script>
+    <script type="module" src="js/llava-canvas.js?v=20250116-49"></script>
+    <script type="module" src="js/ai-player.js?v=20250116-49"></script>
 </body>
 </html>
