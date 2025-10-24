@@ -1,15 +1,16 @@
-// AI Player - Logique principale
-// Version: 2025-10-11-20:15 - Fix recentUpdates not persisting
+        // AI Player - Logic
+        // Version: 2025-01-24-02:00 - Auto-start prevention fix
 import { SpatialAnalysis } from './spatial-analysis.js';
 import { AnthropicAdapter } from './llm-adapters/anthropic.js';
 import { OpenAIAdapter } from './llm-adapters/openai.js';
 import { OllamaAdapter } from './llm-adapters/ollama.js';
 import { LlavaAdapter } from './llm-adapters/llava.js';
 import { LlavaCanvasGenerator } from './llava-canvas.js';
+import { ColorGenerator } from './poietic-color-generator.js';
 
 class AIPlayer {
     constructor() {
-        console.log('[AI Player] ✅ Version chargée: 2025-10-11-20:15');
+        console.log('[AI Player] ✅ Version loaded: 2025-01-24-04:00');
         // Configuration - Détection automatique de l'environnement
         const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const WS_HOST = window.location.hostname === 'localhost' 
@@ -30,6 +31,7 @@ class AIPlayer {
         this.isPaused = false;
         this.interval = 20;
         this.iterationCount = 0;
+        this.heartbeatInterval = null; // Pour envoyer des heartbeats réguliers
         this.currentDrawingIteration = 0; // Numéro d'itération des pixels en cours de dessin
         this.myPixelCount = 0;
         this.otherUsers = {};
@@ -49,6 +51,21 @@ class AIPlayer {
         this.lastIntention = '';
         this.lastLocalCanvasBase64 = null;
         this.lastGlobalCanvasBase64 = null;
+        
+        // Simplicity Theory metrics (V2)
+        this.initialGeneratedState = null; // État initial généré par ColorGenerator
+        this.lastLocalDescription = ''; // Q6 de l'itération précédente
+        this.lastGlobalDescription = ''; // Q4 de l'itération précédente
+        this.simplicityMetrics = {
+            iterations: [],
+            C_w: [],
+            C_d: [],
+            U: [],
+            descriptions: []
+        };
+        
+        // WebSocket pour métriques (serveur séparé)
+        this.metricsSocket = null;
 
         // Éléments DOM
         this.elements = {
@@ -74,17 +91,28 @@ class AIPlayer {
     }
 
     init() {
+        // S'assurer que l'agent ne démarre pas automatiquement
+        this.isRunning = false;
+        this.isPaused = false;
+        console.log('[AI Player] 🔒 Auto-start disabled, isRunning:', this.isRunning);
+        
         this.loadApiKey();
         this.loadManual();
         this.ensurePromptsLoading();
         this.setupEventListeners();
-        // Modèle par défaut: LLaVA (vision)
+        // Modèle par défaut: Gemini (vision + JSON structuré)
         if (this.elements.llmModelSelect) {
             try {
-                this.elements.llmModelSelect.value = 'llava';
+                this.elements.llmModelSelect.value = 'gemini';
             } catch (_) {}
         }
-        this.updateApiKeyPlaceholder('llava');
+        this.updateApiKeyPlaceholder('gemini');
+        
+        // 🔧 Initialiser l'iframe du viewer avec la valeur sélectionnée
+        if (this.elements.viewerFrame && this.elements.viewerUrl) {
+            this.elements.viewerFrame.src = this.elements.viewerUrl.value;
+            console.log(`[AI Player] 🖼️ Viewer initialisé: ${this.elements.viewerUrl.value}`);
+        }
         // Training panel is hidden by default (free mode is default)
         try {
             if (this.elements.trainingEnabled) {
@@ -94,7 +122,13 @@ class AIPlayer {
             if (panel) panel.style.display = 'none';
         } catch (_) {}
         this.updateJournalTitle(); // Initialiser le titre du journal
-        this.addJournalEntry('👋 AI Player initialisé. Sélectionnez un modèle et cliquez sur Démarrer.');
+        this.addJournalEntry('👋 AI Player initialized. Select a model and click Start.');
+        
+        // Initialize header display
+        this.updateHeaderModel();
+        
+        // Connecter au serveur de métriques (V2)
+        this.connectToMetricsServer();
     }
 
     // === Configuration ===
@@ -165,6 +199,7 @@ class AIPlayer {
             this.socket.onopen = () => {
                 this.addJournalEntry('✅ Connecté au Poietic Generator', 'success');
                 this.updateStatus('connected');
+                this.startHeartbeat(); // Démarrer l'envoi de heartbeats
             };
 
             this.socket.onmessage = (event) => {
@@ -193,12 +228,33 @@ class AIPlayer {
                 this.addJournalEntry('🔌 Déconnecté du serveur', 'error');
                 this.updateStatus('disconnected');
                 clearInterval(watchdog);
+                this.stopHeartbeat(); // Arrêter les heartbeats
                 this.isRunning = false;
                 this.isPaused = false;
-                this.elements.btnStart.textContent = '▶ Démarrer';
+                this.elements.btnStart.textContent = '▶ Start';
                 this.elements.btnPause.disabled = true;
             };
         });
+    }
+
+    startHeartbeat() {
+        // Envoyer un heartbeat toutes les 5 secondes pour éviter la déconnexion par inactivité
+        this.stopHeartbeat(); // S'assurer qu'il n'y a pas de doublon
+        this.heartbeatInterval = setInterval(() => {
+            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({ type: 'heartbeat' }));
+                console.log('[AI Player] 💓 Heartbeat envoyé');
+            }
+        }, 5000); // Toutes les 5 secondes
+        console.log('[AI Player] 💓 Heartbeat démarré (envoi toutes les 5s)');
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+            console.log('[AI Player] 💓 Heartbeat arrêté');
+        }
     }
 
     handleMessage(message) {
@@ -220,16 +276,17 @@ class AIPlayer {
                     if (this.myUserId && this.userPositions[this.myUserId]) {
                         this.myPosition = this.userPositions[this.myUserId];
                         this.updateJournalTitle();
+                        this.updateHeaderPosition(); // Update header banner position
                     }
                 }
                 
                 // Parser sub_cell_states (INCLURE TOUS LES USERS, y compris soi-même)
                 if (message.sub_cell_states) {
                     Object.entries(message.sub_cell_states).forEach(([userId, pixels]) => {
-                        this.otherUsers[userId] = { 
-                            pixels: pixels,
-                            position: this.userPositions[userId] || [0, 0]
-                        };
+                            this.otherUsers[userId] = { 
+                                pixels: pixels,
+                                position: this.userPositions[userId] || [0, 0]
+                            };
                     });
                 }
                 break;
@@ -325,12 +382,26 @@ class AIPlayer {
 
     sendCellUpdate(subX, subY, color) {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
+            // Normaliser la couleur en format #RRGGBB (6 caractères)
+            let normalizedColor = color;
+            if (color && color.length === 4 && color.startsWith('#')) {
+                // Convertir #RGB en #RRGGBB
+                const r = color[1];
+                const g = color[2];
+                const b = color[3];
+                normalizedColor = `#${r}${r}${g}${g}${b}${b}`;
+            }
+            
+            const message = {
                 type: 'cell_update',
                 sub_x: subX,
                 sub_y: subY,
-                color: color
-            }));
+                color: normalizedColor
+            };
+            
+            this.socket.send(JSON.stringify(message));
+        } else {
+            console.log(`[AI Player] ❌ WebSocket fermé, pixel non envoyé: (${subX},${subY}) = ${color}`);
         }
     }
 
@@ -352,7 +423,7 @@ class AIPlayer {
         this.currentAdapter = this.getAdapterForModel(selectedModel);
 
         const apiKey = this.elements.apiKey.value;
-        if (!apiKey && selectedModel !== 'ollama' && selectedModel !== 'llava') {
+        if (!apiKey && selectedModel !== 'ollama' && selectedModel !== 'llava' && selectedModel !== 'gemini') {
             throw new Error('API Key manquante');
         }
 
@@ -452,8 +523,8 @@ class AIPlayer {
         // Récupérer mes propres pixels récents pour feedback visuel
         const myRecentUpdates = this.otherUsers[this.myUserId]?.recentUpdates || [];
         
-        // Générer les couleurs aléatoires pour tous les prompts
-        const randomColors = this.generateRandomColors(8);
+        // Générer les couleurs aléatoires pour tous les prompts (12 pour avoir de la marge)
+        const randomColors = this.generateRandomColors(12);
         
         // Construire le prompt : soit exercice d'entraînement, soit manuel/prompt normal
         let systemPrompt;
@@ -478,7 +549,9 @@ class AIPlayer {
                         myLastStrategy,
                         myRecentUpdates,
                         this.myPosition,
-                        randomColors
+                        randomColors,
+                        this.lastLocalDescription,
+                        this.lastGlobalDescription
                     );
                     
                     // Forcer le mode training strict avec le prompt spécifique
@@ -490,15 +563,17 @@ class AIPlayer {
                 } else {
                     // Fallback si pas de prompt training
                     systemPrompt = await this.currentAdapter.buildSystemPrompt(
-                        analysis, 
-                        customPrompt, 
-                        this.isFirstLlmRequest, 
-                        this.manualContent, 
+            analysis, 
+            customPrompt, 
+            this.isFirstLlmRequest, 
+            this.manualContent, 
                         this.iterationCount,
                         myLastStrategy,
                         myRecentUpdates,
                         this.myPosition,
-                        randomColors
+                        randomColors,
+                        this.lastLocalDescription,
+                        this.lastGlobalDescription
                     );
                     
                     if (systemPrompt && typeof systemPrompt === 'object') {
@@ -518,7 +593,9 @@ class AIPlayer {
                     myLastStrategy,
                     myRecentUpdates,
                     this.myPosition,
-                    randomColors
+                    randomColors,
+                    this.lastLocalDescription,
+                    this.lastGlobalDescription
                 );
                 
                 // Note: La concaténation des prompts (memory_context + global_positioning + continuation_system) 
@@ -532,17 +609,12 @@ class AIPlayer {
                 const exCode = this.elements.trainingEx?.value || '';
                 
                 if (isFreeMode && systemPrompt && typeof systemPrompt === 'object') {
-                    // En mode libre, envoyer les images seulement si ce n'est pas la première itération (seed_system)
+                    // En mode libre, TOUJOURS envoyer les images (y compris pour seed_system à iter 0!)
+                    // LLaVA doit voir la grille initiale pour proposer une simplification
+                    systemPrompt.needsImage = true;
+                    systemPrompt.useGlobalCanvas = true;
                     const isFirstIteration = this.iterationCount <= 1;
-                    if (!isFirstIteration) {
-                        systemPrompt.needsImage = true;
-                        systemPrompt.useGlobalCanvas = true;
-                        console.log('[AI Player] Mode libre : envoi images activé (continuation)');
-                    } else {
-                        systemPrompt.needsImage = false;
-                        systemPrompt.useGlobalCanvas = false;
-                        console.log('[AI Player] Mode libre : pas d\'images pour seed_system');
-                    }
+                    console.log(`[AI Player] Mode libre : envoi images activé (${isFirstIteration ? 'seed_system' : 'continuation'})`);
                 } else if (isTraining) {
                     // Ne jamais envoyer d'image si entraînement activé et (exercice A, ou ex inconnu)
                     // SAUF pour A5 qui doit voir ce qui a été fait en A4
@@ -562,6 +634,28 @@ class AIPlayer {
         this.setLlmStatus('Actif', 'running');
 
         try {
+            // V2 : DÉSACTIVÉ - Pas de grille initiale colorée, fond noir uniquement
+            // LLaVA doit voir clairement ce qu'il dessine sur fond noir
+            const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         this.currentAdapter.name.includes('V2');
+            
+            // COMMENTÉ: Génération de la grille aléatoire initiale
+            /*
+            if (isV2 && this.iterationCount === 0 && !this.initialGeneratedState && this.myUserId) {
+                console.log('[AI Player] Génération grille initiale 400 pixels AVANT capture images');
+                const colors = ColorGenerator.generateInitialColors(this.myUserId);
+                this.initialGeneratedState = {};
+                
+                for (let i = 0; i < 400; i++) {
+                    const x = i % 20;
+                    const y = Math.floor(i / 20);
+                    this.initialGeneratedState[`${x},${y}`] = colors[i];
+                }
+                console.log('[AI Player] ✅ Grille initiale générée:', Object.keys(this.initialGeneratedState).length, 'pixels');
+            }
+            */
+            console.log('[AI Player] Mode V2: Fond noir (pas de grille initiale colorée)');
+            
             // Capturer l'image locale AVANT de générer les images pour LLaVA
             this.captureLocalCanvas();
             
@@ -574,8 +668,8 @@ class AIPlayer {
                 if (this.lastLocalCanvasBase64 && this.lastLocalCanvasBase64.length > 100) {
                     images.push(this.lastLocalCanvasBase64);
                     console.log('[AI Player] Ajout image locale');
-                    console.log('[AI Player] Image locale Base64:', this.lastLocalCanvasBase64.substring(0, 50) + '...');
-                    console.log('[AI Player] Image locale taille:', this.lastLocalCanvasBase64.length, 'caractères');
+                    // console.log('[AI Player] Image locale Base64:', this.lastLocalCanvasBase64.substring(0, 50) + '...');
+                    // console.log('[AI Player] Image locale taille:', this.lastLocalCanvasBase64.length, 'caractères');
                 } else if (this.lastLocalCanvasBase64) {
                     console.warn('[AI Player] ⚠️ Image locale trop petite ou vide:', this.lastLocalCanvasBase64.length, 'caractères');
                 } else {
@@ -603,27 +697,23 @@ class AIPlayer {
                     
                     console.log('[AI Player] Mes pixels: ' + Object.keys(this.myCellState).length + ' dans myCellState');
                     
-                    // Générer uniquement le canvas couleur côté client (structure optionnelle désactivée)
+                    // Générer canvas global en utilisant captureGlobalCanvas() qui fusionne initialGeneratedState
+                    await this.captureGlobalCanvas();
+                    
                     console.log('[AI Player] 🔍 Debug génération canvas global:');
                     console.log('  - otherUsers keys:', Object.keys(this.otherUsers));
                     console.log('  - myUserId:', this.myUserId);
                     console.log('  - myPosition:', this.myPosition);
                     
-                    const canvasImages = LlavaCanvasGenerator.generateGlobalCanvas(
-                        this.otherUsers,
-                        this.myUserId,
-                        { includeStructure: false }
-                    );
-                    
-                    if (canvasImages && canvasImages.pureCanvas && canvasImages.pureCanvas.length > 100) {
+                    if (this.lastGlobalCanvasBase64 && this.lastGlobalCanvasBase64.length > 100) {
                         console.log('[AI Player] Canvas global genere (client):');
-                        console.log('  - Pure canvas: ' + canvasImages.pureCanvas.length + ' chars');
-                        console.log('[AI Player] Image globale Base64:', canvasImages.pureCanvas.substring(0, 50) + '...');
+                        console.log('  - Pure canvas: ' + this.lastGlobalCanvasBase64.length + ' chars');
+                        console.log('[AI Player] Image globale Base64:', this.lastGlobalCanvasBase64.substring(0, 50) + '...');
                         
-                        images.push(canvasImages.pureCanvas);
+                        images.push(this.lastGlobalCanvasBase64);
                         console.log('[AI Player] Ajout image globale');
-                    } else if (canvasImages && canvasImages.pureCanvas) {
-                        console.warn('[AI Player] ⚠️ Canvas global trop petit:', canvasImages.pureCanvas.length, 'caractères');
+                    } else if (this.lastGlobalCanvasBase64) {
+                        console.warn('[AI Player] ⚠️ Canvas global trop petit:', this.lastGlobalCanvasBase64.length, 'caractères');
                     } else {
                         console.warn('[AI Player] ⚠️ Canvas global non généré ou vide!');
                     }
@@ -659,10 +749,10 @@ class AIPlayer {
             let response;
             if (systemPrompt && typeof systemPrompt === 'object' && systemPrompt.systemMessage) {
                 // LLaVA avec image
-                console.log('[AI Player] 🚀 Appel à callAPI avec LLaVA...');
-                console.log('[AI Player] SystemMessage length:', systemPrompt.systemMessage.length);
-                console.log('[AI Player] UserMessage length:', systemPrompt.userMessage.length);
-                console.log('[AI Player] ImageBase64 length:', imageBase64 ? imageBase64.length : 'null');
+                // console.log('[AI Player] 🚀 Appel à callAPI avec LLaVA...');
+                // console.log('[AI Player] SystemMessage length:', systemPrompt.systemMessage.length);
+                // console.log('[AI Player] UserMessage length:', systemPrompt.userMessage.length);
+                // console.log('[AI Player] ImageBase64 length:', imageBase64 ? imageBase64.length : 'null');
                 response = await this.currentAdapter.callAPI(apiKey, systemPrompt.systemMessage, systemPrompt.userMessage, imageBase64);
             } else {
                 // Autres adapters
@@ -672,13 +762,23 @@ class AIPlayer {
 
             // Mettre à jour les compteurs de tokens (si disponible)
             if (response && response.usage) {
-                this.updateTokenCounters(response.usage);
+            this.updateTokenCounters(response.usage);
             }
 
             // Pour LLaVA, response est une string directe
             // Pour les autres adapters, response est un objet {content: ...}
             const responseContent = typeof response === 'string' ? response : response.content;
             const parsed = this.currentAdapter.parseResponse(responseContent);
+            
+            // Extraire les descriptions (V2 only)
+            if (parsed && parsed.localDescription !== undefined) {
+                console.log('[Simplicity] Description locale extraite:', parsed.localDescription.substring(0, 100));
+                this.lastLocalDescription = parsed.localDescription;
+            }
+            if (parsed && parsed.globalDescription !== undefined) {
+                console.log('[Simplicity] Description globale extraite:', parsed.globalDescription.substring(0, 100));
+                this.lastGlobalDescription = parsed.globalDescription;
+            }
             
             // Gérer le cas où LLaVA explique son intention mais ne génère pas de pixels
             if (parsed && parsed.error === 'NO_PIXELS_GENERATED' && parsed.hasIntention) {
@@ -708,7 +808,17 @@ class AIPlayer {
                 } else {
                     this.addJournalEntry(`✅ LLaVA a généré ${parsed.pixels.length} pixels (excellent!)`, 'success');
                 }
+                
+                // Store filtered response (Tab 2: Monitoring)
+                this.storeFilteredResponse(parsed, parsed.pixels.length);
             }
+            
+            // Store verbatim response (Tab 3: Verbatim)
+            this.storeVerbatimResponse(responseContent);
+            
+            // Update LLaVA images display (Tab 5: Debug)
+            const colorPalette = this.generateColorPalette();
+            this.updateLlavaImages(this.lastLocalCanvasBase64, this.lastGlobalCanvasBase64, colorPalette);
             
             // Validation stricte si entraînement activé
             if (!this.validateTrainingOutput(parsed)) {
@@ -800,10 +910,24 @@ class AIPlayer {
     }
 
     async executePixels(instructions) {
+        console.log('[AI Player] 🎨 executePixels appelé, instructions:', instructions);
         let pixels = [];
         
         if (Array.isArray(instructions.pixels) && instructions.pixels.length > 0) {
-            pixels = instructions.pixels;
+            console.log('[AI Player] 📦 Pixels reçus:', instructions.pixels.length);
+            // Convertir les strings "x,y#HEX" en objets {x, y, color}
+            pixels = instructions.pixels.map(pixelStr => {
+                if (typeof pixelStr === 'string' && pixelStr.includes('#') && pixelStr.includes(',')) {
+                    const [coords, color] = pixelStr.split('#');
+                    const [x, y] = coords.split(',');
+                    return {
+                        x: parseInt(x, 10),
+                        y: parseInt(y, 10),
+                        color: `#${color}`
+                    };
+                }
+                return pixelStr; // Déjà un objet
+            });
         } else if (Array.isArray(instructions.grid)) {
             // Convertir une grille 20x20 en liste de pixels
             const grid = instructions.grid;
@@ -831,22 +955,42 @@ class AIPlayer {
         for (const p of pixels) {
             coordToPixel.set(`${p.x},${p.y}`, p);
         }
-        // Filtrer les pixels identiques à l’état actuel
+        // Filtrer les pixels identiques à l'état actuel
         const filtered = [];
+        let filteredCount = 0;
         coordToPixel.forEach((p, key) => {
             const existing = this.myCellState[key];
-            if (existing && typeof existing === 'string' && existing.toLowerCase() === p.color.toLowerCase()) {
+            
+            // Normaliser les couleurs pour la comparaison (#FFF vs #FFFFFF)
+            const normalizedExisting = existing && existing.length === 4 ? 
+                `#${existing[1]}${existing[1]}${existing[2]}${existing[2]}${existing[3]}${existing[3]}` : existing;
+            const normalizedNew = p.color && p.color.length === 4 ? 
+                `#${p.color[1]}${p.color[1]}${p.color[2]}${p.color[2]}${p.color[3]}${p.color[3]}` : p.color;
+            
+            if (normalizedExisting && typeof normalizedExisting === 'string' && 
+                normalizedExisting.toLowerCase() === normalizedNew.toLowerCase()) {
+                filteredCount++;
                 return; // ignorer duplication exacte
             }
             filtered.push(p);
         });
+        
+        if (filteredCount > 0) {
+            console.log(`[AI Player] ${filteredCount} pixels filtrés (déjà dessinés avec la même couleur)`);
+        }
+        
         pixels = filtered;
+        
+        console.log(`[AI Player] 📊 Après filtrage: ${pixels.length} pixels à dessiner`);
 
         // NOUVEAU: Envoi progressif "au compte-gouttes"
         const delayAfterMs = (parseInt(this.elements.interval.value) || 0) * 1000;
         const pixelCount = pixels.length;
         
-        if (pixelCount === 0) return 0;
+        if (pixelCount === 0) {
+            console.log('[AI Player] ⚠️ Aucun pixel à dessiner après filtrage');
+            return 0;
+        }
         
         // Calculer le délai optimal entre pixels pour un dessin fluide
         // Si délai = 0, dessiner rapidement (10s max), sinon utiliser 80% du délai
@@ -871,12 +1015,12 @@ class AIPlayer {
             setTimeout(() => {
                 if (!this.isRunning) return; // Arrêter si l'agent est stoppé
                 
-                if (pixel.x >= 0 && pixel.x < 20 && pixel.y >= 0 && pixel.y < 20) {
-                    this.sendCellUpdate(pixel.x, pixel.y, pixel.color);
-                    const key = `${pixel.x},${pixel.y}`;
-                    this.myCellState[key] = pixel.color;
+            if (pixel.x >= 0 && pixel.x < 20 && pixel.y >= 0 && pixel.y < 20) {
+                this.sendCellUpdate(pixel.x, pixel.y, pixel.color);
+                const key = `${pixel.x},${pixel.y}`;
+                this.myCellState[key] = pixel.color;
                     this.myPixelCount = Object.keys(this.myCellState).length;
-                }
+            }
             }, i * delayPerPixel);
         }
 
@@ -891,19 +1035,36 @@ class AIPlayer {
             canvas.height = 200;
             const ctx = canvas.getContext('2d');
             
-            // Dessiner la grille 20x20 de l'agent
-            for (let y = 0; y < 20; y++) {
-                for (let x = 0; x < 20; x++) {
-                    const color = this.myCellState[`${x},${y}`] || '#000000';
-                    ctx.fillStyle = color;
-                    ctx.fillRect(x * 10, y * 10, 10, 10);
+            // À l'itération 0 (V2), utiliser la grille initiale générée
+            const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         this.currentAdapter.name.includes('V2');
+            
+            if (isV2 && this.initialGeneratedState) {
+                console.log('[AI Player] Capture canvas local: grille initiale (fond) + pixels dessinés');
+                // V2 : toujours fusionner initialGeneratedState (fond) + myCellState (pixels dessinés)
+                for (let y = 0; y < 20; y++) {
+                    for (let x = 0; x < 20; x++) {
+                        // Utiliser myCellState si existe, sinon initialGeneratedState
+                        const color = this.myCellState[`${x},${y}`] || this.initialGeneratedState[`${x},${y}`] || '#000000';
+                        ctx.fillStyle = color;
+                        ctx.fillRect(x * 10, y * 10, 10, 10);
+                    }
+                }
+            } else {
+                // V1 : Dessiner la grille 20x20 de l'agent (myCellState)
+                for (let y = 0; y < 20; y++) {
+                    for (let x = 0; x < 20; x++) {
+                        const color = this.myCellState[`${x},${y}`] || '#000000';
+                        ctx.fillStyle = color;
+                        ctx.fillRect(x * 10, y * 10, 10, 10);
+                    }
                 }
             }
             
             // Extraire seulement les données base64 pures (sans le préfixe data:image/png;base64,)
             const dataURL = canvas.toDataURL('image/png');
             this.lastLocalCanvasBase64 = dataURL.split(',')[1]; // Enlever le préfixe
-            console.log('[AI Player] Canvas local capturé');
+            // console.log('[AI Player] Canvas local capturé');
         } catch (e) {
             console.error('[AI Player] Erreur capture canvas local:', e);
         }
@@ -911,26 +1072,73 @@ class AIPlayer {
 
     generateColorPalette() {
         try {
-            // Générer le tableau de couleurs au format proposé
-            let palette = '';
+            // Détecter si on utilise LLaVA V2 (Grid Format)
+            const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         this.currentAdapter.name.includes('V2');
             
-            // En-tête avec numéros de colonnes (parfaitement aligné)
-            palette += '         1     2     3     4     5     6     7     8     9    10    11    12    13    14    15    16    17    18    19    20\n';
-            
-            // Générer chaque ligne
-            for (let y = 0; y < 20; y++) {
-                const rowNum = (y + 1).toString().padStart(2);
-                palette += `${rowNum}   `;
-                
-                for (let x = 0; x < 20; x++) {
-                    const color = this.myCellState[`${x},${y}`] || '#000000';
-                    palette += `${color} `;
+            if (isV2) {
+                // Itération 0 : retourner la grille initiale (déjà générée dans askLLM)
+                if (this.iterationCount === 0) {
+                    if (!this.initialGeneratedState) {
+                        console.warn('[AI Player] ⚠️ initialGeneratedState non disponible pour palette V2 seed!');
+                        return 'Grid not yet initialized';
+                    }
+                    
+                    // Retourner tous les 400 pixels au format x,y#HEX
+                    const allPixels = [];
+                    for (let y = 0; y < 20; y++) {
+                        for (let x = 0; x < 20; x++) {
+                            const color = this.initialGeneratedState[`${x},${y}`] || '#000000';
+                            // Format: x,y#HEX (enlever le # du début et ajouter un # entre coordonnées et couleur)
+                            const hexColor = color.startsWith('#') ? color.substring(1) : color;
+                            allPixels.push(`${x},${y}#${hexColor}`);
+                        }
+                    }
+                    console.log(`[AI Player] Palette V2 seed: 400 pixels générés, exemple: ${allPixels[0]}, ${allPixels[1]}, ${allPixels[2]}`);
+                    return allPixels.join(' ');
                 }
-                palette += '\n';
+                
+                // Itération ≥1 : montrer seulement les pixels modifiés (non-noirs) pour économiser des tokens
+                const drawnPixels = [];
+                for (let y = 0; y < 20; y++) {
+                    for (let x = 0; x < 20; x++) {
+                        const color = this.myCellState[`${x},${y}`];
+                        // Ne garder que les pixels non-noirs (dessinés)
+                        if (color && color !== '#000000' && color.toLowerCase() !== '#000000') {
+                            drawnPixels.push(`${x},${y}${color}`);
+                        }
+                    }
+                }
+                
+                if (drawnPixels.length === 0) {
+                    // console.log('[AI Player] Palette V2 vide (aucun pixel dessiné)');
+                    return 'Grid is currently empty (all pixels are black #000000)';
+                } else {
+                    // console.log(`[AI Player] Palette V2 générée: ${drawnPixels.length} pixels dessinés`);
+                    return `Current drawn pixels (${drawnPixels.length} total):\n${drawnPixels.join(' ')}`;
+                }
+            } else {
+                // Format V1 : tableau avec en-tête
+                let palette = '';
+                
+                // En-tête avec numéros de colonnes (parfaitement aligné)
+                palette += '         1     2     3     4     5     6     7     8     9    10    11    12    13    14    15    16    17    18    19    20\n';
+                
+                // Générer chaque ligne
+                for (let y = 0; y < 20; y++) {
+                    const rowNum = (y + 1).toString().padStart(2);
+                    palette += `${rowNum}   `;
+                    
+                    for (let x = 0; x < 20; x++) {
+                        const color = this.myCellState[`${x},${y}`] || '#000000';
+                        palette += `${color} `;
+                    }
+                    palette += '\n';
+                }
+                
+                console.log('[AI Player] Palette V1 (Table Format) générée');
+                return palette;
             }
-            
-            console.log('[AI Player] Palette de couleurs générée');
-            return palette;
         } catch (e) {
             console.error('[AI Player] Erreur génération palette:', e);
             return 'Palette non disponible';
@@ -961,17 +1169,447 @@ class AIPlayer {
 
     async captureGlobalCanvas() {
         try {
-            // Utiliser directement LlavaCanvasGenerator au lieu de this.currentAdapter
-            const result = LlavaCanvasGenerator.generateGlobalCanvas(this.otherUsers, this.myUserId);
-            this.lastGlobalCanvasBase64 = result.pureCanvas;
+            // V2 : fusionner initialGeneratedState comme fond + pixels dessinés par-dessus
+            const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         this.currentAdapter.name.includes('V2');
+            
+            if (isV2 && this.initialGeneratedState) {
+                console.log('[AI Player] Canvas global: fusion grille initiale (fond) + pixels dessinés pour TOUS les agents');
+                // Créer une copie temporaire de otherUsers avec grille initiale + pixels dessinés
+                const otherUsersWithFull = JSON.parse(JSON.stringify(this.otherUsers));
+                
+                // Pour CHAQUE agent, générer sa grille initiale et fusionner avec ses pixels dessinés
+                for (const [userId, userData] of Object.entries(otherUsersWithFull)) {
+                    // Générer la grille initiale de cet agent (basée sur son userId)
+                    const agentInitialColors = ColorGenerator.generateInitialColors(userId);
+                    const agentInitialState = {};
+                    
+                    for (let i = 0; i < 400; i++) {
+                        const x = i % 20;
+                        const y = Math.floor(i / 20);
+                        agentInitialState[`${x},${y}`] = agentInitialColors[i];
+                    }
+                    
+                    // Fusion: grille initiale (fond) + pixels dessinés (premier plan)
+                    userData.pixels = {
+                        ...agentInitialState,
+                        ...(userData.pixels || {}) // Écrase avec les pixels dessinés
+                    };
+                }
+                
+                const result = LlavaCanvasGenerator.generateGlobalCanvas(otherUsersWithFull, this.myUserId);
+                this.lastGlobalCanvasBase64 = result.pureCanvas;
+            } else {
+                // Utiliser directement LlavaCanvasGenerator au lieu de this.currentAdapter
+                const result = LlavaCanvasGenerator.generateGlobalCanvas(this.otherUsers, this.myUserId);
+                this.lastGlobalCanvasBase64 = result.pureCanvas;
+            }
             console.log('[AI Player] Canvas global capturé');
         } catch (e) {
             console.error('[AI Player] Erreur capture canvas global:', e);
         }
     }
+    
+    // === Simplicity Theory Metrics ===
+    calculateSimplicityMetrics(description, pixelCount) {
+        const alpha = 33; // bits par pixel (2×log₂(20) + log₂(16777216) ≈ 33)
+        const C_w = pixelCount * alpha; // Complexité de génération
+        const C_d = description.length * 8; // Complexité de description (8 bits par caractère)
+        const U = C_w - C_d; // Inattendu
+        
+        console.log(`[Simplicity] C_w=${C_w} bits, C_d=${C_d} bits, U=${U} bits`);
+        
+        return { C_w, C_d, U };
+    }
+    
+    storeSimplicityMetrics(iteration, C_w, C_d, U, description) {
+        // Filtrer les métriques invalides (U négatif = agent a décrit sans dessiner)
+        if (C_w === 0 && C_d > 0) {
+            console.warn(`[Simplicity] ⚠️ Métriques invalides (U négatif): agent a décrit sans dessiner, non enregistré`);
+            return false; // Indiquer que les métriques n'ont pas été stockées
+        }
+        
+        this.simplicityMetrics.iterations.push(iteration);
+        this.simplicityMetrics.C_w.push(C_w);
+        this.simplicityMetrics.C_d.push(C_d);
+        this.simplicityMetrics.U.push(U);
+        this.simplicityMetrics.descriptions.push(description);
+        
+        console.log(`[Simplicity] Métriques stockées pour itération ${iteration}`);
+        
+        // Dessiner le graphique local
+        this.drawLocalSimplicityChart();
+        
+        return true; // Métriques valides et stockées
+    }
+    
+    sendSimplicityUpdate(h, localDescription, globalDescription) {
+        if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN) {
+            this.metricsSocket.send(JSON.stringify({
+                type: 'simplicity_update',
+                user_id: this.myUserId,
+                h: h,
+                local_description: localDescription,
+                global_description: globalDescription
+            }));
+            console.log(`[Simplicity] Métriques envoyées au serveur (h=${h})`);
+        }
+    }
+    
+    connectToMetricsServer() {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname;
+        const metricsUrl = `${wsProtocol}//${wsHost}:5001/ws`;
+        
+        this.metricsSocket = new WebSocket(metricsUrl);
+        
+        this.metricsSocket.onopen = () => {
+            console.log('[Simplicity] ✅ Connecté au serveur de métriques (port 5001)');
+        };
+        
+        this.metricsSocket.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            if (message.type === 'global_simplicity_metrics') {
+                console.log('[Simplicity] Métriques globales reçues:', message);
+                this.updateGlobalSimplicityChart(message);
+                this.updateConsensusGauge(message.consensus_score);
+            }
+        };
+        
+        this.metricsSocket.onerror = (error) => {
+            console.warn('[Simplicity] Serveur de métriques non disponible (fonctionnalité optionnelle)');
+        };
+        
+        this.metricsSocket.onclose = () => {
+            console.log('[Simplicity] Déconnecté du serveur de métriques');
+            // Tentative de reconnexion après 5 secondes
+            setTimeout(() => this.connectToMetricsServer(), 5000);
+        };
+    }
+    
+    drawLocalSimplicityChart() {
+        const canvas = document.getElementById('simplicity-chart-local');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        // Effacer
+        ctx.clearRect(0, 0, width, height);
+        
+        const data = this.simplicityMetrics;
+        if (data.iterations.length === 0) return;
+        
+        // Calculer échelles
+        const maxY = Math.max(...data.C_w, ...data.C_d, Math.abs(Math.min(...data.U, 0)));
+        const scaleX = width / Math.max(data.iterations.length, 10);
+        const scaleY = (height - 20) / maxY;
+        
+        // Dessiner courbes
+        this.drawCurve(ctx, data.iterations, data.C_w, scaleX, scaleY, height, '#4A90E2'); // Bleu
+        this.drawCurve(ctx, data.iterations, data.C_d, scaleX, scaleY, height, '#E24A4A'); // Rouge
+        this.drawCurve(ctx, data.iterations, data.U, scaleX, scaleY, height, '#4AE290');   // Vert
+        
+        // Ligne zéro pour U
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, height - 10);
+        ctx.lineTo(width, height - 10);
+        ctx.stroke();
+    }
+    
+    drawCurve(ctx, iterations, values, scaleX, scaleY, height, color) {
+        if (values.length === 0) return;
+        
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        for (let i = 0; i < values.length; i++) {
+            const x = i * scaleX;
+            const y = height - 10 - (values[i] * scaleY);
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        
+        ctx.stroke();
+    }
+    
+    updateGlobalSimplicityChart(metrics) {
+        console.log('[Simplicity] Mise à jour graphique global:', metrics);
+        
+        // Stocker les métriques globales
+        if (!this.globalSimplicityMetrics) {
+            this.globalSimplicityMetrics = {
+                iterations: [],
+                C_w: [],
+                C_d: [],
+                U: []
+            };
+        }
+        
+        this.globalSimplicityMetrics.iterations.push(metrics.iteration);
+        this.globalSimplicityMetrics.C_w.push(metrics.C_w_global);
+        this.globalSimplicityMetrics.C_d.push(metrics.C_d_global);
+        this.globalSimplicityMetrics.U.push(metrics.U_global);
+        
+        // Dessiner le graphique global
+        this.drawGlobalSimplicityChart();
+        
+        // Mettre à jour les valeurs affichées
+        const agentsSpan = document.getElementById('global-agents');
+        const pixelsSpan = document.getElementById('global-pixels');
+        const uSpan = document.getElementById('global-u');
+        
+        if (agentsSpan) agentsSpan.textContent = metrics.agent_count;
+        if (pixelsSpan) pixelsSpan.textContent = Math.round(metrics.C_w_global / 33);
+        if (uSpan) uSpan.textContent = Math.round(metrics.U_global);
+    }
+    
+    drawGlobalSimplicityChart() {
+        const canvas = document.getElementById('simplicity-chart-global');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        // Effacer
+        ctx.clearRect(0, 0, width, height);
+        
+        const data = this.globalSimplicityMetrics;
+        if (!data || data.iterations.length === 0) return;
+        
+        // Calculer échelles
+        const maxY = Math.max(...data.C_w, ...data.C_d, Math.abs(Math.min(...data.U, 0)));
+        const scaleX = width / Math.max(data.iterations.length, 10);
+        const scaleY = (height - 20) / maxY;
+        
+        // Dessiner courbes
+        this.drawCurve(ctx, data.iterations, data.C_w, scaleX, scaleY, height, '#4A90E2'); // Bleu
+        this.drawCurve(ctx, data.iterations, data.C_d, scaleX, scaleY, height, '#E24A4A'); // Rouge
+        this.drawCurve(ctx, data.iterations, data.U, scaleX, scaleY, height, '#4AE290');   // Vert
+        
+        // Ligne zéro pour U
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, height - 10);
+        ctx.lineTo(width, height - 10);
+        ctx.stroke();
+    }
+    
+    updateConsensusGauge(consensusScore) {
+        // Sera implémenté dans le HTML avec la jauge
+        console.log('[Simplicity] Consensus score:', (consensusScore * 100).toFixed(1) + '%');
+        const gaugeBar = document.getElementById('consensus-bar');
+        const gaugeValue = document.getElementById('consensus-value');
+        if (gaugeBar) {
+            gaugeBar.style.width = (consensusScore * 100) + '%';
+        }
+        if (gaugeValue) {
+            gaugeValue.textContent = (consensusScore * 100).toFixed(0) + '%';
+        }
+    }
+
+    // === Filtered and Verbatim Responses Management ===
+    storeFilteredResponse(parsedData, pixelCount) {
+        const container = document.getElementById('filtered-responses');
+        if (!container) return;
+        
+        // Remove placeholder if exists
+        const placeholder = container.querySelector('.image-placeholder');
+        if (placeholder) placeholder.remove();
+        
+        // Create response item
+        const item = document.createElement('div');
+        item.className = 'response-item';
+        
+        const timestamp = new Date().toLocaleTimeString();
+        
+        let html = `
+            <div class="response-header">
+                <span class="response-timestamp">${timestamp}</span>
+                <span class="response-iteration">Iteration #${this.iterationCount}</span>
+            </div>
+        `;
+        
+        // Display parsed Q&A if available
+        if (parsedData) {
+            if (parsedData.localDescription) {
+                html += `
+                    <div class="filtered-response-section">
+                        <div class="filtered-response-label">Q6: Local Description</div>
+                        <div class="filtered-response-text">${parsedData.localDescription}</div>
+                    </div>
+                `;
+            }
+            if (parsedData.globalDescription) {
+                html += `
+                    <div class="filtered-response-section">
+                        <div class="filtered-response-label">Q4: Global Description</div>
+                        <div class="filtered-response-text">${parsedData.globalDescription}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        // Display pixel count
+        html += `
+            <div class="filtered-response-section">
+                <div class="filtered-response-label">Pixels Drawn</div>
+                <div class="filtered-response-text">${pixelCount} pixels</div>
+            </div>
+        `;
+        
+        item.innerHTML = html;
+        
+        // Insert at top (most recent first)
+        container.insertBefore(item, container.firstChild);
+        
+        // Keep only last 10 responses
+        while (container.children.length > 10) {
+            container.removeChild(container.lastChild);
+        }
+    }
+    
+    storeVerbatimResponse(rawResponse) {
+        const container = document.getElementById('verbatim-responses');
+        if (!container) return;
+        
+        // Remove placeholder if exists
+        const placeholder = container.querySelector('.image-placeholder');
+        if (placeholder) placeholder.remove();
+        
+        // Create response item
+        const item = document.createElement('div');
+        item.className = 'response-item';
+        
+        const timestamp = new Date().toLocaleTimeString();
+        
+        item.innerHTML = `
+            <div class="response-header">
+                <span class="response-timestamp">${timestamp}</span>
+                <span class="response-iteration">Iteration #${this.iterationCount}</span>
+            </div>
+            <div class="response-content">${this.escapeHtml(rawResponse)}</div>
+        `;
+        
+        // Insert at top (most recent first)
+        container.insertBefore(item, container.firstChild);
+        
+        // Keep only last 5 responses
+        while (container.children.length > 5) {
+            container.removeChild(container.lastChild);
+        }
+    }
+    
+    updateLlavaImages(localImageBase64, globalImageBase64, colorPalette = null) {
+        const container = document.getElementById('llava-images');
+        if (!container) return;
+        
+        // Clear container
+        container.innerHTML = '';
+        
+        // Helper to add data:image prefix if needed
+        const ensureDataUrl = (base64) => {
+            if (!base64) return null;
+            return base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+        };
+        
+        const localUrl = ensureDataUrl(localImageBase64);
+        const globalUrl = ensureDataUrl(globalImageBase64);
+        
+        // Add local canvas image
+        if (localUrl) {
+            const localItem = document.createElement('div');
+            localItem.className = 'image-item';
+            localItem.innerHTML = `
+                <div class="image-label">Local Canvas (20x20)</div>
+                <img src="${localUrl}" class="image-thumbnail" alt="Local Canvas" onclick="window.aiPlayer.showImageModal(this.src)">
+            `;
+            container.appendChild(localItem);
+        }
+        
+        // Add global canvas image
+        if (globalUrl) {
+            const globalItem = document.createElement('div');
+            globalItem.className = 'image-item';
+            globalItem.innerHTML = `
+                <div class="image-label">Global Canvas</div>
+                <img src="${globalUrl}" class="image-thumbnail" alt="Global Canvas" onclick="window.aiPlayer.showImageModal(this.src)">
+            `;
+            container.appendChild(globalItem);
+        }
+        
+        // Add colorPalette text (especially useful for iteration 0)
+        if (colorPalette) {
+            const paletteItem = document.createElement('div');
+            paletteItem.className = 'image-item';
+            const pixels = colorPalette.split(' ');
+            const pixelCount = pixels.length;
+            const preview = pixels.slice(0, 10).join(' ') + (pixelCount > 10 ? ` ... (${pixelCount} total)` : '');
+            paletteItem.innerHTML = `
+                <div class="image-label">Color Palette (sent to LLaVA)</div>
+                <div style="background: #0d0d0d; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 10px; color: #aaa; max-height: 100px; overflow-y: auto;">
+                    ${this.escapeHtml(preview)}
+                </div>
+                <div style="font-size: 9px; color: #666; margin-top: 4px;">
+                    ${pixelCount} pixels in palette
+                </div>
+            `;
+            container.appendChild(paletteItem);
+        }
+        
+        // Show placeholder if no images
+        if (!localUrl && !globalUrl && !colorPalette) {
+            container.innerHTML = '<div class="image-placeholder">No images sent yet</div>';
+        }
+    }
+    
+    showImageModal(imageSrc) {
+        const modal = document.getElementById('image-modal');
+        const modalImg = document.getElementById('modal-image');
+        if (modal && modalImg) {
+            modal.style.display = 'block';
+            modalImg.src = imageSrc;
+        }
+    }
+    
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    updateHeaderPosition() {
+        const headerPosition = document.getElementById('header-position');
+        if (headerPosition && this.myPosition) {
+            const [x, y] = this.myPosition;
+            headerPosition.textContent = `[${x}, ${y}]`;
+        }
+    }
+    
+    updateHeaderModel() {
+        const headerModel = document.getElementById('header-llm-model');
+        const modelSelect = this.elements.llmModelSelect;
+        if (headerModel && modelSelect) {
+            const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+            // Extract just the model name (e.g., "LLaVA 7B" from "👁️ LLaVA 7B Vision...")
+            const modelText = selectedOption.textContent.split('(')[0].trim();
+            headerModel.textContent = modelText.replace(/^[^\w]+/, ''); // Remove leading emojis
+        }
+    }
 
     // === Boucle principale ===
     async mainLoop() {
+        console.log('[AI Player] 🔄 mainLoop() appelé, isRunning:', this.isRunning);
         while (this.isRunning) {
             if (this.isPaused) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -983,7 +1621,7 @@ class AIPlayer {
                 this.updateStatus('disconnected');
                 this.setLlmStatus('Inactif', 'disconnected');
                 this.isRunning = false;
-                this.elements.btnStart.textContent = '▶ Démarrer';
+                this.elements.btnStart.textContent = '▶ Start';
                 this.elements.btnPause.disabled = true;
                 break;
             }
@@ -1014,7 +1652,8 @@ class AIPlayer {
                 console.log('[AI Player] 📨 Réponse reçue de askLLM:', instructions ? 'OK' : 'NULL');
                 if (!instructions) {
                     this.addJournalEntry(`⚠️ Aucune instruction reçue de LLaVA`, 'error');
-                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    this.addJournalEntry(`⏳ Attente de 60s avant nouvelle tentative`, 'warning');
+                    await new Promise(resolve => setTimeout(resolve, 60000)); // 60 secondes au lieu de 5
                     continue;
                 }
 
@@ -1023,14 +1662,54 @@ class AIPlayer {
                 this.currentDrawingIteration = this.iterationCount;
                 this.updateStats();
                 this.addJournalEntry(`🤔 Itération ${this.iterationCount}...`);
-                
+
                 const pixelCount = await this.executePixels(instructions);
 
                 this.updateDecision(instructions.strategy, pixelCount);
-                this.addJournalEntry(`✅ ${pixelCount} pixels dessinés | "${instructions.strategy}"`, 'success');
                 
-                // Réinitialiser le compteur d'erreurs en cas de succès
-                this.consecutiveErrors = 0;
+                // Délai spécifique pour Gemini (rate limit API gratuite)
+                if (this.currentAdapter && this.currentAdapter.name === 'Gemini V2') {
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 secondes entre requêtes Gemini
+                }
+                
+                // Gérer les itérations sans pixels comme des erreurs partielles
+                if (pixelCount === 0) {
+                    this.consecutiveErrors = (this.consecutiveErrors || 0) + 1;
+                    this.addJournalEntry(`⚠️ ${pixelCount} pixels dessinés (${this.consecutiveErrors}/5 erreurs) | "${instructions.strategy}"`, 'error');
+                    
+                    // Arrêter l'agent après 5 itérations consécutives sans pixels
+                    if (this.consecutiveErrors >= 5) {
+                        this.addJournalEntry(`🛑 Arrêt de l'agent après ${this.consecutiveErrors} itérations sans pixels`, 'error');
+                        this.isRunning = false;
+                        this.elements.btnStart.textContent = '▶ Start';
+                        this.elements.btnPause.disabled = true;
+                        this.updateStatus('disconnected');
+                        break;
+                    }
+                    
+                    // Attendre 60 secondes avant de réessayer (LLaVA a probablement mal compris le prompt)
+                    const zeroPixelBackoff = 60000; // 60 secondes
+                    this.addJournalEntry(`⏳ Attente de ${zeroPixelBackoff/1000}s avant nouvelle tentative (0 pixels générés)`, 'warning');
+                    await new Promise(r => setTimeout(r, zeroPixelBackoff));
+                } else {
+                this.addJournalEntry(`✅ ${pixelCount} pixels dessinés | "${instructions.strategy}"`, 'success');
+                    // Réinitialiser le compteur d'erreurs en cas de succès réel
+                    this.consecutiveErrors = 0;
+                }
+                
+                // Calcul des métriques Simplicity Theory (V2)
+                const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                             this.currentAdapter.name.includes('V2');
+                if (isV2 && this.lastLocalDescription) {
+                    // Calculer les métriques locales
+                    const metrics = this.calculateSimplicityMetrics(this.lastLocalDescription, pixelCount);
+                    const metricsStored = this.storeSimplicityMetrics(this.iterationCount, metrics.C_w, metrics.C_d, metrics.U, this.lastLocalDescription);
+                    
+                    // Envoyer au serveur de métriques seulement si les métriques sont valides
+                    if (metricsStored) {
+                        this.sendSimplicityUpdate(pixelCount, this.lastLocalDescription, this.lastGlobalDescription);
+                    }
+                }
                 
                 // Stocker ma propre stratégie pour que les voisins la voient
                 if (!this.otherUsers[this.myUserId]) {
@@ -1056,7 +1735,7 @@ class AIPlayer {
                 if (this.consecutiveErrors >= 5) {
                     this.addJournalEntry(`🛑 Arrêt de l'agent après ${this.consecutiveErrors} erreurs consécutives`, 'error');
                     this.isRunning = false;
-                    this.elements.btnStart.textContent = '▶ Démarrer';
+                    this.elements.btnStart.textContent = '▶ Start';
                     this.elements.btnPause.disabled = true;
                     this.updateStatus('disconnected');
                     break;
@@ -1066,9 +1745,10 @@ class AIPlayer {
                 if (/429|Rate limit/i.test(msg)) {
                     this.setLlmStatus('Rate limited', 'paused');
                     backoffMs = Math.max(60000, (parseInt(this.elements.interval.value) || 20) * 1000);
-                } else if (/Timeout.*90s/i.test(msg)) {
-                    this.setLlmStatus('Timeout', 'error');
-                    backoffMs = 30000; // 30s pour les timeouts
+                } else if (/Timeout.*150.*seconds/i.test(msg) || /Timeout.*LLaVA/i.test(msg)) {
+                    this.setLlmStatus('Timeout LLaVA', 'error');
+                    backoffMs = 180000; // 180s (3 minutes) pour laisser LLaVA finir
+                    this.addJournalEntry(`⏳ LLaVA timeout - Attente 3 minutes avant nouvelle tentative`, 'warning');
                 } else {
                     backoffMs = this.consecutiveErrors === 1 ? 15000 : this.consecutiveErrors === 2 ? 60000 : 120000;
                 }
@@ -1099,6 +1779,11 @@ class AIPlayer {
             case 'ollama':
                 return OllamaAdapter;
             case 'llava':
+                // Détecter si LlavaV2Adapter est disponible (pour ai-player-v2.html)
+                if (window.LlavaV2Adapter) {
+                    console.log('🎨 [V2] Utilisation de LlavaV2Adapter (Grid Format)');
+                    return window.LlavaV2Adapter;
+                }
                 return LlavaAdapter;
             case 'claude-vision':
                 // TODO: Implémenter ClaudeVisionAdapter
@@ -1107,8 +1792,12 @@ class AIPlayer {
                 // TODO: Implémenter DalleAdapter
                 throw new Error('DALL-E 3 pas encore implémenté');
             case 'gemini':
-                // TODO: Implémenter GeminiAdapter
-                throw new Error('Google Gemini pas encore implémenté');
+                // Détecter si GeminiV2Adapter est disponible (pour ai-player-v2.html)
+                if (window.GeminiV2Adapter) {
+                    console.log('💎 [V2] Utilisation de GeminiV2Adapter (JSON Format)');
+                    return window.GeminiV2Adapter;
+                }
+                throw new Error('Gemini V2 Adapter non disponible');
             default:
                 return AnthropicAdapter;
         }
@@ -1403,6 +2092,10 @@ class AIPlayer {
     }
 
     updateDecision(strategy, pixelCount) {
+        // DEPRECATED: "Last Decision" section removed in tabbed interface
+        // This information is now available in the Monitoring tab (Filtered Responses)
+        if (!this.elements.decisionBox) return;
+        
         const time = new Date().toLocaleTimeString('fr-FR');
         this.elements.decisionBox.innerHTML = `
             <div class="decision-strategy">"${strategy}"</div>
@@ -1561,6 +2254,44 @@ class AIPlayer {
 
     // === Event Listeners ===
     setupEventListeners() {
+        // Tab Switching Logic
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabPanels = document.querySelectorAll('.tab-panel');
+        
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const targetTab = button.getAttribute('data-tab');
+                
+                // Remove active class from all buttons and panels
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabPanels.forEach(panel => panel.classList.remove('active'));
+                
+                // Add active class to clicked button and corresponding panel
+                button.classList.add('active');
+                const targetPanel = document.getElementById(`tab-${targetTab}`);
+                if (targetPanel) {
+                    targetPanel.classList.add('active');
+                }
+            });
+        });
+        
+        // Image Modal Close
+        const imageModal = document.getElementById('image-modal');
+        const imageModalClose = document.querySelector('.image-modal-close');
+        if (imageModal) {
+            imageModal.addEventListener('click', () => {
+                imageModal.style.display = 'none';
+            });
+        }
+        if (imageModalClose) {
+            imageModalClose.addEventListener('click', () => {
+                if (imageModal) imageModal.style.display = 'none';
+            });
+        }
+        
+        // Expose aiPlayer globally for modal onclick
+        window.aiPlayer = this;
+        
         // Toggle Viewer URL
         this.elements.toggleViewerUrl.addEventListener('click', () => {
             const isHidden = this.elements.viewerUrl.style.display === 'none';
@@ -1575,6 +2306,7 @@ class AIPlayer {
 
         // Bouton Start/Stop
         this.elements.btnStart.addEventListener('click', async () => {
+            console.log('[AI Player] 🔘 Bouton Start cliqué, isRunning:', this.isRunning);
             if (!this.isRunning) {
                 // Vérifier l'API key sauf pour Ollama/LLaVA (gratuits)
                 const name = (this.currentAdapter && this.currentAdapter.name) || '';
@@ -1586,7 +2318,7 @@ class AIPlayer {
                 this.saveApiKey();
                 this.isRunning = true;
                 this.isPaused = false;
-                this.elements.btnStart.textContent = '■ Arrêter';
+                this.elements.btnStart.textContent = '■ Stop';
                 this.elements.btnPause.disabled = false;
                 this.updateStatus('running');
                 try {
@@ -1595,16 +2327,17 @@ class AIPlayer {
                 } catch (error) {
                     this.addJournalEntry(`❌ Impossible de se connecter: ${this.stringifyError(error)}`, 'error');
                     this.isRunning = false;
-                    this.elements.btnStart.textContent = '▶ Démarrer';
+                    this.elements.btnStart.textContent = '▶ Start';
                     this.elements.btnPause.disabled = true;
                 }
             } else {
                 this.isRunning = false;
                 this.isPaused = false;
                 this.isFirstLlmRequest = true;
+                this.stopHeartbeat(); // Arrêter les heartbeats
                 try { if (this.socket && this.socket.readyState === WebSocket.OPEN) this.socket.close(); } catch (_) {}
                 this.updateStatus('disconnected');
-                this.elements.btnStart.textContent = '▶ Démarrer';
+                this.elements.btnStart.textContent = '▶ Start';
                 this.elements.btnPause.disabled = true;
                 this.addJournalEntry('⏹️ Arrêt demandé (LLM et WS fermés).', '');
             }
@@ -1647,6 +2380,9 @@ class AIPlayer {
             
             // Mettre à jour le placeholder de l'API Key selon le modèle
             this.updateApiKeyPlaceholder(selectedModel);
+            
+            // Update header banner model display
+            this.updateHeaderModel();
             
             // Recharger le manuel spécifique au nouveau modèle
             this.isFirstLlmRequest = true; // Forcer le rechargement du manuel
@@ -1734,114 +2470,9 @@ class AIPlayer {
 
     // Afficher les échantillons d'images envoyées à LLaVA
     displayImageSamples(images) {
-        try {
-            const imageContainer = document.getElementById('image-samples');
-            if (!imageContainer) {
-                console.warn('[AI Player] Conteneur image-samples non trouvé');
-                return;
-            }
-
-            // Vider le conteneur
-            imageContainer.innerHTML = '';
-
-            if (images.length === 0) {
-                imageContainer.innerHTML = '<div class="image-sample-placeholder">Aucune image envoyée</div>';
-                return;
-            }
-
-            // Afficher chaque image
-            images.forEach((imgBase64, i) => {
-                const imageDiv = document.createElement('div');
-                imageDiv.className = 'image-sample-item';
-
-                // Titre de l'image
-                const imgTitle = document.createElement('div');
-                imgTitle.className = 'image-sample-title';
-                imgTitle.textContent = `Image ${i + 1}: ${imgBase64.length} caractères`;
-                imageDiv.appendChild(imgTitle);
-
-                // Miniature de l'image
-                const img = document.createElement('img');
-                img.src = `data:image/png;base64,${imgBase64}`;
-                img.className = 'image-sample-thumbnail';
-                img.title = `Image ${i + 1} envoyée à LLaVA`;
-                img.onclick = () => this.showImageModal(imgBase64, `Image ${i + 1}`);
-                imageDiv.appendChild(img);
-
-                // Actions
-                const actionsDiv = document.createElement('div');
-                actionsDiv.className = 'image-sample-actions';
-
-                const viewBtn = document.createElement('button');
-                viewBtn.textContent = 'Voir en grand';
-                viewBtn.className = 'image-sample-btn';
-                viewBtn.onclick = () => this.showImageModal(imgBase64, `Image ${i + 1}`);
-                actionsDiv.appendChild(viewBtn);
-
-                const copyBtn = document.createElement('button');
-                copyBtn.textContent = 'Copier Base64';
-                copyBtn.className = 'image-sample-btn secondary';
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(imgBase64).then(() => {
-                        this.addJournalEntry(`📋 Base64 de l'image ${i + 1} copié`, 'info');
-                    });
-                };
-                actionsDiv.appendChild(copyBtn);
-
-                imageDiv.appendChild(actionsDiv);
-                imageContainer.appendChild(imageDiv);
-            });
-
-        } catch (e) {
-            console.error('[AI Player] Erreur affichage échantillons:', e);
-        }
-    }
-
-    // Afficher une image en modal
-    showImageModal(imgBase64, title) {
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.9);
-            z-index: 20000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        `;
-
-        const img = document.createElement('img');
-        img.src = `data:image/png;base64,${imgBase64}`;
-        img.style.cssText = 'max-width: 90%; max-height: 90%; border-radius: 8px;';
-        img.title = title;
-
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = '✕ Fermer';
-        closeBtn.style.cssText = `
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: #f44336;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-        `;
-        closeBtn.onclick = () => modal.remove();
-
-        modal.appendChild(img);
-        modal.appendChild(closeBtn);
-        document.body.appendChild(modal);
-
-        // Fermer en cliquant sur le fond
-        modal.onclick = (e) => {
-            if (e.target === modal) modal.remove();
-        };
+        // DEPRECATED: This function is replaced by updateLlavaImages()
+        // Left as stub for compatibility, does nothing
+        return;
     }
 }
 
