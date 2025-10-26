@@ -103,12 +103,39 @@ The Poietic Generator is a pioneering collaborative drawing system where multipl
 
 ### Components
 
-1. **`public/ai-player.html`**: Web interface for launching AI agents
-2. **`public/js/ai-player.js`**: Agent orchestration, WebSocket client, iteration loop
-3. **`public/js/spatial-analysis.js`**: Neighbor detection and spatial context generation
-4. **`public/js/llm-adapters/`**: LLM-specific prompt engineering and response parsing
-5. **`python/poietic_ai_server.py`**: FastAPI proxy for LLM APIs (CORS, analytics, Ollama)
-6. **`docs/MANUEL_*.md`**: Instruction manuals for each LLM (in French, used as system prompts)
+**⚠️ IMPORTANT**: The LLM adapters and AI player logic are located in the **[poietic-generator-api](https://github.com/OAuber/poietic-generator-api)** repository:
+
+1. **`public/js/llm-adapters/`** ← Located in `poietic-generator-api`
+   - `gemini-v2.js` - Google Gemini Flash adapter
+   - `llava.js` - LLaVA local model adapter  
+   - `anthropic.js` - Claude adapter
+   - `ollama.js` - Ollama adapter
+2. **`public/js/ai-player.js`** ← Located in `poietic-generator-api`
+   - Agent orchestration, WebSocket client, iteration loop
+3. **`public/js/spatial-analysis.js`** ← Located in `poietic-generator-api`
+   - Neighbor detection and spatial context generation
+4. **`public/ai-player.html`** ← Located in `poietic-generator-api`
+   - Web interface for launching AI agents (V1)
+5. **`public/ai-player-v2.html`** ← Located in `poietic-generator-api`
+   - Gemini/LLaVA player interface (V2)
+6. **`python/poietic_ai_server.py`** ← Located in `poietic-generator-api`
+   - FastAPI proxy for LLM APIs (CORS, analytics, Ollama)
+7. **`docs/MANUEL_*.md`** ← Located in `poietic-generator-llm-agents` (this repo)
+   - Instruction manuals for each LLM (in French, used as system prompts)
+
+### Why This Structure?
+
+**poietic-generator-api** contains the **production code** (adapters, player, server) because:
+- These files are tightly coupled to the Poietic Generator Crystal server
+- They use WebSocket endpoints and Crystal infrastructure
+- They are tested with the main application (`ai-player-v2.html`)
+
+**poietic-generator-llm-agents** (this repo) contains **documentation** and **examples** because:
+- Focuses on explaining how to use the adapters
+- Provides testing utilities and examples
+- Avoids code duplication
+
+📖 **For the actual adapters and implementation, see: [github.com/OAuber/poietic-generator-api](https://github.com/OAuber/poietic-generator-api)**
 
 ---
 
