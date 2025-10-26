@@ -12,27 +12,47 @@
 
 const GeminiV2Adapter = {
     name: 'Gemini V2',
-    version: '20250123-021',
+    version: '2025-01-24-016',
     apiKey: null,
     prompts: null,
     randomColors: [],
     modelsListed: false,
     
     init() {
-        console.log('🤖 [Gemini V2] Adapter initialisé');
+        console.log('🤖 [Gemini V2] Adapter initialisé - Version: 2025-01-24-013');
     },
 
     /**
-     * Load prompts from JSON file with cache busting
+     * Get position description for coordinates
      */
-    async loadPrompts() {
+    getPositionDescription(x, y) {
+        if (x === 0 && y === 0) return 'at the CENTER';
+        if (x === 0) return y > 0 ? 'SOUTH' : 'NORTH';
+        if (y === 0) return x > 0 ? 'EAST' : 'WEST';
+        if (x > 0 && y > 0) return 'SOUTHEAST';
+        if (x > 0 && y < 0) return 'NORTHEAST';
+        if (x < 0 && y > 0) return 'SOUTHWEST';
+        if (x < 0 && y < 0) return 'NORTHWEST';
+        return 'at an unknown position';
+    },
+
+    async loadPrompts(promptType = 'all') {
         try {
-            const response = await fetch(`gemini-prompts-v2.json?v=${this.version}`);
+            const response = await fetch(`gemini-prompts-v2-simple.json?v=${this.version}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
-            this.prompts = await response.json();
-            console.log('📝 [Gemini V2] Prompts chargés:', Object.keys(this.prompts));
+            const allPrompts = await response.json();
+            
+            if (promptType === 'all') {
+                this.prompts = allPrompts;
+                console.log('📝 [Gemini V2] Tous les prompts chargés:', Object.keys(this.prompts));
+            } else {
+                // Load only the specific prompt needed
+                this.prompts = { [promptType]: allPrompts[promptType] };
+                console.log('📝 [Gemini V2] Prompt chargé:', promptType);
+            }
+            
             return this.prompts;
         } catch (error) {
             console.error('❌ [Gemini V2] Erreur chargement prompts:', error);
@@ -109,16 +129,41 @@ const GeminiV2Adapter = {
     },
 
     /**
-     * Generate random colors for placeholders
+     * Generate random colors for placeholders with better tonal variety
      */
     generateRandomColors(count = 12) {
         const colors = [];
+        
+        // Generate a mix of light, medium, and dark tones
         for (let i = 0; i < count; i++) {
-            const r = Math.floor(Math.random() * 256);
-            const g = Math.floor(Math.random() * 256);
-            const b = Math.floor(Math.random() * 256);
+            let r, g, b;
+            
+            // 30% chance for light colors (200-255)
+            // 40% chance for medium colors (100-200)  
+            // 30% chance for dark colors (0-100)
+            const toneType = Math.random();
+            
+            if (toneType < 0.3) {
+                // Light colors
+                r = Math.floor(Math.random() * 56) + 200;
+                g = Math.floor(Math.random() * 56) + 200;
+                b = Math.floor(Math.random() * 56) + 200;
+            } else if (toneType < 0.7) {
+                // Medium colors
+                r = Math.floor(Math.random() * 100) + 100;
+                g = Math.floor(Math.random() * 100) + 100;
+                b = Math.floor(Math.random() * 100) + 100;
+            } else {
+                // Dark colors
+                r = Math.floor(Math.random() * 100);
+                g = Math.floor(Math.random() * 100);
+                b = Math.floor(Math.random() * 100);
+            }
+            
             colors.push(`#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`);
         }
+        
+        console.log('🎨 [Gemini V2] Couleurs générées avec variété tonale:', colors);
         return colors;
     },
 
@@ -150,40 +195,68 @@ const GeminiV2Adapter = {
      * Build system prompt - compatibility method for ai-player.js
      */
     async buildSystemPrompt(analysis, customPrompt, isFirstLlmRequest, manualContent, iterationCount, myLastStrategy, myRecentUpdates, myPosition, randomColors, lastLocalDescription, lastGlobalDescription) {
+        console.log('🔧 [Gemini V2] buildSystemPrompt appelé, iterationCount:', iterationCount);
+        
         // For Gemini, we use a simplified approach
-        // Load prompts if not already loaded
-        if (!this.prompts) {
-            const loaded = await this.loadPrompts();
+
+        // Use single system prompt for all requests
+        const promptType = 'system';
+        
+        // Load the system prompt if not already loaded
+        if (!this.prompts || !this.prompts[promptType]) {
+            console.log('📥 [Gemini V2] Chargement du prompt:', promptType);
+            const loaded = await this.loadPrompts(promptType);
+            console.log('🔍 [Gemini V2] Prompt chargé:', loaded);
             if (!loaded) {
-                throw new Error('Impossible de charger les prompts Gemini');
+                throw new Error(`Impossible de charger le prompt ${promptType}`);
             }
         }
-
-        // Use seed_system for first request, continuation_system otherwise
-        let promptTemplate;
-        if (iterationCount === 0) {
-            promptTemplate = this.prompts.seed_system;
-        } else {
-            promptTemplate = this.prompts.continuation_system;
+        
+        console.log('✅ [Gemini V2] Prompt disponible:', promptType);
+        console.log('🔍 [Gemini V2] Prompts disponibles:', Object.keys(this.prompts || {}));
+        let promptTemplate = this.prompts[promptType];
+        console.log('🔍 [Gemini V2] Prompt template:', promptTemplate);
+        
+        // Convert array to string if needed
+        if (Array.isArray(promptTemplate)) {
+            console.log('🔄 [Gemini V2] Conversion tableau -> chaîne');
+            promptTemplate = promptTemplate.join('\n');
         }
 
         // Generate random colors for placeholders
+        console.log('🎨 [Gemini V2] Génération des couleurs aléatoires...');
         this.randomColors = this.generateRandomColors(12);
+        console.log('🎨 [Gemini V2] Couleurs générées:', this.randomColors.length);
         
         // Replace color placeholders with random colors
+        console.log('🔄 [Gemini V2] Remplacement des placeholders...');
         let systemPrompt = promptTemplate;
         for (let i = 1; i <= this.randomColors.length; i++) {
             const placeholder = `{{color${i}}}`;
             const color = this.randomColors[i - 1];
+            console.log(`🔄 [Gemini V2] Remplacement ${i}/${this.randomColors.length}: ${placeholder} -> ${color}`);
             systemPrompt = systemPrompt.replace(new RegExp(placeholder, 'g'), color);
         }
+        console.log('✅ [Gemini V2] Placeholders remplacés');
 
         // Add custom prompt if provided
         if (customPrompt && customPrompt.trim()) {
             systemPrompt += `\n\nCUSTOM INSTRUCTION: ${customPrompt}`;
         }
 
-        console.log('🎨 [Gemini V2] System prompt construit');
+        // Replace position placeholders
+        if (myPosition) {
+            const myX = myPosition[0];
+            const myY = myPosition[1];
+            const positionDescription = this.getPositionDescription(myX, myY);
+            
+            systemPrompt = systemPrompt
+                .replaceAll('{{myX}}', myX)
+                .replaceAll('{{myY}}', myY)
+                .replaceAll('{{positionDescription}}', positionDescription);
+        }
+        
+        console.log('🎨 [Gemini V2] System prompt construit, longueur:', systemPrompt.length);
         return {
             systemMessage: systemPrompt,
             userMessage: 'Analyze the image and provide your response in the specified JSON format.',
@@ -196,6 +269,7 @@ const GeminiV2Adapter = {
      * Call Gemini API with structured JSON response - tries multiple models
      */
     async callGeminiAPI(systemPrompt, userMessage, imageBase64 = null) {
+        const timeout = 300000; // 5 minutes timeout
         const apiKey = this.getApiKey();
         if (!apiKey) {
             throw new Error('Clé API Gemini manquante');
@@ -218,6 +292,14 @@ const GeminiV2Adapter = {
         for (const modelName of modelNames) {
             try {
                 console.log(`🔄 [Gemini V2] Essai avec modèle: ${modelName}`);
+                console.log(`⏱️ [Gemini V2] Début de la requête...`);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => {
+                    console.log(`⏰ [Gemini V2] Timeout atteint pour ${modelName}`);
+                    controller.abort();
+                }, timeout);
+                
                 const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent`;
                 
                 // Prepare request body
@@ -226,8 +308,8 @@ const GeminiV2Adapter = {
                         parts: []
                     }],
                     generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 8000
+                        temperature: 0.9,
+                        maxOutputTokens: 12000
                     }
                 };
 
@@ -275,6 +357,8 @@ const GeminiV2Adapter = {
                     },
                     body: JSON.stringify(requestBody)
                 });
+                
+                console.log(`📡 [Gemini V2] Réponse reçue pour ${modelName}, status:`, response.status);
 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -342,6 +426,9 @@ const GeminiV2Adapter = {
             jsonText = jsonText.trim();
             
             console.log('🧹 [Gemini V2] JSON nettoyé:', jsonText.substring(0, 200) + '...');
+            console.log('📏 [Gemini V2] Longueur JSON:', jsonText.length);
+            console.log('📝 [Gemini V2] Fin JSON:', jsonText.slice(-100));
+            
             
             // Check if JSON is truncated (doesn't end with })
             if (!jsonText.endsWith('}')) {
@@ -360,23 +447,38 @@ const GeminiV2Adapter = {
             }
             
             const parsed = JSON.parse(jsonText);
+            console.log('🔍 [Gemini V2] JSON parsé:', parsed);
             
             if (!parsed.drawing_actions || !Array.isArray(parsed.drawing_actions)) {
+                console.error('❌ [Gemini V2] drawing_actions manquant ou invalide:', parsed);
                 throw new Error('Format de réponse invalide: drawing_actions manquant');
             }
+            
+            console.log('✅ [Gemini V2] drawing_actions trouvé:', parsed.drawing_actions.length, 'actions');
 
             // Convert drawing_actions to x,y#HEX format
             const pixels = [];
             for (const action of parsed.drawing_actions) {
+                console.log('🔍 [Gemini V2] Action:', action);
                 if (action.x !== undefined && action.y !== undefined && action.hex_color) {
                     // Validate coordinates
                     if (action.x >= 0 && action.x <= 19 && action.y >= 0 && action.y <= 19) {
-                        // Ensure hex_color has # prefix
-                        const hexColor = action.hex_color.startsWith('#') ? action.hex_color.substring(1) : action.hex_color;
+                        // Ensure hex_color has # prefix and handle double hashes
+                        let hexColor = action.hex_color;
+                        if (hexColor.startsWith('##')) {
+                            // Double hash: ##FF0000 -> FF0000
+                            hexColor = hexColor.substring(2);
+                        } else if (hexColor.startsWith('#')) {
+                            // Single hash: #FF0000 -> FF0000
+                            hexColor = hexColor.substring(1);
+                        }
+                        console.log(`🔧 [Gemini V2] Couleur corrigée: "${action.hex_color}" -> "${hexColor}"`);
                         pixels.push(`${action.x},${action.y}#${hexColor}`);
                     } else {
                         console.warn(`⚠️ [Gemini V2] Coordonnées invalides ignorées: ${action.x},${action.y}`);
                     }
+                } else {
+                    console.log(`⚠️ [Gemini V2] Action invalide - manque x/y/hex_color:`, action);
                 }
             }
 
@@ -421,17 +523,27 @@ const GeminiV2Adapter = {
 
             // Load prompts if not already loaded
             if (!this.prompts) {
-                const loaded = await this.loadPrompts();
+                const loaded = await this.loadPrompts('all');
                 if (!loaded) {
                     throw new Error('Impossible de charger les prompts Gemini');
                 }
             }
 
             // Call Gemini API
+            console.log('🚀 [Gemini V2] Appel à callGeminiAPI...');
             const responseText = await this.callGeminiAPI(systemMessage, userMessage, imageBase64);
+            console.log('✅ [Gemini V2] callGeminiAPI terminé, réponse:', responseText ? 'reçue' : 'vide');
             
-            // Return raw response text for ai-player.js to parse
-            return responseText;
+            // Parse the JSON response and return structured object
+            console.log('🔍 [Gemini V2] Parsing de la réponse...');
+            const parsed = this.parseResponse(responseText);
+            console.log('✅ [Gemini V2] Résultat parsé:', {
+                pixelsCount: parsed.pixels.length,
+                hasDescriptions: !!parsed.descriptions
+            });
+            
+            // Return parsed object for ai-player.js
+            return parsed;
 
         } catch (error) {
             console.error('❌ [Gemini V2] Erreur callAPI:', error);

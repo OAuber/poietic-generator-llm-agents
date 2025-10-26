@@ -553,20 +553,13 @@
     <script type="module" src="js/spatial-analysis.js?v=20250116-52"></script>
     <script type="module" src="js/llm-adapters/anthropic.js?v=20250116-52"></script>
     <script type="module" src="js/llm-adapters/ollama.js?v=20250116-52"></script>
-    <script type="module" src="js/llm-adapters/llava.js?v=20250116-71"></script>
-    <!-- Load LLaVA V2 and expose globally -->
-    <script type="module">
-        import { LlavaV2Adapter } from './js/llm-adapters/llava-v2.js?v=44';
-        window.LlavaV2Adapter = LlavaV2Adapter;
-        console.log('✅ [V2] LLaVA V2 Adapter (Grid Format) exposed globally');
-    </script>
     <!-- Load Gemini V2 and expose globally -->
     <script type="module">
-        import { GeminiV2Adapter } from './js/llm-adapters/gemini-v2.js?v=20250123-021';
+        import { GeminiV2Adapter } from './js/llm-adapters/gemini-v2.js?v=20250124-016';
         window.GeminiV2Adapter = GeminiV2Adapter;
         console.log('✅ [V2] Gemini V2 Adapter (JSON Format) exposed globally');
     </script>
     <script type="module" src="js/llava-canvas.js?v=20250116-52"></script>
-    <script type="module" src="js/ai-player.js?v=20250124-004"></script>
+    <script type="module" src="js/ai-player.js?v=20250124-032"></script>
 </body>
 </html>

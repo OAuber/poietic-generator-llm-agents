@@ -1,5 +1,5 @@
         // AI Player - Logic
-        // Version: 2025-01-24-02:00 - Auto-start prevention fix
+        // Version: 2025-01-24-05:00 - Meta-system narrative integration
 import { SpatialAnalysis } from './spatial-analysis.js';
 import { AnthropicAdapter } from './llm-adapters/anthropic.js';
 import { OpenAIAdapter } from './llm-adapters/openai.js';
@@ -10,7 +10,7 @@ import { ColorGenerator } from './poietic-color-generator.js';
 
 class AIPlayer {
     constructor() {
-        console.log('[AI Player] ✅ Version loaded: 2025-01-24-04:00');
+        console.log('[AI Player] ✅ Version loaded: 2025-01-24-32:00');
         // Configuration - Détection automatique de l'environnement
         const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const WS_HOST = window.location.hostname === 'localhost' 
@@ -766,9 +766,18 @@ class AIPlayer {
             }
 
             // Pour LLaVA, response est une string directe
+            // Pour Gemini, response est déjà un objet parsé {pixels, descriptions}
             // Pour les autres adapters, response est un objet {content: ...}
-            const responseContent = typeof response === 'string' ? response : response.content;
-            const parsed = this.currentAdapter.parseResponse(responseContent);
+            let parsed;
+            let responseContent;
+            if (this.currentAdapter.name === 'Gemini V2') {
+                // Gemini retourne déjà l'objet parsé
+                parsed = response;
+                responseContent = JSON.stringify(response, null, 2); // Stringify for verbatim display
+            } else {
+                responseContent = typeof response === 'string' ? response : response.content;
+                parsed = this.currentAdapter.parseResponse(responseContent);
+            }
             
             // Extraire les descriptions (V2 only)
             if (parsed && parsed.localDescription !== undefined) {
@@ -820,6 +829,23 @@ class AIPlayer {
             const colorPalette = this.generateColorPalette();
             this.updateLlavaImages(this.lastLocalCanvasBase64, this.lastGlobalCanvasBase64, colorPalette);
             
+            // Convert Gemini pixel strings to objects if needed
+            if (parsed && parsed.pixels && Array.isArray(parsed.pixels) && parsed.pixels.length > 0) {
+                const firstPixel = parsed.pixels[0];
+                if (typeof firstPixel === 'string' && firstPixel.includes('#') && firstPixel.includes(',')) {
+                    // Convert "x,y#HEX" strings to {x, y, color} objects
+                    parsed.pixels = parsed.pixels.map(pixelStr => {
+                        const [coords, color] = pixelStr.split('#');
+                        const [x, y] = coords.split(',');
+                        return {
+                            x: parseInt(x, 10),
+                            y: parseInt(y, 10),
+                            color: `#${color}`
+                        };
+                    });
+                }
+            }
+            
             // Validation stricte si entraînement activé
             if (!this.validateTrainingOutput(parsed)) {
                 this.addJournalEntry('⚠️ Sortie invalide pour l\'exercice en cours. Nouvelle tentative dans 3s...', 'error');
@@ -854,6 +880,7 @@ class AIPlayer {
             // Envoyer les données au serveur Analytics
             this.sendToAnalytics(parsed, analysis);
 
+            console.log('[AI Player] 🔍 askLLM retourne:', parsed);
             return parsed;
 
         } catch (error) {
@@ -961,18 +988,20 @@ class AIPlayer {
         coordToPixel.forEach((p, key) => {
             const existing = this.myCellState[key];
             
+            
             // Normaliser les couleurs pour la comparaison (#FFF vs #FFFFFF)
             const normalizedExisting = existing && existing.length === 4 ? 
                 `#${existing[1]}${existing[1]}${existing[2]}${existing[2]}${existing[3]}${existing[3]}` : existing;
             const normalizedNew = p.color && p.color.length === 4 ? 
                 `#${p.color[1]}${p.color[1]}${p.color[2]}${p.color[2]}${p.color[3]}${p.color[3]}` : p.color;
             
+            // Filtrer les pixels déjà dessinés avec la même couleur
             if (normalizedExisting && typeof normalizedExisting === 'string' && 
                 normalizedExisting.toLowerCase() === normalizedNew.toLowerCase()) {
                 filteredCount++;
-                return; // ignorer duplication exacte
+            } else {
+                filtered.push(p);
             }
-            filtered.push(p);
         });
         
         if (filteredCount > 0) {
@@ -982,6 +1011,13 @@ class AIPlayer {
         pixels = filtered;
         
         console.log(`[AI Player] 📊 Après filtrage: ${pixels.length} pixels à dessiner`);
+
+        // Limiter le nombre de pixels pour éviter la surcharge
+        const maxPixelsPerIteration = 50; // Augmenté pour permettre plus de créativité
+        if (pixels.length > maxPixelsPerIteration) {
+            console.log(`⚠️ [AI Player] Trop de pixels (${pixels.length}), limitation à ${maxPixelsPerIteration}`);
+            pixels.splice(maxPixelsPerIteration);
+        }
 
         // NOUVEAU: Envoi progressif "au compte-gouttes"
         const delayAfterMs = (parseInt(this.elements.interval.value) || 0) * 1000;
@@ -1487,6 +1523,16 @@ class AIPlayer {
         const placeholder = container.querySelector('.image-placeholder');
         if (placeholder) placeholder.remove();
         
+        // Handle objects (e.g., Gemini returns structured object)
+        let responseText = rawResponse;
+        if (typeof rawResponse === 'object' && rawResponse !== null) {
+            try {
+                responseText = JSON.stringify(rawResponse, null, 2);
+            } catch (e) {
+                responseText = String(rawResponse);
+            }
+        }
+        
         // Create response item
         const item = document.createElement('div');
         item.className = 'response-item';
@@ -1498,7 +1544,7 @@ class AIPlayer {
                 <span class="response-timestamp">${timestamp}</span>
                 <span class="response-iteration">Iteration #${this.iterationCount}</span>
             </div>
-            <div class="response-content">${this.escapeHtml(rawResponse)}</div>
+            <div class="response-content">${this.escapeHtml(responseText)}</div>
         `;
         
         // Insert at top (most recent first)
@@ -1664,12 +1710,19 @@ class AIPlayer {
                 this.addJournalEntry(`🤔 Itération ${this.iterationCount}...`);
 
                 const pixelCount = await this.executePixels(instructions);
+                console.log('[AI Player] 🔍 executePixels terminé, pixelCount:', pixelCount);
 
                 this.updateDecision(instructions.strategy, pixelCount);
                 
                 // Délai spécifique pour Gemini (rate limit API gratuite)
                 if (this.currentAdapter && this.currentAdapter.name === 'Gemini V2') {
-                    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 secondes entre requêtes Gemini
+                    // Utiliser le délai de l'interface + délai supplémentaire pour Gemini
+                    const baseDelay = (parseInt(this.elements.interval.value) || 20) * 1000; // Délai interface
+                    const geminiExtraDelay = 10000; // 10 secondes supplémentaires pour Gemini
+                    const randomDelay = Math.random() * 5000; // 0-5 secondes aléatoires
+                    const totalDelay = baseDelay + geminiExtraDelay + randomDelay;
+                    console.log(`⏳ [Gemini] Délai total ${Math.round(totalDelay/1000)}s (interface: ${Math.round(baseDelay/1000)}s + Gemini: ${Math.round(geminiExtraDelay/1000)}s + aléatoire: ${Math.round(randomDelay/1000)}s)`);
+                    await new Promise(resolve => setTimeout(resolve, totalDelay));
                 }
                 
                 // Gérer les itérations sans pixels comme des erreurs partielles
@@ -1745,10 +1798,10 @@ class AIPlayer {
                 if (/429|Rate limit/i.test(msg)) {
                     this.setLlmStatus('Rate limited', 'paused');
                     backoffMs = Math.max(60000, (parseInt(this.elements.interval.value) || 20) * 1000);
-                } else if (/Timeout.*150.*seconds/i.test(msg) || /Timeout.*LLaVA/i.test(msg)) {
-                    this.setLlmStatus('Timeout LLaVA', 'error');
-                    backoffMs = 180000; // 180s (3 minutes) pour laisser LLaVA finir
-                    this.addJournalEntry(`⏳ LLaVA timeout - Attente 3 minutes avant nouvelle tentative`, 'warning');
+                } else if (/Timeout.*150.*seconds/i.test(msg) || /Timeout.*LLaVA/i.test(msg) || /Timeout.*Gemini/i.test(msg)) {
+                    this.setLlmStatus('Timeout LLM', 'error');
+                    backoffMs = 180000; // 180s (3 minutes) pour laisser le LLM finir
+                    this.addJournalEntry(`⏳ LLM timeout - Attente 3 minutes avant nouvelle tentative`, 'warning');
                 } else {
                     backoffMs = this.consecutiveErrors === 1 ? 15000 : this.consecutiveErrors === 2 ? 60000 : 120000;
                 }
