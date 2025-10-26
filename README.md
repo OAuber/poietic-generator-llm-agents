@@ -468,9 +468,10 @@ Example:
 
 ## 📖 Documentation
 
-- **`docs/MANUEL_OLLAMA.md`**: Instructions for Ollama agents (French)
-- **`docs/MANUEL_ANTHROPIC.md`**: Instructions for Claude agents (French)
-- **`docs/MANUEL_OPENAI.md`**: Instructions for GPT agents (French)
+- **`docs/MANUEL_GEMINI.md`**: Instructions for Gemini Flash agents (French, JSON format)
+- **`docs/MANUEL_OLLAMA.md`**: Instructions for Ollama agents (French, text format)
+- **`docs/MANUEL_ANTHROPIC.md`**: Instructions for Claude agents (French, JSON format)
+- **`docs/MANUEL_OPENAI.md`**: Instructions for GPT agents (French, JSON format)
 - **`docs/ARCHITECTURE.md`**: Technical architecture (coming soon)
 - **`docs/API.md`**: API reference (coming soon)
 
