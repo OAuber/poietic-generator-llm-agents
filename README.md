@@ -26,38 +26,50 @@ Elle vise à :
 
 ## 🤖 AI Agents Extension
 
-**NEW!** Autonomous AI agents can now participate in the Poietic Generator!
+This repository includes LLM integration capabilities, but for a complete standalone AI agent package with documentation and examples, see:
 
-👉 **[Poietic Generator LLM Agents](https://github.com/OAuber/poietic-generator-llm-agents)** - Standalone package
+👉 **[poietic-generator-llm-agents](https://github.com/OAuber/poietic-generator-llm-agents)** - Standalone package dedicated to AI agents
 
-### Features
-- 🦙 **Multi-LLM Support**: Ollama (local, free), Anthropic Claude, OpenAI GPT, Mistral
-- 🤝 **Real-time Collaboration**: Agents detect and interact with 8 neighbors
-- 🎨 **5 Artistic Palettes**: Monochromatic, complementary, triadic, analogous, warm→cold for depth and shadows
-- 🧠 **Temporal Continuity**: Agents remember and complete their drawings
-- 🔄 **Border Collaboration**: Geometric transformations (mirror, translation, rotation)
-- 🛡️ **Graceful Fallback**: Automatic shape generation when LLM fails
-- 📊 **Analytics Dashboard**: Real-time performance monitoring
+### What's the Difference?
 
-### Quick Start
+**poietic-generator-api** (this repo):
+- 🎨 **Main collaborative application** for human users
+- 🤝 Real-time drawing on shared canvas
+- 🔧 **Includes LLM support** via adapters in `public/js/llm-adapters/`
+- 📦 LLaVA, Gemini, Anthropic, OpenAI adapters included
+- 🖥️ Complete server infrastructure (Crystal + JavaScript)
+- 👤 Designed for human interaction with optional AI agents
+
+**poietic-generator-llm-agents** (separate repo):
+- 🤖 **Standalone AI agent package** 
+- 📚 Complete documentation and examples
+- 🦙 Multi-LLM support (Ollama, Claude, GPT, Mistral)
+- 🎯 Focus on autonomous agent behavior
+- 🧪 Testing utilities and examples
+- 📊 Analytics and monitoring tools
+
+### LLM Features in This Repository
+
+- `public/ai-player.html` - AI agent launcher interface  
+- `public/ai-player-v2.html` - Gemini/LLaVA player interface
+- `public/js/ai-player.js` - Agent orchestration logic
+- `public/js/llm-adapters/` - LLM adapters (Gemini, LLaVA, Anthropic, OpenAI)
+  - `gemini-v2.js` - Google Gemini Flash adapter
+  - `llava.js` - LLaVA local model adapter
+  - `anthropic.js` - Claude adapter
+  - `ollama.js` - Ollama adapter
+- `python/poietic_ai_server.py` - FastAPI proxy for LLM APIs
+- `public/gemini-prompts-v2-simple.json` - Gemini prompt templates
+
+### Quick Start (AI Agents)
+
 ```bash
-# See the standalone package for complete installation guide
-https://github.com/OAuber/poietic-generator-llm-agents
+# Launch AI agents using the integrated player
+firefox http://localhost:3001/ai-player-v2.html
 
-# Or use the integrated AI player (included in this repository)
-firefox http://localhost:3001/ai-player.html
+# For complete agent documentation and examples:
+# See https://github.com/OAuber/poietic-generator-llm-agents
 ```
-
-### What's Included in This Repository
-- `public/ai-player.html` - AI agent launcher interface
-- `public/js/ai-player.js` - Agent orchestration
-- `public/js/spatial-analysis.js` - Neighbor detection
-- `public/js/llm-adapters/` - LLM-specific adapters (Ollama, Anthropic, OpenAI)
-- `python/poietic_ai_server.py` - FastAPI proxy server for LLM APIs
-- `public/MANUEL_*.md` - Instruction manuals for agents (French)
-
-For a complete standalone package with full documentation, examples, and utilities, see:
-**[github.com/OAuber/poietic-generator-llm-agents](https://github.com/OAuber/poietic-generator-llm-agents)**
 
 ## Installation
 
