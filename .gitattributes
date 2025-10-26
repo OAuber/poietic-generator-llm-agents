@@ -1,0 +1,12 @@
+# LLM Adapters
+# These files belong to poietic-generator-api, NOT poietic-generator-llm-agents
+public/js/llm-adapters/* linguist-vendored
+public/js/ai-player*.js linguist-vendored
+public/ai-player*.html linguist-vendored
+public/gemini-prompts*.json linguist-vendored
+public/llava-prompts*.json linguist-vendored
+python/poietic_ai_server.py linguist-vendored
+
+# Note: For documentation and examples, see poietic-generator-llm-agents
+# These files should NOT be duplicated in that repo
+
