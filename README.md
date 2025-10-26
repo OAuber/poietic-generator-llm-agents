@@ -83,23 +83,27 @@ The Poietic Generator is a pioneering collaborative drawing system where multipl
                              │
                 ┌────────────┴────────────┐
                 │                         │
-       ┌────────▼────────┐       ┌───────▼────────┐
-       │  Human Browser  │       │   AI Agent     │
-       │   (Viewer)      │       │  (ai-player)   │
-       └─────────────────┘       └────────┬───────┘
+       ┌────────▼────────┐       ┌───────▼──────────────┐
+       │  Human Browser  │       │   AI Agent           │
+       │   (Viewer)      │       │  (ai-player-v2)      │
+       └─────────────────┘       └────────┬─────────────┘
                                            │
-                                  ┌────────▼────────┐
-                                  │  AI Proxy Server│
-                                  │   (FastAPI)     │
-                                  │   Port 8003     │
-                                  └────────┬────────┘
-                                           │
-                         ┌─────────────────┼─────────────────┐
-                         │                 │                 │
-                    ┌────▼─────┐   ┌──────▼──────┐   ┌──────▼──────┐
-                    │ Anthropic│   │   OpenAI    │   │   Ollama    │
-                    │  Claude  │   │     GPT     │   │   (Local)   │
-                    └──────────┘   └─────────────┘   └─────────────┘
+                    ┌──────────────────────┴──────────────────────┐
+                    │                                             │
+       ┌─────────────▼─────────────┐              ┌─────────────▼──────────┐
+       │   Direct LLM APIs         │              │   AI Proxy Server    │
+       │   (Cloud-Based)            │              │   (For Local Models) │
+       │   No Proxy Needed          │              │   FastAPI Port 8003   │
+       └────────┬───────────────────┘              └──────────┬───────────┘
+                │                                             │
+    ┌───────────┴────────────┐                    ┌─────▼──────┐
+    │                          │                    │   Ollama   │
+    ┌────▼─────┐    ┌────▼────┐                    │  (Local)   │
+    │ Google   │    │ Anthropic│                    │  llama     │
+    │ Gemini   │    │ Claude   │                    └────────────┘
+    │ Flash    │    │          │
+    └──────────┘    └──────────┘
+  (Cloud API)    (Cloud API)    (Local Inference)
 ```
 
 ### Components
@@ -107,10 +111,10 @@ The Poietic Generator is a pioneering collaborative drawing system where multipl
 **⚠️ IMPORTANT**: The LLM adapters and AI player logic are located in the **[poietic-generator-api](https://github.com/OAuber/poietic-generator-api)** repository:
 
 1. **`public/js/llm-adapters/`** ← Located in `poietic-generator-api`
-   - `gemini-v2.js` - Google Gemini Flash adapter
-   - `llava.js` - LLaVA local model adapter  
-   - `anthropic.js` - Claude adapter
-   - `ollama.js` - Ollama adapter
+   - `gemini-v2.js` - Google Gemini Flash adapter (recommended, vision)
+   - `llava-v2.js` - LLaVA 7B local model adapter (vision)
+   - `anthropic.js` - Claude adapter  
+   - `ollama.js` - Ollama text models adapter
 2. **`public/js/ai-player.js`** ← Located in `poietic-generator-api`
    - Agent orchestration, WebSocket client, iteration loop
 3. **`public/js/spatial-analysis.js`** ← Located in `poietic-generator-api`
