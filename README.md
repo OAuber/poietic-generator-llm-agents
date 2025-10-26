@@ -52,11 +52,12 @@ The Poietic Generator is a pioneering collaborative drawing system where multipl
 
 ### Core Capabilities
 
-- ✅ **Multi-LLM Support**: Anthropic Claude, OpenAI GPT, Ollama (local), Mistral
-- ✅ **Real-time Drawing**: WebSocket-based live updates (20-25 pixels per iteration)
+- ✅ **Multi-LLM Support**: Google Gemini Flash, LLaVA 7B (vision models), Anthropic Claude, OpenAI GPT, Ollama (local), Mistral
+- ✅ **Vision Capabilities**: Gemini and LLaVA can "see" the canvas and respond to visual patterns
+- ✅ **Real-time Drawing**: WebSocket-based live updates (20-35 pixels per iteration)
 - ✅ **Spatial Awareness**: Agents analyze their 8 neighbors (N, S, E, W, NE, NW, SE, SW)
 - ✅ **Collaborative Strategies**: Mirror, translation, rotation of neighbor patterns
-- ✅ **Artistic Techniques**: 5 color palettes (monochromatic, complementary, triadic, analogous, warm→cold)
+- ✅ **Creative Diversity**: Forms, colors, depth effects without repetitive diagonals/X patterns
 - ✅ **Temporal Continuity**: Agents remember and continue their previous drawings
 - ✅ **Graceful Fallback**: Automatic recovery when LLM output fails
 
@@ -166,11 +167,18 @@ python poietic_ai_server.py
 
 ### 3. Launch AI Agents
 
-Open `http://localhost:3001/ai-player.html` in your browser:
+Open `http://localhost:3001/ai-player-v2.html` in your browser:
 
-1. **Select LLM**: Choose Ollama (free, local) or Anthropic/OpenAI (requires API key)
-2. **Configure**: Set iteration interval (default: 0s = immediate)
-3. **Customize** (optional): Add a user prompt ("Draw abstract patterns", "Use only warm colors", etc.)
+**Available LLMs**:
+1. **Google Gemini Flash** (Recommended) - Fast, high-quality vision model
+2. **LLaVA 7B** - Local vision model (requires Ollama with LLaVA installed)
+3. **Anthropic Claude** - Requires API key
+4. **OpenAI GPT** - Requires API key
+
+**To launch**:
+1. **Select LLM**: Choose from dropdown (Gemini recommended for best results)
+2. **Enter API Key** (if using Gemini/Claude/OpenAI): Click "Configure API Key"
+3. **Configure**: Set iteration interval (default: 20s for Gemini)
 4. **Start**: Click "Start" → Agent connects and begins drawing
 
 ### 4. View the Collective Drawing
@@ -287,12 +295,12 @@ cd python
 python poietic_ai_server.py
 
 # 3. Open browser
-firefox http://localhost:3001/ai-player.html
+firefox http://localhost:3001/ai-player-v2.html
 ```
 
 ### Advanced: Multiple Agents
 
-Open **multiple tabs** of `ai-player.html` to launch several agents simultaneously. Each agent gets a unique cell and can collaborate with neighbors!
+Open **multiple tabs** of `ai-player-v2.html` to launch several agents simultaneously. Each agent gets a unique cell and can collaborate with neighbors!
 
 ### Custom Prompts
 
@@ -313,15 +321,22 @@ Use the **"Custom Prompt"** field to guide agent behavior:
 
 ## 🤖 Supported LLM Providers
 
-| Provider | Model | Cost | Speed | Quality | Local |
-|----------|-------|------|-------|---------|-------|
-| **Ollama** | `llama3.2:3b` | Free | ⚡⚡⚡ Fast | ⭐⭐⭐ Good | ✅ Yes |
-| **Ollama** | `llama3.1:8b` | Free | ⚡⚡ Medium | ⭐⭐⭐⭐ Very Good | ✅ Yes |
-| **Anthropic** | `claude-3-haiku` | $0.25/M tokens | ⚡⚡⚡ Fast | ⭐⭐⭐⭐ Very Good | ❌ Cloud |
-| **Anthropic** | `claude-3.5-sonnet` | $3/M tokens | ⚡⚡ Medium | ⭐⭐⭐⭐⭐ Excellent | ❌ Cloud |
-| **OpenAI** | `gpt-4o-mini` | $0.15/M tokens | ⚡⚡⚡ Fast | ⭐⭐⭐⭐ Very Good | ❌ Cloud |
+| Provider | Model | Cost | Speed | Quality | Vision | Local |
+|----------|-------|------|-------|---------|--------|-------|
+| **Google Gemini** | `gemini-2.5-flash` | Free tier* | ⚡⚡⚡ Fast | ⭐⭐⭐⭐⭐ Excellent | ✅ Yes | ❌ Cloud |
+| **LLaVA** | `llava:7b` | Free | ⚡⚡ Medium | ⭐⭐⭐⭐ Very Good | ✅ Yes | ✅ Yes |
+| **Anthropic** | `claude-3-haiku` | $0.25/M tokens | ⚡⚡⚡ Fast | ⭐⭐⭐⭐ Very Good | ❌ No | ❌ Cloud |
+| **Anthropic** | `claude-3.5-sonnet` | $3/M tokens | ⚡⚡ Medium | ⭐⭐⭐⭐⭐ Excellent | ❌ No | ❌ Cloud |
+| **OpenAI** | `gpt-4o-mini` | $0.15/M tokens | ⚡⚡⚡ Fast | ⭐⭐⭐⭐ Very Good | ❌ No | ❌ Cloud |
+| **Ollama** | `llama3.2:3b` | Free | ⚡⚡⚡ Fast | ⭐⭐⭐ Good | ❌ No | ✅ Yes |
+| **Ollama** | `llama3.1:8b` | Free | ⚡⚡ Medium | ⭐⭐⭐⭐ Very Good | ❌ No | ✅ Yes |
 
-**Recommendation**: Start with **Ollama llama3.2:3b** (free, fast, local). Upgrade to `llama3.1:8b` or Claude for better artistic quality.
+**Recommendations**:
+- 🥇 **Google Gemini Flash** (Recommended) - Best vision quality, fast, free tier
+- 🥈 **LLaVA 7B** - Local vision model, free, good quality
+- 🥉 **Ollama llama3.1:8b** - Free text-only model, best local option
+
+\* Gemini free tier: 15 requests per minute. See [Gemini API pricing](https://ai.google.dev/pricing).
 
 ---
 
