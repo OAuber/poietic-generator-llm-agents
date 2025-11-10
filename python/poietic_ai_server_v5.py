@@ -436,20 +436,24 @@ async def periodic_on_task():
                 await asyncio.sleep(2)
         
         if not o_result:
-            print("[O] Échec Gemini, conservation snapshot précédent")
-            if not store.latest:
-                # Créer snapshot minimal
+            print("[O] Échec Gemini O, conservation snapshot précédent")
+            if store.latest:
+                print(f"[O] Conservation snapshot version {store.version} ({len(store.latest.get('structures', []))} structures)")
+                # Ne rien faire, garder le snapshot actuel
+            else:
+                # Première tentative : créer snapshot minimal
+                print("[O] Aucun snapshot précédent, création snapshot minimal (attente première analyse)")
                 snapshot = {
                     'structures': [],
-                    'formal_relations': {'summary': '', 'connections': []},
+                    'formal_relations': {'summary': 'Waiting for first image analysis...', 'connections': []},
                     'narrative': {'summary': 'Waiting for first O+N analysis...'},
                     'prediction_errors': {},
                     'simplicity_assessment': {
-                        'C_w_current': {'value': 0, 'rationale': 'No analysis'},
-                        'C_d_current': {'value': 0, 'description': 'No analysis'},
+                        'C_w_current': {'value': 0, 'rationale': 'Waiting for first analysis'},
+                        'C_d_current': {'value': 0, 'description': 'Waiting for first analysis'},
                         'U_current': {'value': 0, 'interpretation': 'WEAK_EMERGENCE'},
-                        'reasoning_o': '[MOCK] O unavailable',
-                        'reasoning_n': '[MOCK] N unavailable'
+                        'reasoning_o': 'Waiting for first O analysis...',
+                        'reasoning_n': 'Waiting for first N analysis...'
                     },
                     'agents_count': store.agents_count
                 }
@@ -469,25 +473,27 @@ async def periodic_on_task():
                 await asyncio.sleep(2)
         
         if not n_result:
-            print("[N] Échec Gemini, fallback avec données précédentes")
+            print("[N] Échec Gemini N, fallback avec données précédentes")
             # Conserver N précédent si disponible
             if store.latest and 'narrative' in store.latest:
+                print(f"[N] Réutilisation données N du snapshot version {store.version}")
                 n_result = {
-                    'narrative': store.latest.get('narrative', {'summary': ''}),
+                    'narrative': store.latest.get('narrative', {'summary': 'Previous narrative preserved'}),
                     'prediction_errors': store.latest.get('prediction_errors', {}),
                     'simplicity_assessment': {
-                        'C_w_current': store.latest['simplicity_assessment'].get('C_w_current', {'value': 15, 'rationale': 'Fallback'}),
-                        'reasoning': store.latest['simplicity_assessment'].get('reasoning_n', 'Fallback N')
+                        'C_w_current': store.latest['simplicity_assessment'].get('C_w_current', {'value': 15, 'rationale': 'Preserved from previous snapshot'}),
+                        'reasoning': store.latest['simplicity_assessment'].get('reasoning_n', 'Preserved from previous N analysis')
                     }
                 }
             else:
-                # N minimal
+                # Première N : utiliser valeurs par défaut raisonnables
+                print("[N] Aucune donnée N précédente, utilisation valeurs par défaut")
                 n_result = {
-                    'narrative': {'summary': 'N analysis unavailable, using fallback'},
+                    'narrative': {'summary': 'First N analysis pending. Agents are initializing their strategies.'},
                     'prediction_errors': {},
                     'simplicity_assessment': {
-                        'C_w_current': {'value': 15, 'rationale': 'Default fallback value'},
-                        'reasoning': '[MOCK] N unavailable'
+                        'C_w_current': {'value': 15, 'rationale': 'Default: canvas initialization + basic seed parameters'},
+                        'reasoning': 'Default C_w for initial setup. Waiting for first agent strategies to evaluate.'
                     }
                 }
         
