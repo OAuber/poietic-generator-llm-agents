@@ -227,7 +227,10 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
                         text += part['text']
             
             if not text or len(text.strip()) < 10:
-                print("[O] Réponse Gemini vide")
+                print(f"[O] Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
+                print(f"[O] Status: {resp.status_code}, Headers: {dict(resp.headers)}")
+                if text:
+                    print(f"[O] Texte reçu: '{text}'")
                 return None
             
             # Parser JSON
@@ -302,7 +305,10 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
                         text += part['text']
             
             if not text or len(text.strip()) < 10:
-                print("[N] Réponse Gemini vide")
+                print(f"[N] Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
+                print(f"[N] Status: {resp.status_code}, Headers: {dict(resp.headers)}")
+                if text:
+                    print(f"[N] Texte reçu: '{text}'")
                 return None
             
             # Parser JSON
@@ -427,13 +433,14 @@ async def periodic_on_task():
         
         # Étape 1 : O analysis (structures + C_d + relations formelles)
         o_result = None
-        for attempt in range(2):
+        for attempt in range(3):  # Augmenter à 3 tentatives
             o_result = await call_gemini_o(store.latest_image_base64, store.agents_count, store.latest)
             if o_result:
                 break
-            if attempt < 1:
-                print(f"[O] Tentative {attempt + 1} échouée, retry...")
-                await asyncio.sleep(2)
+            if attempt < 2:
+                delay = 3 * (attempt + 1)  # Délai progressif: 3s, 6s
+                print(f"[O] Tentative {attempt + 1} échouée, retry dans {delay}s...")
+                await asyncio.sleep(delay)
         
         if not o_result:
             print("[O] Échec Gemini O, conservation snapshot précédent")
@@ -464,13 +471,18 @@ async def periodic_on_task():
         w_data = w_store.get_all_agents_data()
         n_result = None
         
-        for attempt in range(2):
+        print(f"[N] Données W disponibles: {len(w_data)} agents")
+        for agent_id, data in w_data.items():
+            print(f"  - Agent {agent_id[:8]}: iter={data.get('iteration')}, strategy={data.get('strategy')}")
+        
+        for attempt in range(3):  # Augmenter à 3 tentatives
             n_result = await call_gemini_n(o_result, w_data, store.latest)
             if n_result:
                 break
-            if attempt < 1:
-                print(f"[N] Tentative {attempt + 1} échouée, retry...")
-                await asyncio.sleep(2)
+            if attempt < 2:
+                delay = 3 * (attempt + 1)  # Délai progressif: 3s, 6s
+                print(f"[N] Tentative {attempt + 1} échouée, retry dans {delay}s...")
+                await asyncio.sleep(delay)
         
         if not n_result:
             print("[N] Échec Gemini N, fallback avec données précédentes")
