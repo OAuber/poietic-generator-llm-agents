@@ -103,27 +103,56 @@ class AIPlayerV5 {
 
     let content = '';
     if (source === 'O') {
-      // Format O snapshot (structures, narrative, simplicity)
+      // V5: Format O-machine output (structures + C_d + relations formelles)
       const s = data?.simplicity_assessment || {};
       const structs = data?.structures || [];
-      const narr = data?.narrative?.summary || '';
+      const formal_relations = data?.formal_relations || {};
       const reasoning = s?.reasoning || '';
       content = 
-        `🔍 O-MACHINE (Observation/Narration)\n` +
+        `🔍 O-MACHINE (Observation)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `\n📊 SIMPLICITY ASSESSMENT\n` +
-        `C_w: ${s.C_w_current?.value ?? 'N/A'} bits | ` +
-        `C_d: ${s.C_d_current?.value ?? 'N/A'} bits | ` +
-        `U: ${s.U_current?.value ?? 'N/A'} bits\n` +
-        `Interpretation: ${s.U_current?.interpretation || 'N/A'}\n` +
         `\n📐 STRUCTURES (${structs.length})\n`;
       structs.forEach((st, i) => {
-        content += `  ${i+1}. ${st.type} (${st.size_agents} agents, salience: ${st.salience}, Cd rank: ${st.rank_Cd}, Cw rank: ${st.rank_Cw})\n`;
+        const positions = st.agent_positions ? `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
+        content += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
       });
       if (structs.length === 0) content += `  (none detected)\n`;
-      content += `\n📖 NARRATIVE\n${narr || '(none)'}\n`;
+      content += `\n🔗 FORMAL RELATIONS\n${formal_relations.summary || 'N/A'}\n`;
+      if (formal_relations.connections && formal_relations.connections.length > 0) {
+        content += `\nConnections:\n`;
+        formal_relations.connections.forEach(c => {
+          content += `  • Structure ${c.from_structure_idx} → ${c.to_structure_idx}: ${c.type} (strength: ${c.strength})\n`;
+        });
+      }
+      content += `\n📊 C_d (Description Complexity): ${s.C_d_current?.value ?? 'N/A'} bits\n`;
+      content += `Description: ${s.C_d_current?.description || 'N/A'}\n`;
       if (reasoning) {
-        content += `\n🧠 REASONING (Step-by-step calculation)\n${reasoning}\n`;
+        content += `\n🧠 REASONING O\n${reasoning}\n`;
+      }
+    } else if (source === 'N') {
+      // V5: Format N-machine output (narrative + C_w + erreurs prédiction)
+      const s = data?.simplicity_assessment || {};
+      const narrative = data?.narrative || {};
+      const prediction_errors = data?.prediction_errors || {};
+      const reasoning = s?.reasoning || '';
+      content = 
+        `📖 N-MACHINE (Narration)\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `\n📚 NARRATIVE\n${narrative.summary || 'N/A'}\n` +
+        `\n📊 C_w (Generation Complexity): ${s.C_w_current?.value ?? 'N/A'} bits\n` +
+        `Rationale: ${s.C_w_current?.rationale || 'N/A'}\n`;
+      
+      const errorEntries = Object.entries(prediction_errors);
+      if (errorEntries.length > 0) {
+        content += `\n🎯 PREDICTION ERRORS (${errorEntries.length} agents)\n`;
+        errorEntries.forEach(([agent_id, err]) => {
+          const shortId = agent_id.substring(0, 8);
+          content += `  • ${shortId}: error=${(err.error || 0).toFixed(2)} — ${err.explanation || 'N/A'}\n`;
+        });
+      }
+      
+      if (reasoning) {
+        content += `\n🧠 REASONING N\n${reasoning}\n`;
       }
     } else if (source === 'W') {
       // Format W response (seed/action)
