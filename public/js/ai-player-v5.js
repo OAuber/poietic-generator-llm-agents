@@ -772,9 +772,29 @@ class AIPlayerV5 {
           this.lastOVersionSeen = currentOVersion;
         }
         
-        // Afficher le snapshot O dans Verbatim pour info
+        // V5: Afficher le snapshot O+N dans Verbatim (séparé O et N)
         if (this.Osnapshot) {
-          this.storeVerbatimResponse('O', this.Osnapshot, this.iterationCount);
+          // Extraire et afficher O et N séparément
+          const oData = {
+            structures: this.Osnapshot.structures,
+            formal_relations: this.Osnapshot.formal_relations,
+            simplicity_assessment: {
+              C_d_current: this.Osnapshot.simplicity_assessment?.C_d_current,
+              reasoning: this.Osnapshot.simplicity_assessment?.reasoning_o || this.Osnapshot.simplicity_assessment?.reasoning
+            }
+          };
+          const nData = {
+            narrative: this.Osnapshot.narrative,
+            prediction_errors: this.Osnapshot.prediction_errors,
+            simplicity_assessment: {
+              C_w_current: this.Osnapshot.simplicity_assessment?.C_w_current,
+              reasoning: this.Osnapshot.simplicity_assessment?.reasoning_n
+            }
+          };
+          
+          this.storeVerbatimResponse('O', oData, this.iterationCount);
+          this.storeVerbatimResponse('N', nData, this.iterationCount);
+          
           this.updateOMetrics(this.Osnapshot);
           // V5: Mettre à jour les métriques d'erreur de prédiction
           this.updatePredictionMetrics(this.Osnapshot);
