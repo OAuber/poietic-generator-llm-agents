@@ -207,7 +207,7 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
         'contents': [{'parts': parts}],
         'generationConfig': {
             'temperature': 0.7,
-            'maxOutputTokens': 8000
+            'maxOutputTokens': 16000  # V5: Augmenter pour laisser place aux thoughts + réponse
         }
     }
     
@@ -237,7 +237,12 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
                 return None
             
             # Parser JSON
-            return parse_json_robust(text, "[O]")
+            result = parse_json_robust(text, "[O]")
+            if result:
+                print(f"[O] ✅ Gemini O réussi (longueur réponse: {len(text)} chars, thoughts: {data.get('usageMetadata', {}).get('thoughtsTokenCount', 0)} tokens)")
+            else:
+                print(f"[O] ❌ Parsing JSON échoué")
+            return result
                 
     except Exception as e:
         print(f"[O] Erreur appel Gemini: {e}")
@@ -296,7 +301,7 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {
             'temperature': 0.7,
-            'maxOutputTokens': 8000
+            'maxOutputTokens': 16000  # V5: Augmenter pour laisser place aux thoughts + réponse
         }
     }
     
@@ -327,7 +332,7 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
             # Parser JSON
             result = parse_json_robust(text, "[N]")
             if result:
-                print(f"[N] ✅ Gemini N réussi (longueur réponse: {len(text)} chars)")
+                print(f"[N] ✅ Gemini N réussi (longueur réponse: {len(text)} chars, thoughts: {data.get('usageMetadata', {}).get('thoughtsTokenCount', 0)} tokens)")
             else:
                 print(f"[N] ❌ Parsing JSON échoué")
             return result
