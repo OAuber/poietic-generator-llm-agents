@@ -31,8 +31,8 @@ class AIPlayerV5 {
     const WS_PROTOCOL = loc.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_HOST = loc.host;
     this.WS_URL = `${WS_PROTOCOL}//${WS_HOST}/updates?type=bot`;
-    // O-machine server assumed on port 8004 by default
-    this.O_API_BASE = loc.origin.replace(/:\d+$/, ':8004');
+    // V5: O-N-machine server on port 8005
+    this.O_API_BASE = loc.origin.replace(/:\d+$/, ':8005');
 
     this.elements = {
       apiKey: document.getElementById('api-key'),
