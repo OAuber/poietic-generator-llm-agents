@@ -146,8 +146,16 @@ class AIPlayerV5 {
       if (errorEntries.length > 0) {
         content += `\n🎯 PREDICTION ERRORS (${errorEntries.length} agents)\n`;
         errorEntries.forEach(([agent_id, err]) => {
-          const shortId = agent_id.substring(0, 8);
-          content += `  • ${shortId}: error=${(err.error || 0).toFixed(2)} — ${err.explanation || 'N/A'}\n`;
+          // Récupérer la position de l'agent depuis otherUsers
+          let position = 'N/A';
+          if (this.otherUsers && this.otherUsers[agent_id]) {
+            const pos = this.otherUsers[agent_id].position || [0, 0];
+            position = `[${pos[0]},${pos[1]}]`;
+          } else if (this.myUserId === agent_id) {
+            // C'est cet agent
+            position = `[${this.myPosition[0]},${this.myPosition[1]}]`;
+          }
+          content += `  • Agent ${position}: error=${(err.error || 0).toFixed(2)} — ${err.explanation || 'N/A'}\n`;
         });
       }
       
