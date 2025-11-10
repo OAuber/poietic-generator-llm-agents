@@ -243,6 +243,8 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
 
 async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined: Optional[dict] = None) -> Optional[dict]:
     """Appelle Gemini pour N-machine (narration, C_w, erreurs prédiction)"""
+    print(f"[N] 🚀 Début appel Gemini N avec {len(w_agents_data)} agents W")
+    print(f"[N]    O-snapshot: {len(o_snapshot.get('structures', []))} structures")
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
         print("[N] GEMINI_API_KEY non définie")
@@ -305,14 +307,19 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
                         text += part['text']
             
             if not text or len(text.strip()) < 10:
-                print(f"[N] Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
+                print(f"[N] ❌ Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
                 print(f"[N] Status: {resp.status_code}, Headers: {dict(resp.headers)}")
                 if text:
                     print(f"[N] Texte reçu: '{text}'")
                 return None
             
             # Parser JSON
-            return parse_json_robust(text, "[N]")
+            result = parse_json_robust(text, "[N]")
+            if result:
+                print(f"[N] ✅ Gemini N réussi (longueur réponse: {len(text)} chars)")
+            else:
+                print(f"[N] ❌ Parsing JSON échoué")
+            return result
                 
     except Exception as e:
         print(f"[N] Erreur appel Gemini: {e}")
@@ -485,10 +492,14 @@ async def periodic_on_task():
                 await asyncio.sleep(delay)
         
         if not n_result:
-            print("[N] Échec Gemini N, fallback avec données précédentes")
+            print("=" * 60)
+            print("[N] ⚠️  ÉCHEC GEMINI N - UTILISATION FALLBACK")
+            print("=" * 60)
             # Conserver N précédent si disponible
             if store.latest and 'narrative' in store.latest:
-                print(f"[N] Réutilisation données N du snapshot version {store.version}")
+                print(f"[N] 🔄 Réutilisation données N du snapshot version {store.version}")
+                print(f"[N]    Narrative: {store.latest.get('narrative', {}).get('summary', 'N/A')[:100]}...")
+                print(f"[N]    C_w: {store.latest['simplicity_assessment'].get('C_w_current', {}).get('value', 'N/A')}")
                 n_result = {
                     'narrative': store.latest.get('narrative', {'summary': 'Previous narrative preserved'}),
                     'prediction_errors': store.latest.get('prediction_errors', {}),
