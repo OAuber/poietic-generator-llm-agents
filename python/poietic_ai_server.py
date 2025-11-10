@@ -19,6 +19,9 @@ import asyncio
 import json
 import httpx
 import time
+from PIL import Image
+import io
+import base64
 
 app = FastAPI(title="Poietic AI Server", version="2.0.0")
 
@@ -357,6 +360,172 @@ async def proxy_anthropic(request: Request):
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+@app.post("/api/grid-to-image")
+async def grid_to_image(request: Request):
+    """Convertir une grille de pixels en image PNG (pour LLaVA)"""
+    try:
+        body = await request.json()
+        pixels = body.get("pixels", [])
+        
+        if not pixels:
+            return JSONResponse(status_code=400, content={"error": "Aucun pixel fourni"})
+        
+        # Créer une image 20×20 (fond noir par défaut)
+        img = Image.new('RGB', (20, 20), color=(0, 0, 0))
+        pixels_data = img.load()
+        
+        # Remplir avec les pixels fournis
+        for pixel in pixels:
+            x = pixel.get('x')
+            y = pixel.get('y')
+            color = pixel.get('color')  # format #RRGGBB
+            
+            if x is None or y is None or color is None:
+                continue
+                
+            if 0 <= x < 20 and 0 <= y < 20:
+                # Convertir #RRGGBB en RGB
+                r = int(color[1:3], 16)
+                g = int(color[3:5], 16)
+                b = int(color[5:7], 16)
+                pixels_data[x, y] = (r, g, b)
+        
+        # Upscale à 200×200 (10× pour que LLaVA voit mieux)
+        img = img.resize((200, 200), Image.NEAREST)
+        
+        # Convertir en base64
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        img_base64 = base64.b64encode(buffer.getvalue()).decode()
+        
+        print(f"[GRID→IMAGE] Converti {len(pixels)} pixels en image 200×200")
+        
+        return JSONResponse(content={"image": img_base64})
+        
+    except Exception as e:
+        print(f"[GRID→IMAGE] Erreur: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/global-canvas-image")
+async def global_canvas_image(request: Request):
+    """Générer une image du canvas global complet (toutes les grilles assemblées)"""
+    try:
+        body = await request.json()
+        grids = body.get("grids", {})  # {user_id: {position: [x,y], pixels: [{x,y,color}]}}
+        grid_size = body.get("grid_size", 1)  # Taille du canvas global (NxN grilles)
+        my_user_id = body.get("my_user_id", None)  # ID de l'agent qui demande l'image
+        
+        if not grids:
+            return JSONResponse(status_code=400, content={"error": "Aucune grille fournie"})
+        
+        # Calculer la taille de l'image finale
+        # Chaque grille = 20×20 pixels, upscalée à 10× = 200×200
+        cell_size = 200  # Taille d'une grille upscalée
+        canvas_width = grid_size * cell_size
+        canvas_height = grid_size * cell_size
+        
+        # Créer l'image du canvas complet (fond noir)
+        canvas = Image.new('RGB', (canvas_width, canvas_height), color=(0, 0, 0))
+        
+        # Remplir chaque grille
+        for user_id, grid_data in grids.items():
+            position = grid_data.get("position", [0, 0])
+            pixels = grid_data.get("pixels", [])
+            
+            # Position de la grille dans le canvas global
+            grid_x = position[0]
+            grid_y = position[1]
+            
+            # Créer une image 20×20 pour cette grille
+            grid_img = Image.new('RGB', (20, 20), color=(0, 0, 0))
+            grid_pixels = grid_img.load()
+            
+            # Remplir avec les pixels de l'utilisateur
+            for pixel in pixels:
+                x = pixel.get('x')
+                y = pixel.get('y')
+                color = pixel.get('color')
+                
+                if x is None or y is None or color is None:
+                    continue
+                    
+                if 0 <= x < 20 and 0 <= y < 20:
+                    # Convertir #RRGGBB en RGB
+                    r = int(color[1:3], 16)
+                    g = int(color[3:5], 16)
+                    b = int(color[5:7], 16)
+                    grid_pixels[x, y] = (r, g, b)
+            
+            # Upscale la grille à 200×200
+            grid_img = grid_img.resize((cell_size, cell_size), Image.NEAREST)
+            
+            # Calculer la position dans le canvas global
+            # Convertir position de grille en coordonnées canvas
+            # Le centre du canvas est à (grid_size // 2, grid_size // 2)
+            center = grid_size // 2
+            canvas_x = (grid_x + center) * cell_size
+            canvas_y = (grid_y + center) * cell_size
+            
+            # Coller la grille dans le canvas
+            canvas.paste(grid_img, (canvas_x, canvas_y))
+            
+            # HIGHLIGHT: Si c'est la grille de l'agent actif, ajouter une bordure
+            if my_user_id and user_id == my_user_id:
+                from PIL import ImageDraw
+                draw = ImageDraw.Draw(canvas)
+                
+                # Bordure jaune vif (très visible) de 4 pixels d'épaisseur
+                border_color = (255, 255, 0)  # Jaune
+                border_width = 4
+                
+                # Dessiner la bordure autour de la grille
+                for i in range(border_width):
+                    draw.rectangle(
+                        [canvas_x + i, canvas_y + i, 
+                         canvas_x + cell_size - 1 - i, canvas_y + cell_size - 1 - i],
+                        outline=border_color
+                    )
+                
+                # Ajouter une croix au centre pour bien identifier
+                center_x = canvas_x + cell_size // 2
+                center_y = canvas_y + cell_size // 2
+                cross_size = 10
+                draw.line([center_x - cross_size, center_y, center_x + cross_size, center_y], fill=border_color, width=3)
+                draw.line([center_x, center_y - cross_size, center_x, center_y + cross_size], fill=border_color, width=3)
+                
+                print(f"[GLOBAL CANVAS] Highlighted grid for user {my_user_id} at position ({grid_x}, {grid_y})")
+        
+        # Convertir en base64
+        buffer = io.BytesIO()
+        canvas.save(buffer, format='PNG')
+        img_base64 = base64.b64encode(buffer.getvalue()).decode()
+        
+        # SAUVEGARDER le snapshot sur disque pour debug
+        import os
+        from datetime import datetime
+        snapshot_dir = "snapshots"
+        os.makedirs(snapshot_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        snapshot_filename = f"{snapshot_dir}/canvas_{timestamp}_{canvas_width}x{canvas_height}_{len(grids)}grids.png"
+        canvas.save(snapshot_filename)
+        
+        print(f"[GLOBAL CANVAS] Généré canvas {canvas_width}×{canvas_height} avec {len(grids)} grilles")
+        print(f"[GLOBAL CANVAS] 📸 Snapshot sauvegardé: {snapshot_filename}")
+        
+        return JSONResponse(content={
+            "image": img_base64,
+            "width": canvas_width,
+            "height": canvas_height,
+            "grid_count": len(grids)
+        })
+        
+    except Exception as e:
+        print(f"[GLOBAL CANVAS] Erreur: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.post("/api/llm/ollama")
 async def proxy_ollama(request: Request):
     """Proxy pour Ollama hébergé sur OVHcloud AI Deploy"""
@@ -367,40 +536,85 @@ async def proxy_ollama(request: Request):
         body = await request.json()
         
         messages = body.get("messages")
+        system_prompt = body.get("system_prompt", "")  # NOUVEAU: message système séparé
         model = body.get("model", "qwen2:0.5b")
         max_tokens = body.get("max_tokens", 2000)  # Récupérer max_tokens du frontend
         
-        print(f"[DEBUG] Ollama request - max_tokens: {max_tokens}")  # DEBUG
+        # print(f"[DEBUG] Ollama request - max_tokens: {max_tokens}, system_prompt: {len(system_prompt)} chars")
         
         if not messages:
             return JSONResponse(status_code=400, content={"error": "Messages manquants"})
         
-        # Extraire le prompt du format OpenAI-like
-        prompt = messages[0].get("content", "") if messages else ""
-        prompt_length = len(prompt)
+        # Extraire le prompt ET les images du format OpenAI-like
+        user_prompt = messages[0].get("content", "") if messages else ""
+        images = messages[0].get("images", []) if messages else []
+        
+        # if images:
+        #     print(f"[DEBUG] 🖼️ {len(images)} image(s) détectée(s) pour LLaVA")
+        
+        # Combiner system + user en ajoutant des marqueurs pour Ollama
+        if system_prompt:
+            # Format Ollama avec system prompt clairement marqué
+            full_prompt = f"<<SYSTEM>>\n{system_prompt}\n<</SYSTEM>>\n\n<<USER>>\n{user_prompt}\n<</USER>>"
+            # print(f"[DEBUG] System prompt: {len(system_prompt)} chars")
+            # print(f"[DEBUG] User prompt: {len(user_prompt)} chars")
+            # print(f"[DEBUG] System (extrait): {system_prompt[:200]}...")
+        else:
+            full_prompt = user_prompt
+        
+        prompt_length = len(full_prompt)
+        # print(f"[DEBUG] Prompt total: {prompt_length} chars")
         
         # URL de l'instance Ollama sur OVH
         OLLAMA_URL = "https://2d30a9cf-f8ff-4217-9edd-1c44b3f8a857.app.bhs.ai.cloud.ovh.net"
         
-        # Faire la requête à Ollama (timeout 180s pour les gros JSON)
+        # Faire la requête à Ollama avec /api/generate (format simple et fiable)
+        # Intégrer le system prompt AVANT le user prompt avec un marqueur clair
+        if system_prompt:
+            # Format optimisé pour que Ollama comprenne la hiérarchie
+            full_prompt = f"""<<INSTRUCTIONS SYSTÈME - À SUIVRE STRICTEMENT>>
+
+{system_prompt}
+
+<<FIN INSTRUCTIONS - DÉBUT CONTEXTE UTILISATEUR>>
+
+{user_prompt}"""
+            # print(f"[DEBUG] System prompt intégré: {len(system_prompt)} chars")
+            # print(f"[DEBUG] User prompt: {len(user_prompt)} chars")
+        else:
+            full_prompt = user_prompt
+        
         ollama_payload = {
             "model": model,
-            "prompt": prompt,
+            "prompt": full_prompt,
             "stream": False,
             "options": {
-                "num_ctx": 8192,  # Limite de contexte à 8192 tokens
-                "num_predict": max_tokens,  # Limite de tokens générés
-                "temperature": 0.7,  # Température par défaut
-                "repeat_penalty": 0.9,  # ENCOURAGER les répétitions (structure JSON répétitive)
-                "top_k": 50,  # Plus de choix
-                "top_p": 0.95  # Plus de diversité
+                "num_ctx": 8192,
+                "num_predict": max_tokens,
+                "temperature": 0.8,
+                "repeat_penalty": 1.1,
+                "top_k": 50,
+                "top_p": 0.95
             }
         }
-        print(f"[DEBUG] Sending to Ollama - num_predict: {max_tokens}, temp: 0.7, repeat_penalty: 0.9 (encourage repeats)")  # DEBUG
+        
+        # Ajouter les images si présentes (pour LLaVA)
+        if images:
+            ollama_payload["images"] = images
+            # print(f"[DEBUG] 🖼️ Images ajoutées au payload Ollama")
+        
+        endpoint = "/api/generate"
+        
+        # print(f"[DEBUG] Using Ollama endpoint: {endpoint}")
+        # print(f"[DEBUG] Full prompt length: {len(full_prompt)} chars (~{len(full_prompt)//4} tokens)")
+        # print(f"[DEBUG] Sending to Ollama - num_predict: {max_tokens}, temp: 0.8, repeat_penalty: 1.1")
+        
+        # IMPORTANT: Afficher les 500 derniers caractères pour voir le "YOUR TURN"
+        # print(f"[DEBUG] Fin du prompt envoyé: ...{full_prompt[-500:]}")
         
         async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minutes pour llama3.1:8b
             response = await client.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{OLLAMA_URL}{endpoint}",
                 json=ollama_payload
             )
         
@@ -414,6 +628,9 @@ async def proxy_ollama(request: Request):
             )
         
         ollama_response = response.json()
+        
+        # Extraire le texte généré (toujours /api/generate maintenant)
+        generated_text = ollama_response.get("response", "")
         
         # Extraire les métriques de performance
         total_duration_ms = ollama_response.get("total_duration", 0) / 1_000_000  # ns -> ms
@@ -452,10 +669,10 @@ async def proxy_ollama(request: Request):
         })
         
         # Convertir au format attendu par le frontend
-        response_text = ollama_response.get("response", "")
+        # Utiliser generated_text qui a été extrait selon l'endpoint
         
         return JSONResponse(content={
-            "response": response_text,
+            "response": generated_text,
             "model": model,
             "done": ollama_response.get("done", True)
         })
@@ -601,4 +818,5 @@ if __name__ == "__main__":
     print("🚀 Ollama Stats: http://localhost:8003/ollama-stats.html")
     print("🔌 WebSocket Analytics: ws://localhost:8003/analytics")
     print("⚙️  Port: 8003")
-    uvicorn.run(app, host="0.0.0.0", port=8003, log_level="info")
+    # Configuration avec timeout de 7 minutes (420 secondes) pour requêtes longues
+    uvicorn.run(app, host="0.0.0.0", port=8003, log_level="info", timeout_keep_alive=420)

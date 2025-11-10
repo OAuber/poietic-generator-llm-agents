@@ -69,23 +69,9 @@ export class LlavaCanvasGenerator {
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        // Marquer le centre du canvas global avec une croix (position [0,0])
+        // (Supprimé) marquage du centre et label pour éviter toute perturbation visuelle
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
-        ctx.strokeStyle = '#888888'; // Gris pour le centre
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(centerX - 10, centerY);
-        ctx.lineTo(centerX + 10, centerY);
-        ctx.moveTo(centerX, centerY - 10);
-        ctx.lineTo(centerX, centerY + 10);
-        ctx.stroke();
-        
-        // Ajouter un label "CENTER [0,0]"
-        ctx.fillStyle = '#888888';
-        ctx.font = 'bold 12px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('CENTER [0,0]', centerX, centerY - 10);
         
         // Dessiner chaque grille avec annotations de position
         for (const [userId, userData] of Object.entries(otherUsers)) {
@@ -96,11 +82,7 @@ export class LlavaCanvasGenerator {
             const baseX = centerX + (pos[0] * cellSize) - (cellSize / 2);
             const baseY = centerY + (pos[1] * cellSize) - (cellSize / 2);
             
-            // Ajouter une bordure colorée pour identifier chaque grille
-            const isMyGrid = userId === myUserId;
-            ctx.strokeStyle = isMyGrid ? '#888888' : '#333333'; // Gris pour ma grille, gris foncé pour les autres
-            ctx.lineWidth = isMyGrid ? 3 : 1;
-            ctx.strokeRect(baseX, baseY, cellSize, cellSize);
+            // (Supprimé) bordures et surlignage de la grille active pour ne pas biaiser la perception
             
             // Pas d'annotations textuelles pour éviter la confusion
             

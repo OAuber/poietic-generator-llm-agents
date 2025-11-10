@@ -113,10 +113,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     msg['local_description'],
                     msg['global_description']
                 )
-                
-                # Broadcast toutes les 5 mises à jour
-                if tracker.update_count % 5 == 0:
-                    metrics = tracker.calculate_global_metrics()
+                # Broadcast à chaque mise à jour (pour tests/itérations rapides)
+                metrics = tracker.calculate_global_metrics()
+                if metrics:
                     await broadcast({
                         'type': 'global_simplicity_metrics',
                         **metrics

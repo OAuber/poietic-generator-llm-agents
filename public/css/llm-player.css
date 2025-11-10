@@ -250,6 +250,11 @@ button.danger:hover {
     color: #e74c3c;
 }
 
+.journal-entry.info {
+    color: #3498db;
+    font-style: italic;
+}
+
 .icon {
     display: inline-block;
     margin-right: 5px;

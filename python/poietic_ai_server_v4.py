@@ -18,6 +18,9 @@ class OSnapshotStore:
         self.version: int = 0
         self.latest_image_base64: Optional[str] = None  # PNG base64 (sans préfixe data:)
         self.agents_count: int = 0
+        self.last_update_time: Optional[datetime] = None  # Timestamp de dernière mise à jour (image ou agents)
+        self.first_update_time: Optional[datetime] = None  # Première mise à jour depuis le démarrage
+        self.updates_count: int = 0  # Nombre cumulé de mises à jour (image/agents)
 
     def set_snapshot(self, snapshot: dict):
         self.version += 1
@@ -27,12 +30,31 @@ class OSnapshotStore:
 
     def set_image(self, image_base64: str):
         self.latest_image_base64 = image_base64
+        self.last_update_time = datetime.now(timezone.utc)
+        if self.first_update_time is None:
+            self.first_update_time = self.last_update_time
+        self.updates_count += 1
     
     def set_agents_count(self, n: int):
         try:
             self.agents_count = max(0, int(n))
+            self.last_update_time = datetime.now(timezone.utc)
+            if self.first_update_time is None:
+                self.first_update_time = self.last_update_time
+            self.updates_count += 1
         except Exception:
             self.agents_count = 0
+            self.last_update_time = datetime.now(timezone.utc)
+            if self.first_update_time is None:
+                self.first_update_time = self.last_update_time
+            self.updates_count += 1
+    
+    def is_stale(self, timeout_seconds: int = 30) -> bool:
+        """Vérifie si les données sont obsolètes (timeout)"""
+        if self.last_update_time is None:
+            return True  # Jamais mis à jour = obsolète
+        delta = (datetime.now(timezone.utc) - self.last_update_time).total_seconds()
+        return delta > timeout_seconds
 
 store = OSnapshotStore()
 
@@ -46,10 +68,19 @@ def load_o_prompt():
         try:
             with open(O_PROMPT_PATH, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                o_prompt_template = '\n'.join(data.get('system', []))
+                system_lines = data.get('system', [])
+                # S'assurer que system_lines est une liste
+                if not isinstance(system_lines, list):
+                    print(f"[O] ⚠️ 'system' n'est pas une liste, type: {type(system_lines)}")
+                    system_lines = []
+                o_prompt_template = '\n'.join(system_lines) if system_lines else "You are an O-machine. Analyze the image and return JSON with structures, narrative, and simplicity_assessment."
         except Exception as e:
             print(f"[O] Erreur chargement prompt: {e}")
             o_prompt_template = "You are an O-machine. Analyze the image and return JSON with structures, narrative, and simplicity_assessment."
+    # S'assurer que o_prompt_template est bien une chaîne, pas None
+    if not isinstance(o_prompt_template, str):
+        print(f"[O] ⚠️ o_prompt_template n'est pas une chaîne, type: {type(o_prompt_template)}, réinitialisation")
+        o_prompt_template = "You are an O-machine. Analyze the image and return JSON with structures, narrative, and simplicity_assessment."
     return o_prompt_template
 
 async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None) -> Optional[dict]:
@@ -59,9 +90,24 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
         print("[O] GEMINI_API_KEY non définie, utilisation du mock")
         return None
     
-    prompt = load_o_prompt()
+    # Charger le prompt et vérifier qu'il est bien une chaîne
+    try:
+        prompt = load_o_prompt()
+        if not isinstance(prompt, str):
+            print(f"[O] ⚠️ Erreur: prompt n'est pas une chaîne, type: {type(prompt)}")
+            return None
+    except Exception as e:
+        print(f"[O] Erreur chargement prompt dans call_gemini_o: {e}")
+        return None
+    
     # Injecter agents_count dans le prompt (remplacer toutes les occurrences)
-    prompt = prompt.replace('{{agents_count}}', str(agents_count))
+    try:
+        # Convertir agents_count en chaîne (utiliser f-string comme méthode sûre)
+        agents_count_str = f"{agents_count}"
+        prompt = prompt.replace('{{agents_count}}', agents_count_str)
+    except (AttributeError, TypeError) as e:
+        print(f"[O] Erreur remplacement agents_count: {e}, prompt type: {type(prompt)}")
+        return None
     
     # Log pour vérification
     if '{{agents_count}}' in prompt:
@@ -93,7 +139,13 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
     }
     
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        # Vérifier que httpx est bien un module, pas une chaîne
+        if not hasattr(httpx, 'AsyncClient'):
+            print(f"[O] ⚠️ Erreur: httpx.AsyncClient n'existe pas, httpx type: {type(httpx)}")
+            return None
+        # Utiliser httpx.Timeout pour la compatibilité avec les versions récentes
+        timeout_obj = httpx.Timeout(120.0, connect=30.0)
+        async with httpx.AsyncClient(timeout=timeout_obj) as client:
             resp = await client.post(url, json=body)
             if not resp.is_success:
                 error_text = await resp.text()
@@ -109,8 +161,8 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
                     if 'text' in part:
                         text += part['text']
             
-            if not text:
-                print("[O] Réponse Gemini vide")
+            if not text or len(text.strip()) < 10:
+                print("[O] Réponse Gemini vide ou trop courte")
                 return None
             
             # Parser JSON (tentative de nettoyage si nécessaire)
@@ -175,12 +227,68 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
                     json_slice = re.sub(r'\n\s*', ' ', json_slice)  # Remplacer retours à la ligne + indentation par espace
                     json_slice = re.sub(r'\s+', ' ', json_slice)  # Nettoyer espaces multiples
                     
+                    # Réparations supplémentaires pour erreurs communes (plus conservatrices)
+                    # 1. Enlever virgules en trop avant } ou ] (sauf si dans une chaîne)
+                    json_slice = re.sub(r',(\s*[}\]])', r'\1', json_slice)
+                    # 2. Enlever virgules en trop après { ou [
+                    json_slice = re.sub(r'([{\[])\s*,', r'\1', json_slice)
+                    # 3. Nettoyer les virgules multiples
+                    json_slice = re.sub(r',\s*,+', ',', json_slice)
+                    
                     # Essayer de parser
                     try:
                         parsed = json.loads(json_slice)
                         print("[O] JSON réparé avec succès (extraction + nettoyage)")
                         return parsed
                     except json.JSONDecodeError as e2:
+                        # Dernière tentative : extraire seulement les structures valides avec parsing récursif
+                        try:
+                            # Chercher le début du tableau structures
+                            struct_start = json_slice.find('"structures"')
+                            if struct_start != -1:
+                                # Trouver le [ qui suit
+                                bracket_start = json_slice.find('[', struct_start)
+                                if bracket_start != -1:
+                                    # Compter les accolades et crochets pour trouver la fin
+                                    depth = 0
+                                    bracket_count = 1
+                                    i = bracket_start + 1
+                                    while i < len(json_slice) and bracket_count > 0:
+                                        if json_slice[i] == '[':
+                                            bracket_count += 1
+                                        elif json_slice[i] == ']':
+                                            bracket_count -= 1
+                                        i += 1
+                                    if bracket_count == 0:
+                                        structures_text = json_slice[bracket_start:i]
+                                        try:
+                                            structures_array = json.loads(structures_text)
+                                            if isinstance(structures_array, list) and len(structures_array) > 0:
+                                                # Construire un snapshot minimal valide
+                                                # Essayer d'estimer C_w et C_d à partir des structures
+                                                num_structures = len(structures_array)
+                                                # Estimation basique : C_w et C_d augmentent avec le nombre de structures
+                                                estimated_cw = 15 + (num_structures * 5)
+                                                estimated_cd = 12 + (num_structures * 6)  # Plus élevé pour structures déconnectées
+                                                estimated_u = max(-5, estimated_cw - estimated_cd)  # U peut être négatif
+                                                
+                                                minimal_snapshot = {
+                                                    "structures": structures_array,
+                                                    "narrative": {"summary": f"Partial snapshot: {num_structures} structure(s) detected (parsing error)"},
+                                                    "simplicity_assessment": {
+                                                        "C_w_current": {"value": estimated_cw, "rationale": "Estimated from structures count"},
+                                                        "C_d_current": {"value": estimated_cd, "description": f"Partial description of {num_structures} structure(s)"},
+                                                        "U_current": {"value": estimated_u, "interpretation": "WEAK_EMERGENCE" if estimated_u < 6 else "MODERATE_EMERGENCE"},
+                                                        "reasoning": f"Partial snapshot extracted from malformed JSON. {num_structures} structure(s) detected. C_w/C_d estimated."
+                                                    }
+                                                }
+                                                print(f"[O] JSON partiel extrait ({num_structures} structures, C_w={estimated_cw}, C_d={estimated_cd}, U={estimated_u})")
+                                                return minimal_snapshot
+                                        except:
+                                            pass
+                        except Exception as e3:
+                            pass
+                        
                         print(f"[O] Réparation échouée: {e2}")
                         print(f"[O] Position erreur: ligne {e2.lineno}, colonne {e2.colno}")
                         print(f"[O] Contexte: {json_slice[max(0, e2.pos-50):e2.pos+50]}")
@@ -205,16 +313,44 @@ async def periodic_o_task():
             print("[O] Pas d'image disponible, attente...")
             continue
         
+        # Vérifier si les données sont obsolètes (agents déconnectés)
+        if store.is_stale(timeout_seconds=30):
+            if store.agents_count > 0:
+                print(f"[O] Timeout détecté (dernière mise à jour > 30s), agents considérés déconnectés")
+                store.set_agents_count(0)  # Réinitialiser le compteur
+        
         if store.agents_count == 0:
-            print("[O] Pas d'agents, attente...")
+            print("[O] Pas d'agents actifs, attente...")
+            continue
+        
+        # Fenêtre de warmup au démarrage: attendre quelques mises à jour agents/image
+        # - au moins 2 mises à jour (image/agents)
+        # - ET au moins 5s depuis la première mise à jour
+        now = datetime.now(timezone.utc)
+        if (store.updates_count or 0) < 2 or (store.first_update_time and (now - store.first_update_time).total_seconds() < 5):
+            print("[O] Warmup en cours (attente premières mises à jour des seeds)...")
+            continue
+        
+        # Fenêtre de stabilisation: éviter d'analyser en plein flux, attendre 3s de calme
+        # Ce délai permet de s'assurer que tous les agents W ont fini de dessiner leurs pixels
+        # et que le canvas est complètement rendu avant l'analyse O
+        if store.last_update_time and (now - store.last_update_time).total_seconds() < 3.0:
+            print(f"[O] Attente de stabilisation (dernière mise à jour il y a {(now - store.last_update_time).total_seconds():.1f}s, besoin de 3s de calme)...")
             continue
         
         img_size = len(store.latest_image_base64) if store.latest_image_base64 else 0
         print(f"[O] Analyse avec Gemini ({store.agents_count} agents, image: {img_size} bytes)...")
         previous = store.latest
         
-        # Appeler Gemini avec l'image
-        result = await call_gemini_o(store.latest_image_base64, store.agents_count, previous)
+        # Appeler Gemini avec l'image (avec retry pour réponses vides)
+        result = None
+        for attempt in range(2):  # 2 tentatives max
+            result = await call_gemini_o(store.latest_image_base64, store.agents_count, previous)
+            if result:
+                break
+            if attempt < 1:
+                print(f"[O] Tentative {attempt + 1} échouée, retry dans 2s...")
+                await asyncio.sleep(2)
         
         if result:
             # Valider et normaliser la structure

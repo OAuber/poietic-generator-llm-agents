@@ -110,8 +110,9 @@ class Grid
 end
 
 class Session
-  INACTIVITY_TIMEOUT = 180.seconds
-  RECONNECTION_TIMEOUT = 15.seconds # Temporairement réduit de 180.seconds
+  INACTIVITY_TIMEOUT = 180.seconds       # Timeout général pour tous les clients
+  LLM_INACTIVITY_TIMEOUT = 420.seconds   # Timeout spécifique pour les clients LLM (type=bot) - 7 minutes pour génération longue
+  RECONNECTION_TIMEOUT = 15.seconds       # Temporairement réduit de 180.seconds
 
   property users : Hash(String, HTTP::WebSocket)
   property observers : Hash(String, HTTP::WebSocket)
@@ -121,6 +122,7 @@ class Session
   property last_heartbeat : Hash(String, Time)
   property recorders : Array(HTTP::WebSocket)
   property pending_disconnects : Hash(String, Time)
+  property llm_clients : Set(String)  # Identifie les clients LLM (type=bot)
 
   def initialize
     @users = Hash(String, HTTP::WebSocket).new
@@ -131,6 +133,7 @@ class Session
     @last_heartbeat = Hash(String, Time).new
     @recorders = [] of HTTP::WebSocket
     @pending_disconnects = Hash(String, Time).new
+    @llm_clients = Set(String).new
   end
 
   def add_user(socket : HTTP::WebSocket, forced_id : String? = nil) : String
@@ -302,6 +305,8 @@ class Session
       @users.delete(user_id)
       @pending_disconnects.delete(user_id)
     end
+    # Retirer aussi de llm_clients si présent
+    @llm_clients.delete(user_id)
   end
 
   def broadcast_zoom_update
@@ -383,6 +388,8 @@ class Session
 
   def handle_heartbeat(user_id : String)
     @last_heartbeat[user_id] = Time.utc
+    @last_activity[user_id] = Time.utc  # 🔧 CRITIQUE: Mettre à jour last_activity pour éviter la déconnexion
+    puts "[DEBUG] Heartbeat reçu pour #{user_id[0..7]}..., last_activity mis à jour"
   end
 
   def handle_disconnect(user_id : String)
@@ -440,7 +447,9 @@ class Session
   def check_inactivity
     now = Time.utc
     @last_activity.each do |user_id, last_active|
-      if now - last_active > INACTIVITY_TIMEOUT
+      # Utiliser le timeout spécifique pour les clients LLM
+      timeout = @llm_clients.includes?(user_id) ? LLM_INACTIVITY_TIMEOUT : INACTIVITY_TIMEOUT
+      if now - last_active > timeout
         remove_user(user_id)
         @last_heartbeat.delete(user_id)
       end
@@ -541,7 +550,7 @@ before_all do |env|
   })
 end
 
-["", "monitoring", "viewer", "bot", "addbot", "ai-player"].each do |page|
+["", "monitoring", "viewer", "viewer2", "viewer3", "bot", "addbot", "ai-player", "ai-player-v2"].each do |page|
   get "/#{page}" do |env|
     env.response.headers["Content-Type"] = "text/html"
     file = FileStorage.get("#{page.empty? ? "index" : page}.html")
@@ -649,8 +658,9 @@ ws "/updates" do |socket, context|
   mode = context.request.query_params["mode"]?
   connection_type = context.request.query_params["type"]?
   is_observer = mode == "full" && connection_type == "observer"
+  is_llm_bot = connection_type == "bot"
 
-  # puts "Tentative de connexion WS: user_id_param=#{user_id_param}, mode=#{mode}, type=#{connection_type}, is_observer=#{is_observer}"
+  # puts "Tentative de connexion WS: user_id_param=#{user_id_param}, mode=#{mode}, type=#{connection_type}, is_observer=#{is_observer}, is_llm_bot=#{is_llm_bot}"
   # puts "État actuel (avant add_user/add_observer): PoieticGenerator.current_session.users.keys: #{PoieticGenerator.current_session.users.keys}, pending_disconnects: #{PoieticGenerator.current_session.pending_disconnects.keys}"
 
   user_id_for_socket = "" 
@@ -660,6 +670,11 @@ ws "/updates" do |socket, context|
     # puts "Observer connecté: #{user_id_for_socket}"
   else
     user_id_for_socket = PoieticGenerator.current_session.add_user(socket, user_id_param)
+  end
+  
+  # Marquer le client comme LLM si c'est un bot
+  if is_llm_bot
+    PoieticGenerator.current_session.llm_clients.add(user_id_for_socket)
   end
   
   user_id_for_message_handling = user_id_for_socket 

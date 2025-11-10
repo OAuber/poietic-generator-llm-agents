@@ -36,10 +36,10 @@ const LlavaAdapter = {
     loadPrompts: async () => {
         if (LlavaAdapter.promptsContent) return LlavaAdapter.promptsContent;
         try {
-            const response = await fetch('/llava-prompts.json?v=20250116');
+            const response = await fetch('/llava-prompts.json?v=20250123-fix-coords');
             if (!response.ok) throw new Error('Prompts non trouvés');
             LlavaAdapter.promptsContent = await response.json();
-            console.log('🧾 [LLaVA] Prompts chargés');
+            console.log('🧾 [LLaVA] Prompts chargés (v20250123 - Fix coordinates 0-19)');
             return LlavaAdapter.promptsContent;
         } catch (error) {
             console.warn('⚠️ [LLaVA] Impossible de charger les prompts externes, utilisation des prompts intégrés:', error);
@@ -467,7 +467,11 @@ const LlavaAdapter = {
         // 1. Remplacer ## par # (double hash)
         pixelsLine = pixelsLine.replace(/##/g, '#');
         
-        // 2. Ajouter des espaces entre les triplets (si absents)
+        // 2. Supprimer les virgules entre triplets (format incorrect de LLaVA)
+        // "10,10#FFF, 19,7#FFF" → "10,10#FFF 19,7#FFF"
+        pixelsLine = pixelsLine.replace(/([0-9a-fA-F]{3,8}),\s*/g, '$1 ');
+        
+        // 3. Ajouter des espaces entre les triplets collés (si absents)
         // Format incorrect: "0,0#FFF0,1#AAA" → Format correct: "0,0#FFF 0,1#AAA"
         pixelsLine = pixelsLine.replace(/([0-9a-fA-F]{3,8})(\d+),/g, '$1 $2,');
         

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Complexity Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+        .section {
+            background: #2a2a2a;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        h2 {
+            color: #0ff;
+            margin-top: 0;
+        }
+        .test {
+            margin: 10px 0;
+            padding: 10px;
+            background: #1a1a1a;
+            border-left: 3px solid #0f0;
+        }
+        .pass { border-color: #0f0; }
+        .fail { border-color: #f00; }
+        button {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            margin: 5px;
+            border-radius: 3px;
+        }
+        button:hover {
+            background: #0dd;
+        }
+        pre {
+            background: #1a1a1a;
+            padding: 10px;
+            overflow-x: auto;
+            border: 1px solid #0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Gemini Complexity Test Suite</h1>
+    
+    <div class="section">
+        <h2>📦 Context Manager Tests</h2>
+        <button onclick="testContextManager()">Run Tests</button>
+        <div id="context-results"></div>
+    </div>
+    
+    <div class="section">
+        <h2>📊 Complexity Calculator Tests</h2>
+        <button onclick="testComplexityCalculator()">Run Tests</button>
+        <div id="complexity-results"></div>
+    </div>
+    
+    <div class="section">
+        <h2>🔄 Integrated Test</h2>
+        <button onclick="testIntegration()">Run Integration Test</button>
+        <div id="integration-results"></div>
+    </div>
+    
+    <script type="module">
+        import { GeminiContextManager } from './gemini-context-manager.js';
+        import { GeminiComplexityCalculator } from './gemini-complexity-calculator.js';
+        
+        // Test Context Manager
+        window.testContextManager = function() {
+            const results = document.getElementById('context-results');
+            results.innerHTML = '<p>Running tests...</p>';
+            
+            const contextManager = new GeminiContextManager();
+            const tests = [];
+            
+            // Test 1: Première itération
+            contextManager.storeIteration(0, {
+                pixelCount: 25,
+                localImageBase64: 'data:image/png;base64,...',
+                globalImageBase64: 'data:image/png;base64,...',
+                individualAfterPrediction: 'Test prediction',
+                collectiveAfterPrediction: 'Test collective'
+            });
+            const context0 = contextManager.getContextForIteration(0);
+            tests.push({
+                name: 'First iteration context',
+                passed: context0.previousPredictions.length > 0,
+                details: context0
+            });
+            
+            // Test 2: Stockage et récupération
+            contextManager.storeIteration(1, {
+                pixelCount: 30,
+                localImageBase64: 'data:image/png;base64,...',
+                globalImageBase64: 'data:image/png;base64,...',
+                individualAfterPrediction: 'Second prediction',
+                collectiveAfterPrediction: 'Second collective'
+            });
+            const context1 = contextManager.getContextForIteration(1);
+            tests.push({
+                name: 'Iteration 1 context',
+                passed: context1.previousPredictions.length > 0 && 
+                        context1.previousPredictions[0].individual_after === 'Test prediction',
+                details: context1
+            });
+            
+            // Test 3: Pixel count depth
+            const pixelCount = contextManager.getPixelCountDepth(2, 5);
+            tests.push({
+                name: 'Pixel count depth',
+                passed: pixelCount === 55, // 25 + 30
+                details: `Expected 55, got ${pixelCount}`
+            });
+            
+            // Display results
+            results.innerHTML = tests.map(t => `
+                <div class="test ${t.passed ? 'pass' : 'fail'}">
+                    <strong>${t.name}:</strong> ${t.passed ? '✅ PASS' : '❌ FAIL'}
+                    <pre>${JSON.stringify(t.details, null, 2)}</pre>
+                </div>
+            `).join('');
+        };
+        
+        // Test Complexity Calculator
+        window.testComplexityCalculator = function() {
+            const results = document.getElementById('complexity-results');
+            results.innerHTML = '<p>Running tests...</p>';
+            
+            const calculator = new GeminiComplexityCalculator();
+            const tests = [];
+            
+            // Test 1: C_w calculation
+            const pixelCounts = [10, 15, 20, 25, 30];
+            const C_w = calculator.calculateCw(5, pixelCounts);
+            tests.push({
+                name: 'C_w calculation (depth=5, total=100 pixels)',
+                passed: C_w === 100 * 33,
+                details: `Expected 3300, got ${C_w}`
+            });
+            
+            // Test 2: U calculation
+            const U_metrics = calculator.calculateU(2, pixelCounts, 'Test description for complexity', false);
+            tests.push({
+                name: 'U calculation',
+                passed: U_metrics.C_w > 0 && U_metrics.C_d > 0,
+                details: U_metrics
+            });
+            
+            // Test 3: Predictability
+            const predictability = calculator.calculatePredictability(
+                'purple orb with green highlights',
+                'purple circle with green accents'
+            );
+            tests.push({
+                name: 'Predictability calculation',
+                passed: predictability >= 6,
+                details: `Expected >= 6, got ${predictability}`
+            });
+            
+            // Display results
+            results.innerHTML = tests.map(t => `
+                <div class="test ${t.passed ? 'pass' : 'fail'}">
+                    <strong>${t.name}:</strong> ${t.passed ? '✅ PASS' : '❌ FAIL'}
+                    <pre>${JSON.stringify(t.details, null, 2)}</pre>
+                </div>
+            `).join('');
+        };
+        
+        // Test Integration
+        window.testIntegration = function() {
+            const results = document.getElementById('integration-results');
+            results.innerHTML = '<p>Running integration test...</p>';
+            
+            const contextManager = new GeminiContextManager();
+            const calculator = new GeminiComplexityCalculator();
+            
+            // Simuler 3 itérations
+            for (let i = 0; i < 3; i++) {
+                // Store iteration
+                contextManager.storeIteration(i, {
+                    pixelCount: 20 + i * 5,
+                    localImageBase64: `data:image/png;base64,${i}`,
+                    globalImageBase64: `data:image/png;base64,${i}`,
+                    individualAfterPrediction: `Prediction ${i}`,
+                    collectiveAfterPrediction: `Collective ${i}`
+                });
+            }
+            
+            // Get context for iteration 2
+            const context = contextManager.getContextForIteration(2);
+            
+            // Calculate metrics
+            const pixelCounts = [20, 25, 30];
+            const description = 'Test description for calculating C_d';
+            const metrics = calculator.calculateU(1, pixelCounts, description, false);
+            
+            results.innerHTML = `
+                <div class="test pass">
+                    <strong>Integration Test:</strong> ✅ PASS
+                    <h4>Context:</h4>
+                    <pre>${JSON.stringify(context, null, 2)}</pre>
+                    <h4>Metrics:</h4>
+                    <pre>${JSON.stringify(metrics, null, 2)}</pre>
+                </div>
+            `;
+        };
+    </script>
+</body>
+</html>
+

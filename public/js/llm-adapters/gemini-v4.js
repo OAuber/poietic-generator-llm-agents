@@ -26,8 +26,6 @@ export const GeminiV4Adapter = {
     const timeout = 420000;
     const key = this.getApiKey();
     if (!key) throw new Error('Clé API Gemini manquante');
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), timeout);
     const model = 'gemini-2.5-flash';
     const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${key}`;
     const parts = [{ text: systemText }];
@@ -47,11 +45,57 @@ export const GeminiV4Adapter = {
       contents: [{ parts }],
       generationConfig: { temperature: 0.9, maxOutputTokens: 16000 }
     };
-    const r = await fetch(apiUrl, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, signal: controller.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
-    return text;
+    
+    // Retry avec backoff exponentiel pour erreurs 503/429 (rate limit)
+    const maxRetries = 3;
+    let lastError = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), timeout);
+        const r = await fetch(apiUrl, { 
+          method: 'POST', 
+          body: JSON.stringify(body), 
+          headers: { 'Content-Type': 'application/json' }, 
+          signal: controller.signal 
+        });
+        
+        if (r.status === 503 || r.status === 429) {
+          // Rate limit ou service unavailable
+          const retryAfter = parseInt(r.headers.get('Retry-After') || '0') * 1000;
+          const backoffDelay = retryAfter || (Math.pow(2, attempt) * 1000 + Math.random() * 2000); // Backoff exponentiel + jitter
+          
+          if (attempt < maxRetries) {
+            console.warn(`[Gemini V4] Rate limit (${r.status}), retry dans ${Math.round(backoffDelay/1000)}s (tentative ${attempt + 1}/${maxRetries + 1})`);
+            await new Promise(r => setTimeout(r, backoffDelay));
+            continue; // Réessayer
+          } else {
+            throw new Error(`HTTP ${r.status} - Rate limit après ${maxRetries + 1} tentatives`);
+          }
+        }
+        
+        if (!r.ok) {
+          const errorText = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status}: ${errorText.substring(0, 200)}`);
+        }
+        
+        const data = await r.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
+        return text;
+      } catch (error) {
+        lastError = error;
+        // Si c'est une erreur réseau ou timeout, réessayer avec backoff
+        if (attempt < maxRetries && (error.name === 'AbortError' || error.message.includes('fetch'))) {
+          const backoffDelay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+          console.warn(`[Gemini V4] Erreur réseau, retry dans ${Math.round(backoffDelay/1000)}s (tentative ${attempt + 1}/${maxRetries + 1})`);
+          await new Promise(r => setTimeout(r, backoffDelay));
+          continue;
+        }
+        // Sinon, propager l'erreur
+        throw error;
+      }
+    }
+    throw lastError || new Error('Échec après toutes les tentatives');
   },
 
   async buildSystemPrompt(kind, context) {

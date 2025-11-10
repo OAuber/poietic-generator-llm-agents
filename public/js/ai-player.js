@@ -1,5 +1,5 @@
         // AI Player - Logic
-        // Version: 2025-01-24-05:00 - Meta-system narrative integration
+        // Version: 2025-01-24-32:00 - Gemini memory integration
 import { SpatialAnalysis } from './spatial-analysis.js';
 import { AnthropicAdapter } from './llm-adapters/anthropic.js';
 import { OpenAIAdapter } from './llm-adapters/openai.js';
@@ -8,9 +8,13 @@ import { LlavaAdapter } from './llm-adapters/llava.js';
 import { LlavaCanvasGenerator } from './llava-canvas.js';
 import { ColorGenerator } from './poietic-color-generator.js';
 
+// Gemini memory modules
+import { GeminiContextManager } from './gemini-context-manager.js';
+import { GeminiComplexityCalculator } from './gemini-complexity-calculator.js';
+
 class AIPlayer {
     constructor() {
-        console.log('[AI Player] ✅ Version loaded: 2025-01-24-32:00');
+        console.log('[AI Player] ✅ Version loaded: 2025-01-24-37:00');
         // Configuration - Détection automatique de l'environnement
         const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const WS_HOST = window.location.hostname === 'localhost' 
@@ -64,6 +68,11 @@ class AIPlayer {
             descriptions: []
         };
         
+        // Gemini memory managers (for stateless agents)
+        this.geminiContextManager = null;
+        this.geminiComplexityCalculator = null;
+        this.currentMemoryContext = null;
+        
         // WebSocket pour métriques (serveur séparé)
         this.metricsSocket = null;
 
@@ -75,6 +84,7 @@ class AIPlayer {
             viewerFrame: document.getElementById('viewer-frame'),
             toggleViewerUrl: document.getElementById('toggle-viewer-url'),
             interval: document.getElementById('interval'),
+            complexityThreshold: document.getElementById('complexity-threshold'),
             customPrompt: document.getElementById('custom-prompt'),
             btnStart: document.getElementById('btn-start'),
             btnPause: document.getElementById('btn-pause'),
@@ -95,6 +105,11 @@ class AIPlayer {
         this.isRunning = false;
         this.isPaused = false;
         console.log('[AI Player] 🔒 Auto-start disabled, isRunning:', this.isRunning);
+        
+        // Initialize Gemini memory managers (for stateless agents)
+        this.geminiContextManager = new GeminiContextManager();
+        this.geminiComplexityCalculator = new GeminiComplexityCalculator();
+        console.log('[AI Player] 📊 Gemini memory managers initialized');
         
         this.loadApiKey();
         this.loadManual();
@@ -435,6 +450,17 @@ class AIPlayer {
         // S'assurer que les prompts externes sont chargés avant construction du prompt
         await this.ensurePromptsLoading();
 
+        // Forcer le chargement du prompt système côté adapter et tracer l'adapter utilisé
+        try {
+            console.log('[AI Player] 📦 Adapter sélectionné:', selectedModel, this.currentAdapter?.name || '(unknown)');
+            if (this.currentAdapter && typeof this.currentAdapter.loadPrompts === 'function') {
+                await this.currentAdapter.loadPrompts('system', true);
+                console.log('[AI Player] 🧾 Prompt système Gemini chargé via adapter');
+            }
+        } catch (e) {
+            console.error('[AI Player] ❌ Échec chargement prompt via adapter:', e);
+        }
+
         // Construire le contexte de mémoire pour le mode libre (centralisé dans JSON)
         let memoryContext = '';
         if (this.lastLocalCanvasBase64 || this.lastGlobalCanvasBase64) {
@@ -540,6 +566,7 @@ class AIPlayer {
                 // En mode training, utiliser le prompt training comme système principal
                 const trainingPrompt = this.buildTrainingPrompt();
                 if (trainingPrompt) {
+                    try { this.currentAdapter.complexityThresholdWords = parseInt(this.elements.complexityThreshold?.value) || 50; } catch (_) {}
                     systemPrompt = await this.currentAdapter.buildSystemPrompt(
                         analysis, 
                         trainingPrompt,  // Utiliser le prompt training comme customPrompt
@@ -584,6 +611,8 @@ class AIPlayer {
                 }
             } else {
                 // Mode libre (pas de training)
+                try { this.currentAdapter.complexityThresholdWords = parseInt(this.elements.complexityThreshold?.value) || 50; } catch (_) {}
+                try { this.currentAdapter.complexityThresholdWords = parseInt(this.elements.complexityThreshold?.value) || 50; } catch (_) {}
                 systemPrompt = await this.currentAdapter.buildSystemPrompt(
                     analysis, 
                     customPrompt, 
@@ -637,6 +666,7 @@ class AIPlayer {
             // V2 : DÉSACTIVÉ - Pas de grille initiale colorée, fond noir uniquement
             // LLaVA doit voir clairement ce qu'il dessine sur fond noir
             const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         typeof this.currentAdapter.name === 'string' &&
                          this.currentAdapter.name.includes('V2');
             
             // COMMENTÉ: Génération de la grille aléatoire initiale
@@ -771,11 +801,18 @@ class AIPlayer {
             let parsed;
             let responseContent;
             if (this.currentAdapter.name === 'Gemini V2') {
-                // Gemini retourne déjà l'objet parsé
-                parsed = response;
-                responseContent = JSON.stringify(response, null, 2); // Stringify for verbatim display
+                // Gemini retourne maintenant {content, usage}
+                // content est un objet parsé {pixels, descriptions}
+                parsed = response.content || response;
+                // Compact pixels array before stringifying
+                const compactedResponse = { ...parsed };
+                if (compactedResponse.pixels && Array.isArray(compactedResponse.pixels)) {
+                    const pixelCount = compactedResponse.pixels.length;
+                    compactedResponse.pixels = `[Array of ${pixelCount} pixels]`;
+                }
+                responseContent = JSON.stringify(compactedResponse, null, 2);
             } else {
-                responseContent = typeof response === 'string' ? response : response.content;
+                responseContent = typeof response === 'string' ? response : (response.content || response);
                 parsed = this.currentAdapter.parseResponse(responseContent);
             }
             
@@ -825,26 +862,84 @@ class AIPlayer {
             // Store verbatim response (Tab 3: Verbatim)
             this.storeVerbatimResponse(responseContent);
             
-            // Update LLaVA images display (Tab 5: Debug)
-            const colorPalette = this.generateColorPalette();
-            this.updateLlavaImages(this.lastLocalCanvasBase64, this.lastGlobalCanvasBase64, colorPalette);
-            
-            // Convert Gemini pixel strings to objects if needed
-            if (parsed && parsed.pixels && Array.isArray(parsed.pixels) && parsed.pixels.length > 0) {
-                const firstPixel = parsed.pixels[0];
-                if (typeof firstPixel === 'string' && firstPixel.includes('#') && firstPixel.includes(',')) {
+            // Convert Gemini pixel strings to objects if needed (BEFORE metrics calculation)
+            // This MUST happen BEFORE any other processing to ensure parsed.pixels is ready
+            if (parsed && parsed.pixels && Array.isArray(parsed.pixels)) {
+                if (parsed.pixels.length > 0 && typeof parsed.pixels[0] === 'string') {
                     // Convert "x,y#HEX" strings to {x, y, color} objects
                     parsed.pixels = parsed.pixels.map(pixelStr => {
-                        const [coords, color] = pixelStr.split('#');
-                        const [x, y] = coords.split(',');
-                        return {
-                            x: parseInt(x, 10),
-                            y: parseInt(y, 10),
-                            color: `#${color}`
-                        };
+                        if (typeof pixelStr === 'string' && pixelStr.includes('#') && pixelStr.includes(',')) {
+                            const [coords, color] = pixelStr.split('#');
+                            const [x, y] = coords.split(',');
+                            return {
+                                x: parseInt(x, 10),
+                                y: parseInt(y, 10),
+                                color: `#${color}`
+                            };
+                        }
+                        return pixelStr; // Already an object
                     });
                 }
             }
+            
+            // Update Simplicity Theory Metrics (Tab 2: Monitoring) for Gemini V2
+            if (this.currentAdapter.name === 'Gemini V2' && parsed && parsed.descriptions) {
+                try {
+                    const pixelCount = parsed.pixels ? parsed.pixels.length : 0;
+                    const individualDesc = parsed.descriptions.individual_before_description || '';
+                    const collectiveDesc = parsed.descriptions.collective_before_description || '';
+                    
+                    // Store iteration data in context manager (correct signature)
+                    this.geminiContextManager.storeIteration(this.iterationCount, {
+                        pixelCount: pixelCount,
+                        localImageBase64: null,
+                        globalImageBase64: null,
+                        individualAfterPrediction: null,
+                        collectiveAfterPrediction: null,
+                        individualBeforeDescription: individualDesc,
+                        collectiveBeforeDescription: collectiveDesc,
+                        predictabilityIndividual: parsed.descriptions?.predictability_individual ?? null,
+                        predictabilityCollective: parsed.descriptions?.predictability_collective ?? null
+                    });
+                    
+                    // Get pixel counts from context manager
+                    const pixelCounts = this.geminiContextManager.memory.iterations.map(i => i.pixelCount);
+                    
+                    // Calculate complexity metrics using calculateU
+                    const metrics = this.geminiComplexityCalculator.calculateU(
+                        this.iterationCount,
+                        pixelCounts,
+                        individualDesc,
+                        false  // isCollective = false for local metrics
+                    );
+                    
+                    // Store metrics
+                    this.geminiComplexityCalculator.storeMetrics(this.iterationCount, metrics, false);
+                    
+                    // Send update to metrics server (global panel)
+                    try {
+                        if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN) {
+                            this.metricsSocket.send(JSON.stringify({
+                                type: 'simplicity_update',
+                                user_id: this.myUserId || 'unknown',
+                                h: pixelCount,
+                                local_description: individualDesc,
+                                global_description: collectiveDesc
+                            }));
+                        }
+                    } catch (_) {}
+
+                    // Update local chart and display
+                    this.updateLocalSimplicityDisplay(metrics, pixelCount);
+                } catch (error) {
+                    console.error('[AI Player] ❌ Error in metrics calculation:', error);
+                    // Continue even if metrics fail
+                }
+            }
+            
+            // Update LLaVA images display (Tab 5: Debug)
+            const colorPalette = this.generateColorPalette();
+            this.updateLlavaImages(this.lastLocalCanvasBase64, this.lastGlobalCanvasBase64, colorPalette);
             
             // Validation stricte si entraînement activé
             if (!this.validateTrainingOutput(parsed)) {
@@ -938,10 +1033,13 @@ class AIPlayer {
 
     async executePixels(instructions) {
         console.log('[AI Player] 🎨 executePixels appelé, instructions:', instructions);
+        console.log('[AI Player] 🔍 instructions.pixels type:', typeof instructions.pixels, 'length:', instructions.pixels?.length);
+        console.log('[AI Player] 🔍 instructions.pixels contenu:', instructions.pixels?.slice(0, 3));
         let pixels = [];
         
         if (Array.isArray(instructions.pixels) && instructions.pixels.length > 0) {
             console.log('[AI Player] 📦 Pixels reçus:', instructions.pixels.length);
+            console.log('[AI Player] 🔍 Premier pixel:', instructions.pixels[0], 'Type:', typeof instructions.pixels[0]);
             // Convertir les strings "x,y#HEX" en objets {x, y, color}
             pixels = instructions.pixels.map(pixelStr => {
                 if (typeof pixelStr === 'string' && pixelStr.includes('#') && pixelStr.includes(',')) {
@@ -955,6 +1053,7 @@ class AIPlayer {
                 }
                 return pixelStr; // Déjà un objet
             });
+            console.log('[AI Player] ✅ Pixels après conversion:', pixels.slice(0, 3));
         } else if (Array.isArray(instructions.grid)) {
             // Convertir une grille 20x20 en liste de pixels
             const grid = instructions.grid;
@@ -1005,15 +1104,20 @@ class AIPlayer {
         });
         
         if (filteredCount > 0) {
-            console.log(`[AI Player] ${filteredCount} pixels filtrés (déjà dessinés avec la même couleur)`);
+            console.log(`[AI Player] ❌ ${filteredCount} pixels filtrés (déjà dessinés avec la même couleur)`);
         }
         
         pixels = filtered;
         
         console.log(`[AI Player] 📊 Après filtrage: ${pixels.length} pixels à dessiner`);
+        
+        if (pixels.length === 0) {
+            console.log('[AI Player] ⚠️ AUCUN PIXEL À DESSINER! Tous les pixels ont été filtrés!');
+        }
 
         // Limiter le nombre de pixels pour éviter la surcharge
-        const maxPixelsPerIteration = 50; // Augmenté pour permettre plus de créativité
+        // Pour Gemini, on autorise jusqu'à 400 pixels comme demandé dans le prompt
+        const maxPixelsPerIteration = 400;
         if (pixels.length > maxPixelsPerIteration) {
             console.log(`⚠️ [AI Player] Trop de pixels (${pixels.length}), limitation à ${maxPixelsPerIteration}`);
             pixels.splice(maxPixelsPerIteration);
@@ -1049,7 +1153,11 @@ class AIPlayer {
             
             // Envoyer avec délai progressif
             setTimeout(() => {
-                if (!this.isRunning) return; // Arrêter si l'agent est stoppé
+                // Vérifications multiples pour arrêter proprement
+                if (!this.isRunning || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+                    console.log(`[AI Player] ⏹️ Pixel envoyé annulé (i=${i}, isRunning=${this.isRunning})`);
+                    return;
+                }
                 
             if (pixel.x >= 0 && pixel.x < 20 && pixel.y >= 0 && pixel.y < 20) {
                 this.sendCellUpdate(pixel.x, pixel.y, pixel.color);
@@ -1073,6 +1181,7 @@ class AIPlayer {
             
             // À l'itération 0 (V2), utiliser la grille initiale générée
             const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         typeof this.currentAdapter.name === 'string' &&
                          this.currentAdapter.name.includes('V2');
             
             if (isV2 && this.initialGeneratedState) {
@@ -1110,6 +1219,7 @@ class AIPlayer {
         try {
             // Détecter si on utilise LLaVA V2 (Grid Format)
             const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         typeof this.currentAdapter.name === 'string' &&
                          this.currentAdapter.name.includes('V2');
             
             if (isV2) {
@@ -1207,6 +1317,7 @@ class AIPlayer {
         try {
             // V2 : fusionner initialGeneratedState comme fond + pixels dessinés par-dessus
             const isV2 = this.currentAdapter && this.currentAdapter.name && 
+                         typeof this.currentAdapter.name === 'string' &&
                          this.currentAdapter.name.includes('V2');
             
             if (isV2 && this.initialGeneratedState) {
@@ -1323,6 +1434,45 @@ class AIPlayer {
         };
     }
     
+    updateLocalSimplicityDisplay(metrics, pixelCount) {
+        console.log('[Simplicity] Updating local display:', metrics);
+        
+        try {
+            // Initialize if needed
+            if (!this.simplicityMetrics) {
+                this.simplicityMetrics = {
+                    iterations: [],
+                    C_w: [],
+                    C_d: [],
+                    U: []
+                };
+            }
+            
+            // Store metrics data
+            this.simplicityMetrics.iterations.push(this.iterationCount);
+            this.simplicityMetrics.C_w.push(metrics.C_w);
+            this.simplicityMetrics.C_d.push(metrics.C_d);
+            this.simplicityMetrics.U.push(metrics.U);
+            
+            console.log('[Simplicity] Metrics stored, drawing chart...');
+            
+            // Update display values
+            const iterSpan = document.getElementById('local-iteration');
+            const pixelsSpan = document.getElementById('local-pixels');
+            const uSpan = document.getElementById('local-u');
+            
+            if (iterSpan) iterSpan.textContent = this.iterationCount;
+            if (pixelsSpan) pixelsSpan.textContent = pixelCount;
+            if (uSpan) uSpan.textContent = Math.round(metrics.U);
+            
+            // Redraw chart
+            this.drawLocalSimplicityChart();
+            console.log('[Simplicity] Chart drawn successfully');
+        } catch (error) {
+            console.error('[Simplicity] Error in updateLocalSimplicityDisplay:', error);
+        }
+    }
+    
     drawLocalSimplicityChart() {
         const canvas = document.getElementById('simplicity-chart-local');
         if (!canvas) return;
@@ -1335,10 +1485,12 @@ class AIPlayer {
         ctx.clearRect(0, 0, width, height);
         
         const data = this.simplicityMetrics;
-        if (data.iterations.length === 0) return;
+        if (!data || data.iterations.length === 0) return;
         
         // Calculer échelles
         const maxY = Math.max(...data.C_w, ...data.C_d, Math.abs(Math.min(...data.U, 0)));
+        if (maxY === 0) return; // Avoid division by zero
+        
         const scaleX = width / Math.max(data.iterations.length, 10);
         const scaleY = (height - 20) / maxY;
         
@@ -1525,12 +1677,55 @@ class AIPlayer {
         
         // Handle objects (e.g., Gemini returns structured object)
         let responseText = rawResponse;
-        if (typeof rawResponse === 'object' && rawResponse !== null) {
+        
+        // Try to parse if it's a string containing JSON
+        let responseObj = null;
+        if (typeof rawResponse === 'string') {
             try {
-                responseText = JSON.stringify(rawResponse, null, 2);
+                responseObj = JSON.parse(rawResponse);
+            } catch (e) {
+                // Not JSON string, keep as is
+            }
+        } else if (typeof rawResponse === 'object' && rawResponse !== null) {
+            responseObj = rawResponse;
+        }
+        
+        // If we have a parsed object with descriptions, format it as readable text
+        if (responseObj && responseObj.descriptions) {
+            try {
+                const desc = responseObj.descriptions;
+                
+                // Get pixel count
+                let pixelInfo = '';
+                if (responseObj.pixels && Array.isArray(responseObj.pixels)) {
+                    pixelInfo = `\n\n📊 Pixels Generated: ${responseObj.pixels.length}`;
+                } else if (responseObj.pixels) {
+                    pixelInfo = `\n\n📊 Pixels Generated: ${responseObj.pixels}`;
+                }
+                
+                // Format as readable text
+                responseText = 
+                    `🗣️ CURRENT STATE\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `\n🎨 Grid [0,0]:\n${desc.individual_before_description}\n` +
+                    `\n🌍 Collective Canvas:\n${desc.collective_before_description}\n` +
+                    `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `\n📊 PREDICTION EVALUATION\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `\nGrid Predictability: ${desc.predictability_individual}/10\n` +
+                    `Collective Predictability: ${desc.predictability_collective}/10\n` +
+                    `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `\n🔮 FUTURE PREDICTIONS\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `\n🌍 Collective Evolution:\n${desc.collective_after_prediction}\n` +
+                    `\n🎨 Grid [0,0] Evolution:\n${desc.individual_after_prediction}` +
+                    pixelInfo;
             } catch (e) {
                 responseText = String(rawResponse);
             }
+        } else if (responseObj) {
+            // Generic object handling
+            responseText = typeof rawResponse === 'string' ? rawResponse : JSON.stringify(responseObj, null, 2);
         }
         
         // Create response item
@@ -1539,12 +1734,15 @@ class AIPlayer {
         
         const timestamp = new Date().toLocaleTimeString();
         
+        // Use <pre> tag for formatted text to preserve whitespace
+        const usePreTag = responseObj && responseObj.descriptions;
+        
         item.innerHTML = `
             <div class="response-header">
                 <span class="response-timestamp">${timestamp}</span>
                 <span class="response-iteration">Iteration #${this.iterationCount}</span>
             </div>
-            <div class="response-content">${this.escapeHtml(responseText)}</div>
+            <div class="response-content">${usePreTag ? `<pre style="white-space: pre-wrap; font-family: monospace;">${this.escapeHtml(responseText)}</pre>` : this.escapeHtml(responseText)}</div>
         `;
         
         // Insert at top (most recent first)
@@ -1685,12 +1883,18 @@ class AIPlayer {
             try {
                 const analysis = this.analyzeEnvironment();
                 
+                // Pour Gemini, ajouter colorPalette à analysis
+                if (this.currentAdapter && this.currentAdapter.name && this.currentAdapter.name === 'Gemini V2') {
+                    analysis.colorPalette = this.generateColorPalette();
+                    console.log('[AI Player] 🎨 ColorPalette ajouté à analysis pour Gemini');
+                }
+                
                 // En mode training, utiliser le prompt training comme customPrompt
                 let customPrompt;
                 if (this.elements.trainingEnabled && this.elements.trainingEnabled.checked) {
                     customPrompt = this.buildTrainingPrompt();
                 } else {
-                    customPrompt = this.elements.customPrompt.value.trim();
+                    customPrompt = this.elements.customPrompt ? (this.elements.customPrompt.value.trim()) : '';
                 }
 
                 console.log('[AI Player] 🚀 Appel à askLLM avec iterationCount:', this.iterationCount);
@@ -1712,7 +1916,103 @@ class AIPlayer {
                 const pixelCount = await this.executePixels(instructions);
                 console.log('[AI Player] 🔍 executePixels terminé, pixelCount:', pixelCount);
 
-                this.updateDecision(instructions.strategy, pixelCount);
+                // Envoyer la mise à jour globale au serveur de métriques (après dessin)
+                try {
+                    if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN) {
+                        const localDesc = (instructions && instructions.descriptions && instructions.descriptions.individual_before_description) 
+                            || this.lastLocalDescription || '';
+                        const globalDesc = (instructions && instructions.descriptions && instructions.descriptions.collective_before_description) 
+                            || this.lastGlobalDescription || '';
+                        this.metricsSocket.send(JSON.stringify({
+                            type: 'simplicity_update',
+                            user_id: this.myUserId || 'unknown',
+                            h: pixelCount || 0,
+                            local_description: localDesc,
+                            global_description: globalDesc
+                        }));
+                    }
+                } catch (_) {}
+
+                // Mise à jour métriques locales après dessin pour affichage fiable
+                try {
+                    if (this.currentAdapter && this.currentAdapter.name === 'Gemini V2' && instructions && instructions.descriptions) {
+                        const individualDesc = instructions.descriptions.individual_before_description || '';
+                        // Calcul rapide local (C_w, C_d, U)
+                        const alphaBitsPerPixel = 33;
+                        const C_w = (pixelCount || 0) * alphaBitsPerPixel;
+                        const C_d = individualDesc.length * 8;
+                        const U = C_w - C_d;
+                        this.updateLocalSimplicityDisplay({ C_w, C_d, U }, pixelCount || 0);
+                    }
+                } catch (_) {}
+
+                // === GEMINI MEMORY MANAGEMENT ===
+                if (this.currentAdapter && this.currentAdapter.name === 'Gemini V2' && this.geminiContextManager) {
+                    console.log('[Gemini Memory] 🔍 Vérification instructions.descriptions:', !!instructions.descriptions);
+                    console.log('[Gemini Memory] 🔍 Instructions structure:', Object.keys(instructions || {}));
+                    
+                    // Extraire descriptions de la réponse
+                    let extracted = null;
+                    if (instructions.descriptions) {
+                        extracted = this.currentAdapter.extractDescriptions(instructions);
+                        
+                        // Stocker l'itération i complète (SANS images - économie mémoire)
+                        this.geminiContextManager.storeIteration(this.iterationCount, {
+                            pixelCount: pixelCount,
+                            localImageBase64: null,  // Pas stockées
+                            globalImageBase64: null, // Pas stockées
+                            individualAfterPrediction: extracted.individualAfterPrediction,
+                            collectiveAfterPrediction: extracted.collectiveAfterPrediction,
+                            individualBeforeDescription: extracted.individualBeforeDescription,
+                            collectiveBeforeDescription: extracted.collectiveBeforeDescription,
+                            predictabilityIndividual: extracted.predictabilityIndividual,
+                            predictabilityCollective: extracted.predictabilityCollective
+                        });
+                        
+                        // Si ce n'est pas la première itération, calculer U pour l'itération précédente
+                        if (this.iterationCount > 0 && extracted.individualBeforeDescription) {
+                            // Construire pixelCounts array
+                            const pixelCounts = [];
+                            for (let i = 0; i < this.iterationCount; i++) {
+                                const stored = this.geminiContextManager.getIterationMetrics(i);
+                                if (stored) pixelCounts.push(stored.pixelCount);
+                            }
+                            pixelCounts.push(pixelCount); // Current iteration
+                            
+                            const metrics = this.geminiComplexityCalculator.calculateU(
+                                this.iterationCount - 1,
+                                pixelCounts,
+                                extracted.individualBeforeDescription,
+                                false
+                            );
+                            
+                            this.geminiComplexityCalculator.storeMetrics(this.iterationCount - 1, metrics, false);
+                            this.geminiComplexityCalculator.storePredictability(
+                                this.iterationCount - 1,
+                                extracted.predictabilityIndividual,
+                                extracted.predictabilityCollective
+                            );
+                            
+                            console.log(`[Gemini Memory] 📊 Métriques stockées pour itération ${this.iterationCount - 1}`);
+                            
+                            // INTÉGRER dans this.simplicityMetrics pour affichage graphique
+                            this.simplicityMetrics.iterations.push(this.iterationCount - 1);
+                            this.simplicityMetrics.C_w.push(metrics.C_w);
+                            this.simplicityMetrics.C_d.push(metrics.C_d);
+                            this.simplicityMetrics.U.push(metrics.U);
+                            this.simplicityMetrics.descriptions.push(extracted.individualBeforeDescription);
+                            
+                            // Dessiner le graphique local
+                            this.drawLocalSimplicityChart();
+                            
+                            console.log('[Gemini Memory] 📈 Graphique local mis à jour');
+                        }
+                    }
+                }
+
+                // Gérer strategy qui peut être undefined pour Gemini
+                const strategy = instructions.strategy || 'Gemini drawing';
+                this.updateDecision(strategy, pixelCount);
                 
                 // Délai spécifique pour Gemini (rate limit API gratuite)
                 if (this.currentAdapter && this.currentAdapter.name === 'Gemini V2') {
@@ -1728,7 +2028,7 @@ class AIPlayer {
                 // Gérer les itérations sans pixels comme des erreurs partielles
                 if (pixelCount === 0) {
                     this.consecutiveErrors = (this.consecutiveErrors || 0) + 1;
-                    this.addJournalEntry(`⚠️ ${pixelCount} pixels dessinés (${this.consecutiveErrors}/5 erreurs) | "${instructions.strategy}"`, 'error');
+                    this.addJournalEntry(`⚠️ ${pixelCount} pixels dessinés (${this.consecutiveErrors}/5 erreurs) | "${strategy}"`, 'error');
                     
                     // Arrêter l'agent après 5 itérations consécutives sans pixels
                     if (this.consecutiveErrors >= 5) {
@@ -1745,15 +2045,15 @@ class AIPlayer {
                     this.addJournalEntry(`⏳ Attente de ${zeroPixelBackoff/1000}s avant nouvelle tentative (0 pixels générés)`, 'warning');
                     await new Promise(r => setTimeout(r, zeroPixelBackoff));
                 } else {
-                this.addJournalEntry(`✅ ${pixelCount} pixels dessinés | "${instructions.strategy}"`, 'success');
+                this.addJournalEntry(`✅ ${pixelCount} pixels dessinés | "${strategy}"`, 'success');
                     // Réinitialiser le compteur d'erreurs en cas de succès réel
                     this.consecutiveErrors = 0;
                 }
                 
-                // Calcul des métriques Simplicity Theory (V2)
-                const isV2 = this.currentAdapter && this.currentAdapter.name && 
-                             this.currentAdapter.name.includes('V2');
-                if (isV2 && this.lastLocalDescription) {
+                // Calcul des métriques Simplicity Theory (V2) - OLD CODE (LLaVA only)
+                // REMOVED: Cette section est maintenant remplacée par le nouveau code Gemini Memory ci-dessus
+                const isV2 = false; // Désactivé car remplacé par le nouveau système Gemini
+                if (false && isV2 && this.lastLocalDescription) {
                     // Calculer les métriques locales
                     const metrics = this.calculateSimplicityMetrics(this.lastLocalDescription, pixelCount);
                     const metricsStored = this.storeSimplicityMetrics(this.iterationCount, metrics.C_w, metrics.C_d, metrics.U, this.lastLocalDescription);
@@ -1773,7 +2073,7 @@ class AIPlayer {
                         position: this.myPosition || [0, 0]
                     };
                 }
-                this.otherUsers[this.myUserId].lastStrategy = instructions.strategy;
+                this.otherUsers[this.myUserId].lastStrategy = strategy;
                 
                 // NOTE: Ne PAS vider recentUpdates ici, car on en a besoin pour la prochaine itération
                 // La limite de 100 est déjà appliquée dans handleMessage (cell_update)
@@ -2404,18 +2704,22 @@ class AIPlayer {
             this.addJournalEntry(this.isPaused ? '⏸ Pause' : '▶ Reprise');
         });
 
-        // Bouton Clear API Key
-        document.getElementById('btn-clear-key').addEventListener('click', () => this.clearApiKey());
-        
-        // Bouton Submit Prompt
-        document.getElementById('btn-submit-prompt').addEventListener('click', () => {
-            const prompt = this.elements.customPrompt.value.trim();
-            if (prompt) {
-                this.addJournalEntry(`📝 Prompt mis à jour: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`, 'success');
-            } else {
-                this.addJournalEntry(`📝 Prompt réinitialisé (mode libre)`, 'success');
-            }
-        });
+        // Bouton Clear API Key (optionnel)
+        const btnClearKey = document.getElementById('btn-clear-key');
+        if (btnClearKey) btnClearKey.addEventListener('click', () => this.clearApiKey());
+
+        // Bouton Submit Prompt (désactivé si UI commentée)
+        const btnSubmitPrompt = document.getElementById('btn-submit-prompt');
+        if (btnSubmitPrompt && this.elements.customPrompt) {
+            btnSubmitPrompt.addEventListener('click', () => {
+                const prompt = this.elements.customPrompt.value.trim();
+                if (prompt) {
+                    this.addJournalEntry(`📝 Prompt mis à jour: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`, 'success');
+                } else {
+                    this.addJournalEntry(`📝 Prompt réinitialisé (mode libre)`, 'success');
+                }
+            });
+        }
 
         // Sélecteur de modèle LLM
         this.elements.llmModelSelect.addEventListener('change', async () => {

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poietic Generator Viewer3 - Debug (ColorGenerator + Buffer)</title>
+    <link rel="stylesheet" href="/css/viewer-style.css?v=20250122-001">
+</head>
+<body>
+    <div id="poietic-grid"></div>
+    <div id="qr-overlay">
+        <img id="qr-code" src="/images/qr-code.png?v=20250122-001" alt="QR Code">
+    </div>
+    <script type="module">
+        import { PoieticViewer3 } from '/js/poietic-viewer3.js?v=20250122-001';
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            window.poieticViewer3 = new PoieticViewer3('poietic-grid', true);
+        });
+    </script>
+</body>
+</html>
+

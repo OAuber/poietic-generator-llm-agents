@@ -10,16 +10,29 @@
  * Compatible with: ai-player-v2.html
  */
 
+import { GeminiContextManager } from '../gemini-context-manager.js';
+import { GeminiComplexityCalculator } from '../gemini-complexity-calculator.js';
+
 const GeminiV2Adapter = {
     name: 'Gemini V2',
-    version: '2025-01-24-016',
+    version: '2025-01-24-055',
     apiKey: null,
     prompts: null,
     randomColors: [],
     modelsListed: false,
     
+    // NEW: Memory and complexity managers
+    contextManager: null,
+    complexityCalculator: null,
+    
     init() {
-        console.log('🤖 [Gemini V2] Adapter initialisé - Version: 2025-01-24-013');
+        console.log('🤖 [Gemini V2] Adapter initialisé - Version: 2025-01-24-016');
+        
+        // Initialize memory and complexity managers
+        this.contextManager = new GeminiContextManager();
+        this.complexityCalculator = new GeminiComplexityCalculator();
+        
+        console.log('📊 [Gemini V2] Context Manager et Complexity Calculator initialisés');
     },
 
     /**
@@ -36,9 +49,11 @@ const GeminiV2Adapter = {
         return 'at an unknown position';
     },
 
-    async loadPrompts(promptType = 'all') {
+    async loadPrompts(promptType = 'all', useMemoryPrompt = true) {
         try {
-            const response = await fetch(`gemini-prompts-v2-simple.json?v=${this.version}`);
+            // Load memory-aware prompt by default
+            const promptFile = useMemoryPrompt ? 'gemini-prompts-v2-memory.json' : 'gemini-prompts-v2-simple.json';
+            const response = await fetch(`${promptFile}?v=${this.version}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
@@ -46,11 +61,11 @@ const GeminiV2Adapter = {
             
             if (promptType === 'all') {
                 this.prompts = allPrompts;
-                console.log('📝 [Gemini V2] Tous les prompts chargés:', Object.keys(this.prompts));
+                console.log(`📝 [Gemini V2] Tous les prompts chargés (${useMemoryPrompt ? 'avec mémoire' : 'simple'}):`, Object.keys(this.prompts));
             } else {
                 // Load only the specific prompt needed
                 this.prompts = { [promptType]: allPrompts[promptType] };
-                console.log('📝 [Gemini V2] Prompt chargé:', promptType);
+                console.log(`📝 [Gemini V2] Prompt chargé (${useMemoryPrompt ? 'avec mémoire' : 'simple'}):`, promptType);
             }
             
             return this.prompts;
@@ -194,7 +209,7 @@ const GeminiV2Adapter = {
     /**
      * Build system prompt - compatibility method for ai-player.js
      */
-    async buildSystemPrompt(analysis, customPrompt, isFirstLlmRequest, manualContent, iterationCount, myLastStrategy, myRecentUpdates, myPosition, randomColors, lastLocalDescription, lastGlobalDescription) {
+    async buildSystemPrompt(analysis = {}, customPrompt, isFirstLlmRequest, manualContent, iterationCount, myLastStrategy, myRecentUpdates, myPosition, randomColors, lastLocalDescription, lastGlobalDescription) {
         console.log('🔧 [Gemini V2] buildSystemPrompt appelé, iterationCount:', iterationCount);
         
         // For Gemini, we use a simplified approach
@@ -239,6 +254,12 @@ const GeminiV2Adapter = {
         }
         console.log('✅ [Gemini V2] Placeholders remplacés');
 
+        // Inject complexity threshold placeholder
+        try {
+            const threshold = String(this.complexityThresholdWords || 50);
+            systemPrompt = systemPrompt.replaceAll('{{complexityThreshold}}', threshold);
+        } catch (_) {}
+
         // Add custom prompt if provided
         if (customPrompt && customPrompt.trim()) {
             systemPrompt += `\n\nCUSTOM INSTRUCTION: ${customPrompt}`;
@@ -254,6 +275,44 @@ const GeminiV2Adapter = {
                 .replaceAll('{{myX}}', myX)
                 .replaceAll('{{myY}}', myY)
                 .replaceAll('{{positionDescription}}', positionDescription);
+        }
+        
+        // Replace colorPalette placeholder (if available in analysis)
+        if (analysis && analysis.colorPalette) {
+            systemPrompt = systemPrompt.replaceAll('{{colorPalette}}', analysis.colorPalette);
+            console.log('🎨 [Gemini V2] ColorPalette injecté dans le prompt');
+        }
+        
+        // Replace iteration placeholders
+        systemPrompt = systemPrompt
+            .replaceAll('{{i}}', iterationCount)
+            .replaceAll('{{i-1}}', iterationCount - 1);
+        console.log('🔢 [Gemini V2] Numéros d\'itération injectés: i=' + iterationCount + ', i-1=' + (iterationCount - 1));
+        
+        // Inject previous predictions from memory context
+        if (this.contextManager && iterationCount > 0) {
+            const previousIteration = iterationCount - 1;
+            const prevData = this.contextManager.getIterationMetrics(previousIteration);
+            
+            if (prevData) {
+                console.log('[Gemini V2] 🔍 Récupération prédictions itération précédente:', previousIteration);
+                
+                // Build memory context text
+                let memoryContext = `\n\nMEMORY FROM ITERATION ${previousIteration}:\n`;
+                memoryContext += `At iteration ${previousIteration}, you PREDICTED:\n`;
+                memoryContext += `- Individual: "${prevData.predictions.individual_after || 'No prediction'}"\n`;
+                memoryContext += `- Collective: "${prevData.predictions.collective_after || 'No prediction'}"\n`;
+                
+                // Add analysis of prediction accuracy if available
+                if (prevData.descriptions && prevData.descriptions.predictability_individual) {
+                    memoryContext += `\nPrediction accuracy (self-evaluation):\n`;
+                    memoryContext += `- Individual predictability: ${prevData.descriptions.predictability_individual}/10\n`;
+                    memoryContext += `- Collective predictability: ${prevData.descriptions.predictability_collective}/10\n`;
+                }
+                
+                systemPrompt += memoryContext;
+                console.log('[Gemini V2] 📊 Contexte mémoire injecté');
+            }
         }
         
         console.log('🎨 [Gemini V2] System prompt construit, longueur:', systemPrompt.length);
@@ -314,9 +373,9 @@ const GeminiV2Adapter = {
                 };
 
                 // Add text parts
-                const fullPrompt = `${systemPrompt}\n\n${userMessage}`;
+                // Use only systemPrompt, don't add separate userMessage to avoid confusion
                 requestBody.contents[0].parts.push({
-                    text: fullPrompt
+                    text: systemPrompt
                 });
 
                 // Add image if provided
@@ -376,7 +435,15 @@ const GeminiV2Adapter = {
                     const content = data.candidates[0].content.parts[0].text;
                     console.log('📊 [Gemini V2] Réponse reçue:', content.length, 'caractères');
                     console.log('📝 [Gemini V2] Début de réponse:', content.substring(0, 200));
-                    return content;
+                    
+                    // Return both content and usage information
+                    return {
+                        content: content,
+                        usage: data.usageMetadata ? {
+                            input_tokens: data.usageMetadata.promptTokenCount || 0,
+                            output_tokens: data.usageMetadata.candidatesTokenCount || 0
+                        } : (data.usage || { input_tokens: 0, output_tokens: 0 })
+                    };
                 } else {
                     console.error('❌ [Gemini V2] Structure de réponse invalide:', data);
                     throw new Error('Format de réponse Gemini invalide');
@@ -425,6 +492,16 @@ const GeminiV2Adapter = {
             // Supprimer les espaces et nouvelles lignes en début/fin
             jsonText = jsonText.trim();
             
+            // Remove JavaScript comments (// ...) from JSON - JSON doesn't support comments
+            // Remove comments that appear on their own lines or after values
+            jsonText = jsonText.replace(/\/\/.*$/gm, '');
+            
+            // Clean up: remove trailing commas before closing brackets/braces that might be left after comment removal
+            jsonText = jsonText.replace(/,\s*([}\]])/g, '$1');
+            
+            // Remove empty lines
+            jsonText = jsonText.replace(/^\s*[\r\n]/gm, '');
+            
             console.log('🧹 [Gemini V2] JSON nettoyé:', jsonText.substring(0, 200) + '...');
             console.log('📏 [Gemini V2] Longueur JSON:', jsonText.length);
             console.log('📝 [Gemini V2] Fin JSON:', jsonText.slice(-100));
@@ -434,58 +511,253 @@ const GeminiV2Adapter = {
             if (!jsonText.endsWith('}')) {
                 console.warn('⚠️ [Gemini V2] JSON semble tronqué, tentative de réparation...');
                 
-                // Try to find the last complete object in drawing_actions
-                const lastCompleteAction = jsonText.lastIndexOf('}');
-                if (lastCompleteAction > 0) {
-                    // Find the end of the drawing_actions array
-                    const drawingActionsEnd = jsonText.lastIndexOf(']');
-                    if (drawingActionsEnd > lastCompleteAction) {
-                        jsonText = jsonText.substring(0, drawingActionsEnd + 1) + '\n  }\n}';
-                        console.log('🔧 [Gemini V2] JSON réparé');
+                // Strategy 1: Find the last complete pixel string
+                // Look for the last occurrence of ", or "\n before the truncation
+                let truncatePosition = -1;
+                
+                // Find all complete pixels ending with ", (most common case)
+                const lastCommaPixel = jsonText.lastIndexOf('",');
+                if (lastCommaPixel > 0) {
+                    // Cut right after the closing quote (before the comma)
+                    truncatePosition = lastCommaPixel + 1;
+                }
+                
+                // If no comma found, try to find pixels ending with newline
+                if (truncatePosition < 0) {
+                    const completePixelPattern = /"(\d+,\d+#[A-F0-9]{6})"\s*([\n\r\]])/g;
+                    let match;
+                    while ((match = completePixelPattern.exec(jsonText)) !== null) {
+                        // Position after closing quote
+                        truncatePosition = match.index + 1 + match[1].length + 1;
                     }
                 }
-            }
-            
-            const parsed = JSON.parse(jsonText);
-            console.log('🔍 [Gemini V2] JSON parsé:', parsed);
-            
-            if (!parsed.drawing_actions || !Array.isArray(parsed.drawing_actions)) {
-                console.error('❌ [Gemini V2] drawing_actions manquant ou invalide:', parsed);
-                throw new Error('Format de réponse invalide: drawing_actions manquant');
-            }
-            
-            console.log('✅ [Gemini V2] drawing_actions trouvé:', parsed.drawing_actions.length, 'actions');
-
-            // Convert drawing_actions to x,y#HEX format
-            const pixels = [];
-            for (const action of parsed.drawing_actions) {
-                console.log('🔍 [Gemini V2] Action:', action);
-                if (action.x !== undefined && action.y !== undefined && action.hex_color) {
-                    // Validate coordinates
-                    if (action.x >= 0 && action.x <= 19 && action.y >= 0 && action.y <= 19) {
-                        // Ensure hex_color has # prefix and handle double hashes
-                        let hexColor = action.hex_color;
-                        if (hexColor.startsWith('##')) {
-                            // Double hash: ##FF0000 -> FF0000
-                            hexColor = hexColor.substring(2);
-                        } else if (hexColor.startsWith('#')) {
-                            // Single hash: #FF0000 -> FF0000
-                            hexColor = hexColor.substring(1);
+                
+                // Strategy 2: If we found a complete pixel, truncate there
+                if (truncatePosition > 0) {
+                    let truncated = jsonText.substring(0, truncatePosition);
+                    
+                    // Ensure it ends with a quote (should already, but double-check)
+                    truncated = truncated.trimEnd();
+                    if (!truncated.endsWith('"')) {
+                        // Find the last quote
+                        const lastQuote = truncated.lastIndexOf('"');
+                        if (lastQuote > 0) {
+                            truncated = truncated.substring(0, lastQuote + 1);
                         }
-                        console.log(`🔧 [Gemini V2] Couleur corrigée: "${action.hex_color}" -> "${hexColor}"`);
-                        pixels.push(`${action.x},${action.y}#${hexColor}`);
+                    }
+                    
+                    truncated = truncated.trimEnd();
+                    
+                    // Verify: make sure we have a valid pixels array structure
+                    // Find where the pixels array starts
+                    const pixelsArrayStart = truncated.lastIndexOf('"pixels"');
+                    if (pixelsArrayStart >= 0) {
+                        const pixelsArrayBracket = truncated.indexOf('[', pixelsArrayStart);
+                        if (pixelsArrayBracket >= 0) {
+                            // We're good, close the array
+                            jsonText = truncated + '\n    ]\n  }\n}';
+                            console.log('🔧 [Gemini V2] JSON réparé (au dernier pixel complet)');
+                        } else {
+                            // No opening bracket found, something's wrong
+                            jsonText = truncated + '\n    ]\n  }\n}';
+                            console.log('🔧 [Gemini V2] JSON réparé (au dernier pixel, bracket manquant)');
+                        }
                     } else {
-                        console.warn(`⚠️ [Gemini V2] Coordonnées invalides ignorées: ${action.x},${action.y}`);
+                        // No pixels array found, just close descriptions
+                        jsonText = truncated + '\n  }\n}';
+                        console.log('🔧 [Gemini V2] JSON réparé (fermeture sans pixels array)');
                     }
                 } else {
-                    console.log(`⚠️ [Gemini V2] Action invalide - manque x/y/hex_color:`, action);
+                    // Strategy 3: Look for incomplete pixel at the end
+                    // Pattern could be: "1,12 or "1,12# or "1,12#AB
+                    const trailingQuote = jsonText.match(/["][^"]*$/);
+                    
+                    if (trailingQuote && trailingQuote.index !== undefined) {
+                        const incompleteStr = trailingQuote[0];
+                        // Check if it looks like an incomplete pixel (starts with quote, has numbers and comma)
+                        const pixelLikePattern = /^"(\d+,\d+)(#?[A-F0-9]{0,6})?$/;
+                        const pixelMatch = incompleteStr.match(pixelLikePattern);
+                        
+                        if (pixelMatch) {
+                            const hasHash = incompleteStr.includes('#');
+                            const colorPart = hasHash ? incompleteStr.split('#')[1] : '';
+                            
+                            if (hasHash && colorPart && colorPart.length === 6) {
+                                // Complete pixel found at end, just add closing quote
+                                let truncated = jsonText.substring(0, trailingQuote.index + incompleteStr.length);
+                                truncated = truncated.trimEnd();
+                                if (!truncated.endsWith('"')) {
+                                    truncated += '"';
+                                }
+                                if (truncated.endsWith(',')) {
+                                    truncated = truncated.slice(0, -1).trimEnd();
+                                }
+                                jsonText = truncated + '\n    ]\n  }\n}';
+                                console.log('🔧 [Gemini V2] JSON réparé (pixel complet trouvé à la fin)');
+                            } else {
+                                // Incomplete pixel, remove it and find last complete pixel
+                                let truncated = jsonText.substring(0, trailingQuote.index);
+                                truncated = truncated.trimEnd();
+                                
+                                // Find the last complete pixel (ends with ", or newline)
+                                const lastCompletePixel = truncated.lastIndexOf('",');
+                                if (lastCompletePixel > 0) {
+                                    truncated = truncated.substring(0, lastCompletePixel + 2); // Include the ",
+                                    truncated = truncated.trimEnd();
+                                    if (truncated.endsWith(',')) {
+                                        truncated = truncated.slice(0, -1).trimEnd();
+                                    }
+                                    jsonText = truncated + '\n    ]\n  }\n}';
+                                    console.log('🔧 [Gemini V2] JSON réparé (pixel incomplet supprimé)');
+                                } else {
+                                    // No complete pixels found, close array empty or with what we have
+                                    if (truncated.includes('"pixels":')) {
+                                        jsonText = truncated + '\n    ]\n  }\n}';
+                                        console.log('🔧 [Gemini V2] JSON réparé (fermeture array pixels vide)');
+                                    } else {
+                                        jsonText = truncated + '\n  }\n}';
+                                        console.log('🔧 [Gemini V2] JSON réparé (fermeture sans pixels)');
+                                    }
+                                }
+                            }
+                        } else {
+                            // Strategy 4: Find last valid JSON structure before truncation
+                            const lastQuote = jsonText.lastIndexOf('"');
+                            if (lastQuote > 0) {
+                                const beforeQuote = jsonText.substring(0, lastQuote);
+                                // Check if we're in a pixels array context
+                                if (beforeQuote.includes('"pixels"') || beforeQuote.includes('"pixels":')) {
+                                    let truncated = jsonText.substring(0, lastQuote + 1);
+                                    truncated = truncated.trimEnd();
+                                    if (truncated.endsWith(',')) {
+                                        truncated = truncated.slice(0, -1).trimEnd();
+                                    }
+                                    jsonText = truncated + '\n    ]\n  }\n}';
+                                    console.log('🔧 [Gemini V2] JSON réparé (dernière quote dans pixels)');
+                                } else {
+                                    // Not in pixels, just close descriptions and root
+                                    let truncated = jsonText.substring(0, lastQuote + 1);
+                                    truncated = truncated.trimEnd();
+                                    jsonText = truncated + '\n  }\n}';
+                                    console.log('🔧 [Gemini V2] JSON réparé (fermeture descriptions)');
+                                }
+                            } else {
+                                // Last resort: just add closing braces
+                                jsonText = jsonText.trimEnd() + '\n  }\n}';
+                                console.log('🔧 [Gemini V2] JSON réparé (fermeture d\'urgence)');
+                            }
+                        }
+                    } else {
+                        // No trailing quote found, fallback to Strategy 4
+                        const lastQuote = jsonText.lastIndexOf('"');
+                        if (lastQuote > 0) {
+                            const beforeQuote = jsonText.substring(0, lastQuote);
+                            if (beforeQuote.includes('"pixels"') || beforeQuote.includes('"pixels":')) {
+                                let truncated = jsonText.substring(0, lastQuote + 1);
+                                truncated = truncated.trimEnd();
+                                if (truncated.endsWith(',')) {
+                                    truncated = truncated.slice(0, -1).trimEnd();
+                                }
+                                jsonText = truncated + '\n    ]\n  }\n}';
+                                console.log('🔧 [Gemini V2] JSON réparé (dernière quote, fallback)');
+                            } else {
+                                jsonText = jsonText.trimEnd() + '\n  }\n}';
+                                console.log('🔧 [Gemini V2] JSON réparé (fermeture d\'urgence, fallback)');
+                            }
+                        } else {
+                            jsonText = jsonText.trimEnd() + '\n  }\n}';
+                            console.log('🔧 [Gemini V2] JSON réparé (fermeture d\'urgence finale)');
+                        }
+                    }
+                }
+            }
+            
+            // Final cleanup: remove any trailing content that might interfere with parsing
+            // This handles cases where the JSON might have extra characters after our repair
+            jsonText = jsonText.trimEnd();
+            
+            // Count closing braces to ensure we have a complete JSON structure
+            // Find the last valid closing brace for the root object
+            const lastRootBrace = jsonText.lastIndexOf('}');
+            if (lastRootBrace > 0) {
+                // Keep everything up to and including the last }
+                jsonText = jsonText.substring(0, lastRootBrace + 1);
+            }
+            
+            // Remove any trailing whitespace or invalid characters
+            jsonText = jsonText.trimEnd();
+            
+            // Try parsing - if it fails, try to fix by removing trailing content
+            let parsed;
+            try {
+                parsed = JSON.parse(jsonText);
+            } catch (parseError) {
+                // Last resort: find the last valid JSON structure
+                console.warn('⚠️ [Gemini V2] Parse échoué, tentative de nettoyage supplémentaire...');
+                // Try to find the last complete object by counting braces
+                let braceCount = 0;
+                let lastValidPos = jsonText.length;
+                for (let i = jsonText.length - 1; i >= 0; i--) {
+                    if (jsonText[i] === '}') braceCount++;
+                    if (jsonText[i] === '{') {
+                        braceCount--;
+                        if (braceCount === 0) {
+                            lastValidPos = i;
+                            break;
+                        }
+                    }
+                }
+                jsonText = jsonText.substring(0, lastValidPos) + '}';
+                try {
+                    parsed = JSON.parse(jsonText);
+                } catch (e2) {
+                    // Fallback reconstruction: extract descriptions and valid pixels via regex
+                    const descMatch = jsonText.match(/"descriptions"\s*:\s*\{[\s\S]*?\}/);
+                    let descriptionsObj = {};
+                    if (descMatch) {
+                        try {
+                            descriptionsObj = JSON.parse('{'+descMatch[0]+'}'.replace(/^\{?"descriptions"\s*:\s*/,'').replace(/\}$/,''));
+                        } catch(_) { descriptionsObj = {}; }
+                    }
+                    const pixelMatches = [...jsonText.matchAll(/"(\d+,\d+#[A-Fa-f0-9]{6})"/g)].map(m => m[1]);
+                    const uniquePixels = Array.from(new Set(pixelMatches));
+                    parsed = { descriptions: descriptionsObj, pixels: uniquePixels };
+                }
+            }
+            console.log('🔍 [Gemini V2] JSON parsé:', parsed);
+            
+            // NOUVEAU FORMAT: Utiliser le champ "pixels" directement (format réduit)
+            if (!parsed.pixels || !Array.isArray(parsed.pixels)) {
+                console.error('❌ [Gemini V2] pixels manquant ou invalide:', parsed);
+                throw new Error('Format de réponse invalide: pixels manquant');
+            }
+            
+            console.log('✅ [Gemini V2] pixels trouvé:', parsed.pixels.length, 'pixels');
+
+            // Valider et formater les pixels
+            const pixels = [];
+            for (const pixelStr of parsed.pixels) {
+                if (typeof pixelStr === 'string' && pixelStr.includes('#') && pixelStr.includes(',')) {
+                    const [coords, color] = pixelStr.split('#');
+                    const [x, y] = coords.split(',');
+                    const xNum = parseInt(x, 10);
+                    const yNum = parseInt(y, 10);
+                    
+                    // Validate coordinates
+                    if (!isNaN(xNum) && !isNaN(yNum) && xNum >= 0 && xNum <= 19 && yNum >= 0 && yNum <= 19) {
+                        pixels.push(pixelStr);
+                    } else {
+                        console.warn(`⚠️ [Gemini V2] Coordonnées invalides ignorées: ${pixelStr}`);
+                    }
+                } else {
+                    console.warn(`⚠️ [Gemini V2] Pixel invalide ignoré: ${pixelStr}`);
                 }
             }
 
-            console.log('✅ [Gemini V2] Pixels parsés:', pixels.length);
+            console.log('✅ [Gemini V2] pixels prêtes:', pixels.length, 'pixels');
             
             return {
-                pixels: pixels,
+                pixels: pixels,  // Tableau de strings "x,y#HEX"
                 descriptions: parsed.descriptions || {},
                 rawResponse: responseText
             };
@@ -498,14 +770,23 @@ const GeminiV2Adapter = {
     },
 
     /**
-     * Extract descriptions from parsed response
+     * Extract descriptions from parsed response (NEW: memory-aware)
      */
     extractDescriptions(parsedResponse) {
         const descriptions = parsedResponse.descriptions || {};
         
         return {
-            localDescription: descriptions.individual_after || 'Description locale non disponible',
-            globalDescription: descriptions.collective_after_prediction || 'Description globale non disponible'
+            // Descriptions de l'état AVANT (pour calcul U)
+            individualBeforeDescription: descriptions.individual_before_description || '',
+            collectiveBeforeDescription: descriptions.collective_before_description || '',
+            
+            // Prédictions de l'évolution FUTURE
+            individualAfterPrediction: descriptions.individual_after_prediction || '',
+            collectiveAfterPrediction: descriptions.collective_after_prediction || '',
+            
+            // Prévisibilités (0-10)
+            predictabilityIndividual: descriptions.predictability_individual || 0,
+            predictabilityCollective: descriptions.predictability_collective || 0
         };
     },
 
@@ -531,8 +812,12 @@ const GeminiV2Adapter = {
 
             // Call Gemini API
             console.log('🚀 [Gemini V2] Appel à callGeminiAPI...');
-            const responseText = await this.callGeminiAPI(systemMessage, userMessage, imageBase64);
-            console.log('✅ [Gemini V2] callGeminiAPI terminé, réponse:', responseText ? 'reçue' : 'vide');
+            const responseData = await this.callGeminiAPI(systemMessage, '', imageBase64);
+            console.log('✅ [Gemini V2] callGeminiAPI terminé, réponse:', responseData ? 'reçue' : 'vide');
+            
+            // Extract content and usage from response
+            const responseText = responseData.content;
+            const usage = responseData.usage;
             
             // Parse the JSON response and return structured object
             console.log('🔍 [Gemini V2] Parsing de la réponse...');
@@ -542,8 +827,11 @@ const GeminiV2Adapter = {
                 hasDescriptions: !!parsed.descriptions
             });
             
-            // Return parsed object for ai-player.js
-            return parsed;
+            // Return parsed object with usage information for ai-player.js
+            return {
+                ...parsed,
+                usage: usage
+            };
 
         } catch (error) {
             console.error('❌ [Gemini V2] Erreur callAPI:', error);

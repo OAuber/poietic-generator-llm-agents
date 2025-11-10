@@ -16,6 +16,8 @@ class AIPlayerV4 {
     this.lastObservation = null; // from O snapshot
     this.prevPredictions = null; // from W memory
     this.Osnapshot = null; // {C_w,C_d,U, narrative, structures}
+    this.lastOVersionSeen = -1; // Dernière version O vue par cet agent W
+    this.lastOVersionAtAction = -1; // Version du snapshot O disponible quand cet agent W a fait sa dernière action
 
     // Métriques pour graphiques
     this.oMetrics = { versions: [], C_w: [], C_d: [], U: [] };
@@ -420,6 +422,11 @@ class AIPlayerV4 {
       const MAX_IMAGES = 6;
       const items = container.querySelectorAll('.image-item');
       for (let i = MAX_IMAGES; i < items.length; i++) {
+        // Révoquer les data URLs pour libérer la mémoire
+        const oldImg = items[i].querySelector('img');
+        if (oldImg && oldImg.src && oldImg.src.startsWith('data:')) {
+          oldImg.src = '';
+        }
         items[i].remove();
       }
     } catch (_) {}
@@ -583,12 +590,26 @@ class AIPlayerV4 {
   }
 
   async mainLoop() {
+    // Délai aléatoire au démarrage pour éviter les pics simultanés avec plusieurs clients
+    // (surtout important pour le seed qui se déclenche immédiatement)
+    if (this.iterationCount === 0) {
+      const randomDelay = Math.random() * 3000; // 0-3s aléatoire
+      await new Promise(r => setTimeout(r, randomDelay));
+    }
+    
     while (this.isRunning) {
       if (this.isPaused) { await new Promise(r => setTimeout(r, 500)); continue; }
 
-      // Determine mode
-      if (this.iterationCount === 0) this.setMode('seed');
-      else this.setMode((this.iterationCount % 2 === 1) ? 'observation' : 'action');
+      // Determine mode pour agent S→W (Seed → W-machine)
+      // Itération 0 : seed (S) - génération initiale, pas besoin de snapshot O
+      // Itération 1, 2, 3... : action (W) - attend nouveau snapshot O avant d'agir
+      if (this.iterationCount === 0) {
+        this.setMode('seed');
+      } else {
+        // À partir de l'itération 1 : toujours en mode action (W)
+        // L'agent O (serveur) s'occupe de l'observation
+        this.setMode('action');
+      }
 
       // Build context
       const ctx = {
@@ -596,27 +617,89 @@ class AIPlayerV4 {
         myY: this.myPosition[1]
       };
 
-      if (this.promptMode === 'observation') {
-        // Server-side O will run periodically; here we just wait for fresh snapshot
+      // Agent S→W : seed (itération 0) ou action (itération 1+)
+      // L'agent O (serveur) s'occupe de l'observation périodiquement
+      if (this.promptMode === 'seed') {
+        // Mode seed (S) : génération initiale, pas besoin de snapshot O
+        // Le seed apporte la diversité initiale et ne dépend pas de O
+        // On peut récupérer le snapshot O pour info, mais on n'attend pas
         await this.fetchOSnapshot();
-        this.lastObservation = this.Osnapshot || null;
-        this.log('Obs snapshot:', JSON.stringify(this.Osnapshot)?.slice(0, 200));
-        // Afficher dans Verbatim
-        if (this.Osnapshot) {
-          this.storeVerbatimResponse('O', this.Osnapshot, this.iterationCount);
-          // Mettre à jour le graphique O
-          this.updateOMetrics(this.Osnapshot);
+        if (this.Osnapshot?.version !== undefined) {
+          this.lastOVersionSeen = this.Osnapshot.version;
         }
-        // Debug: montrer l'image globale observée
-        const oGlobal = await this.captureGlobalSnapshot('O input — global canvas');
-        // Publier aussi au serveur O pour mise à jour de l'image globale
+        
+        // Vérifier la présence de la clé API avant appel LLM
+        const apiKey = window.GeminiV4Adapter?.getApiKey?.() || '';
+        if (!apiKey) {
+          this.log('Clé API Gemini manquante — seed ignoré jusqu\'à saisie.');
+          if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Inactive';
+          await new Promise(r => setTimeout(r, 1000));
+          this.iterationCount++;
+          const waitMs = Math.max(0, (parseInt(this.elements.interval.value)||0) * 1000);
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        } else {
+          if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Active';
+        }
+        
+        // Build prompt seed et appel LLM
+        const systemText = await window.GeminiV4Adapter.buildSystemPrompt('seed', ctx);
+        const globalUrlBefore = await this.captureGlobalSnapshot('W seed — global canvas (before)');
+        const localUrl = this.captureLocalCanvasBase64();
+        
+        let parsed = null;
+        let pixelsToExecute = [];
         try {
-          if (oGlobal) {
+          const raw = await window.GeminiV4Adapter.callAPI(systemText, {
+            globalImageBase64: globalUrlBefore,
+            localImageBase64: localUrl
+          });
+          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
+          parsed = window.GeminiV4Adapter.parseJSONResponse(raw);
+          this.storeVerbatimResponse('W', parsed, this.iterationCount);
+          pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+        } catch (error) {
+          // Gérer les erreurs API (503, rate limit, etc.)
+          this.log(`Erreur appel Gemini pour seed: ${error.message}`);
+          this.storeVerbatimResponse('W', {
+            seed: { concept: 'Erreur API', rationale: `Erreur: ${error.message}` },
+            predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
+            pixels: []
+          }, this.iterationCount);
+          // Continuer avec le fallback
+        }
+        
+        // Fallback seed: si aucun pixel retourné (erreur API ou réponse vide), générer un seed minimal local
+        if (pixelsToExecute.length === 0) {
+          const center = 10;
+          const color = '#F5D142';
+          const ring = [
+            {x:center, y:center-1}, {x:center, y:center+1},
+            {x:center-1, y:center}, {x:center+1, y:center},
+            {x:center-1, y:center-1}, {x:center+1, y:center-1},
+            {x:center-1, y:center+1}, {x:center+1, y:center+1}
+          ];
+          pixelsToExecute = ring.map(p => `${p.x},${p.y}${color}`);
+          this.storeVerbatimResponse('W', {
+            seed: { concept: 'Fallback Seed (ring)', rationale: 'Seed minimal utilisé car 0 pixel retourné' },
+            predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
+            pixels: pixelsToExecute
+          }, this.iterationCount);
+        }
+        
+        // Execute pixels
+        await this.executePixels(pixelsToExecute);
+        await new Promise(r => setTimeout(r, 2000));
+        
+        // Capturer et envoyer l'image globale à O
+        const globalUrlAfter = await this.captureGlobalSnapshot('W seed — global canvas (after)');
+        try {
+          if (globalUrlAfter) {
             const agentsCount = Object.keys(this.otherUsers || {}).length;
             await fetch(`${this.O_API_BASE}/o/image`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ image_base64: oGlobal, agents_count: agentsCount })
+              body: JSON.stringify({ image_base64: globalUrlAfter, agents_count: agentsCount })
             });
             await fetch(`${this.O_API_BASE}/o/agents`, {
               method: 'POST',
@@ -624,10 +707,65 @@ class AIPlayerV4 {
               body: JSON.stringify({ count: agentsCount })
             });
           }
-        } catch (_) {}
+        } catch(_) {}
+        
+        // CRITIQUE : Mettre à jour la version du snapshot disponible lors de ce seed
+        // Cela permet de s'assurer que la première action attendra un snapshot POSTÉRIEUR au seed
+        this.lastOVersionAtAction = this.Osnapshot?.version ?? this.lastOVersionSeen;
+        
+        // Store predictions pour la prochaine itération (action)
+        this.prevPredictions = parsed?.predictions || null;
+        
       } else {
-        // action: fetch latest O first
+        // Mode action (W) : récupérer snapshot O et attendre nouveau snapshot POSTÉRIEUR à la dernière action
         await this.fetchOSnapshot();
+        
+        // Vérifier si un nouveau snapshot O est disponible POSTÉRIEUR à la dernière action
+        const currentOVersion = this.Osnapshot?.version ?? -1;
+        
+        // Exception : pour la première action (itération 1), accepter le snapshot disponible
+        // même si la version n'a pas changé depuis le seed, car O peut ne pas avoir encore
+        // généré de nouveau snapshot après le seed du client
+        const isFirstAction = this.iterationCount === 1;
+        
+        // CRITIQUE : Vérifier que le snapshot est POSTÉRIEUR à la dernière action
+        // (pas juste à la dernière version vue, mais à la version disponible lors de la dernière action)
+        if (!isFirstAction && currentOVersion <= this.lastOVersionAtAction) {
+          // Pas de nouveau snapshot O postérieur à la dernière action, skip cette itération W
+          // Limiter les tentatives pour éviter les boucles infinies
+          const maxWaitAttempts = 15; // Maximum 15 tentatives (30s)
+          let waitAttempts = (this._waitAttempts || 0) + 1;
+          this._waitAttempts = waitAttempts;
+          
+          if (waitAttempts >= maxWaitAttempts) {
+            // Timeout : accepter le snapshot actuel même si version identique
+            this.log(`Timeout attente nouveau snapshot O (${waitAttempts} tentatives), utilisation snapshot disponible (version ${currentOVersion}, dernière action avec version ${this.lastOVersionAtAction})`);
+            this._waitAttempts = 0; // Reset compteur
+            // Accepter le snapshot actuel et continuer
+          } else {
+            this.log(`Pas de nouveau snapshot O postérieur à dernière action (version ${currentOVersion} <= ${this.lastOVersionAtAction}), attente... (tentative ${waitAttempts}/${maxWaitAttempts})`);
+            await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
+            // Ne pas incrémenter iterationCount pour rester en mode 'action' et réessayer
+            continue; // Passer à l'itération suivante sans appeler Gemini
+          }
+        } else {
+          // Nouveau snapshot détecté OU première action : reset le compteur d'attente
+          this._waitAttempts = 0;
+          // Mettre à jour la version vue
+          if (isFirstAction) {
+            this.log(`Première action (itération 1) : utilisation snapshot disponible (version ${currentOVersion})`);
+          } else {
+            this.log(`Nouveau snapshot O détecté (version ${currentOVersion} > ${this.lastOVersionAtAction}), action autorisée`);
+          }
+          this.lastOVersionSeen = currentOVersion;
+        }
+        
+        // Afficher le snapshot O dans Verbatim pour info
+        if (this.Osnapshot) {
+          this.storeVerbatimResponse('O', this.Osnapshot, this.iterationCount);
+          this.updateOMetrics(this.Osnapshot);
+        }
+        
         // Vérifier la présence de la clé API avant appel LLM
         const apiKey = window.GeminiV4Adapter?.getApiKey?.() || '';
         if (!apiKey) {
@@ -654,41 +792,34 @@ class AIPlayerV4 {
         const neighborColors = this.extractNeighborColors();
         ctx.neighborColors = neighborColors;
 
-        // Build prompt via adapter and call API
-        const systemText = await window.GeminiV4Adapter.buildSystemPrompt(
-          this.iterationCount === 0 ? 'seed' : 'action', ctx
-        );
+        // Build prompt action et appel LLM
+        const systemText = await window.GeminiV4Adapter.buildSystemPrompt('action', ctx);
         // Debug + images pour Gemini (capture AVANT les pixels - c'est OK pour W qui doit voir l'état actuel)
-        const globalUrlBefore = await this.captureGlobalSnapshot(this.iterationCount === 0 ? 'W seed — global canvas (before)' : 'W action — global canvas (before)');
+        const globalUrlBefore = await this.captureGlobalSnapshot('W action — global canvas (before)');
         const localUrl = this.captureLocalCanvasBase64();
-        const raw = await window.GeminiV4Adapter.callAPI(systemText, {
-          globalImageBase64: globalUrlBefore,
-          localImageBase64: localUrl
-        });
-        if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
-        const parsed = window.GeminiV4Adapter.parseJSONResponse(raw);
-        // Afficher dans Verbatim
-        this.storeVerbatimResponse('W', parsed, this.iterationCount);
-
-        // Fallback seed: si itération 0 et aucun pixel retourné, générer un seed minimal local
-        let pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-        if (this.iterationCount === 0 && pixelsToExecute.length === 0) {
-          // Petit motif circulaire (8 px) au centre de la grille 20x20
-          const center = 10;
-          const color = '#F5D142';
-          const ring = [
-            {x:center, y:center-1}, {x:center, y:center+1},
-            {x:center-1, y:center}, {x:center+1, y:center},
-            {x:center-1, y:center-1}, {x:center+1, y:center-1},
-            {x:center-1, y:center+1}, {x:center+1, y:center+1}
-          ];
-          pixelsToExecute = ring.map(p => `${p.x},${p.y}${color}`);
-          // Journal/verbatim spécifique fallback
+        
+        let parsed = null;
+        let pixelsToExecute = [];
+        try {
+          const raw = await window.GeminiV4Adapter.callAPI(systemText, {
+            globalImageBase64: globalUrlBefore,
+            localImageBase64: localUrl
+          });
+          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
+          parsed = window.GeminiV4Adapter.parseJSONResponse(raw);
+          // Afficher dans Verbatim
+          this.storeVerbatimResponse('W', parsed, this.iterationCount);
+          pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+        } catch (error) {
+          // Gérer les erreurs API (503, rate limit, etc.)
+          this.log(`Erreur appel Gemini pour action: ${error.message}`);
           this.storeVerbatimResponse('W', {
-            seed: { concept: 'Fallback Seed (ring)', rationale: 'Seed minimal utilisé car 0 pixel retourné' },
+            strategy: 'ERROR',
+            rationale: `Erreur API: ${error.message}`,
             predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
-            pixels: pixelsToExecute
+            pixels: []
           }, this.iterationCount);
+          // Continuer avec pixels vides (l'itération sera ignorée mais on incrémente quand même)
         }
 
         // Prediction error (if observation narrative exists)
@@ -706,14 +837,17 @@ class AIPlayerV4 {
           anchors: 1
         });
 
-        // Execute pixels
+        // Execute pixels (la promesse se résout quand tous les pixels sont envoyés)
         await this.executePixels(pixelsToExecute);
         
-        // IMPORTANT: Attendre un peu pour que le canvas du viewer soit mis à jour avec les nouveaux pixels
-        await new Promise(r => setTimeout(r, 500));
+        // IMPORTANT: Attendre suffisamment pour que le canvas du viewer soit complètement mis à jour
+        // avec tous les nouveaux pixels (rendu + propagation WebSocket vers autres clients)
+        // Ce délai doit être cohérent avec le délai de stabilisation côté O (3s)
+        // On attend 2s après l'envoi de tous les pixels pour laisser le temps au rendu complet
+        await new Promise(r => setTimeout(r, 2000)); // 2s pour laisser le temps au rendu complet
         
         // Maintenant capturer l'image globale APRÈS l'exécution des pixels et l'envoyer à O
-        const globalUrlAfter = await this.captureGlobalSnapshot(this.iterationCount === 0 ? 'W seed — global canvas (after)' : 'W action — global canvas (after)');
+        const globalUrlAfter = await this.captureGlobalSnapshot('W action — global canvas (after)');
         try {
           if (globalUrlAfter) {
             const agentsCount = Object.keys(this.otherUsers || {}).length;
@@ -729,6 +863,10 @@ class AIPlayerV4 {
             });
           }
         } catch(_) {}
+        
+        // CRITIQUE : Mettre à jour la version du snapshot disponible lors de cette action
+        // Cela permet de s'assurer que la prochaine action attendra un snapshot POSTÉRIEUR
+        this.lastOVersionAtAction = this.Osnapshot?.version ?? this.lastOVersionSeen;
 
         // Store predictions for next time
         this.prevPredictions = parsed?.predictions || null;
@@ -797,7 +935,7 @@ class AIPlayerV4 {
   }
 
   async executePixels(pixelList) {
-    if (!Array.isArray(pixelList) || pixelList.length === 0) return 0;
+    if (!Array.isArray(pixelList) || pixelList.length === 0) return Promise.resolve(0);
     // Normalize strings "x,y#HEX" into {x,y,color}
     const pixels = pixelList.map(p => {
       if (typeof p === 'string' && p.includes('#') && p.includes(',')) {
@@ -816,23 +954,48 @@ class AIPlayerV4 {
 
     const delayPerPixel = Math.max(30, Math.floor(10000 / Math.max(1, pixels.length)));
     this.cancelPendingPixels();
-    for (let i=0;i<pixels.length;i++) {
-      const timeoutId = setTimeout(() => {
-        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-          this.socket.send(JSON.stringify({
-            type: 'cell_update',
-            sub_x: pixels[i].x,
-            sub_y: pixels[i].y,
-            color: pixels[i].color
-          }));
-          // Mettre à jour l'état local pour capture
-          const key = `${pixels[i].x},${pixels[i].y}`;
-          this.myCellState[key] = pixels[i].color;
+    
+    // Retourner une promesse qui se résout quand tous les pixels sont envoyés
+    return new Promise((resolve) => {
+      if (pixels.length === 0) {
+        resolve(0);
+        return;
+      }
+      
+      let sentCount = 0;
+      const totalPixels = pixels.length;
+      
+      for (let i=0;i<pixels.length;i++) {
+        const timeoutId = setTimeout(() => {
+          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify({
+              type: 'cell_update',
+              sub_x: pixels[i].x,
+              sub_y: pixels[i].y,
+              color: pixels[i].color
+            }));
+            // Mettre à jour l'état local pour capture
+            const key = `${pixels[i].x},${pixels[i].y}`;
+            this.myCellState[key] = pixels[i].color;
+          }
+          sentCount++;
+          // Quand tous les pixels sont envoyés, résoudre la promesse
+          if (sentCount === totalPixels) {
+            resolve(totalPixels);
+          }
+        }, i*delayPerPixel);
+        this.pendingPixelTimeouts.push(timeoutId);
+      }
+      
+      // Timeout de sécurité : résoudre même si tous les pixels ne sont pas envoyés
+      const maxTime = (pixels.length * delayPerPixel) + 2000; // +2s de marge
+      setTimeout(() => {
+        if (sentCount < totalPixels) {
+          console.warn(`[V4] Timeout executePixels: ${sentCount}/${totalPixels} pixels envoyés`);
+          resolve(sentCount);
         }
-      }, i*delayPerPixel);
-      this.pendingPixelTimeouts.push(timeoutId);
-    }
-    return pixels.length;
+      }, maxTime);
+    });
   }
 }
 
