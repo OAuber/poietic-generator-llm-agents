@@ -166,6 +166,7 @@ def load_n_prompt():
 
 async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None) -> Optional[dict]:
     """Appelle Gemini pour O-machine (observation des structures et calcul C_d)"""
+    print(f"[O] 🚀 Début appel Gemini O (agents: {agents_count}, image: {len(image_base64)} bytes)")
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
         print("[O] GEMINI_API_KEY non définie")
@@ -183,6 +184,7 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
     # Injecter agents_count
     try:
         prompt = prompt.replace('{{agents_count}}', str(agents_count))
+        print(f"[O] 📝 Prompt final: {len(prompt)} chars (~{len(prompt)//4} tokens)")
     except Exception as e:
         print(f"[O] Erreur injection agents_count: {e}")
         return None
@@ -227,8 +229,9 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
                         text += part['text']
             
             if not text or len(text.strip()) < 10:
-                print(f"[O] Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
+                print(f"[O] ❌ Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
                 print(f"[O] Status: {resp.status_code}, Headers: {dict(resp.headers)}")
+                print(f"[O] 🔍 Réponse JSON brute: {json.dumps(data, indent=2)[:1000]}")
                 if text:
                     print(f"[O] Texte reçu: '{text}'")
                 return None
@@ -268,6 +271,9 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         # Injecter données W
         w_json = json.dumps(w_agents_data, ensure_ascii=False, indent=2)
         prompt = prompt.replace('{{w_agents_data}}', w_json)
+        # Log aperçu des données W injectées
+        for agent_id, data in list(w_agents_data.items())[:3]:  # Max 3 agents pour lisibilité
+            print(f"[N]    → Agent {agent_id[:8]}: strategy={data.get('strategy', 'N/A')}, iter={data.get('iteration', 'N/A')}")
         
         # Injecter snapshot précédent (si disponible)
         if previous_combined:
@@ -275,6 +281,11 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
             prompt = prompt.replace('{{previous_snapshot}}', prev_json)
         else:
             prompt = prompt.replace('{{previous_snapshot}}', 'null')
+        
+        # Log taille du prompt final
+        prompt_length = len(prompt)
+        prompt_tokens = prompt_length // 4  # Approximation: 1 token ≈ 4 chars
+        print(f"[N] 📝 Prompt final: {prompt_length} chars (~{prompt_tokens} tokens)")
         
     except Exception as e:
         print(f"[N] Erreur injection données: {e}")
