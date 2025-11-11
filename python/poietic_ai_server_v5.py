@@ -437,14 +437,16 @@ async def periodic_on_task():
             print("[ON] Pas d'agents actifs, attente...")
             continue
         
-        # Warmup
+        # Warmup : attendre que les agents aient terminé leurs seeds
         now = datetime.now(timezone.utc)
-        if (store.updates_count or 0) < 2 or (store.first_update_time and (now - store.first_update_time).total_seconds() < 5):
-            print("[ON] Warmup en cours...")
+        warmup_delay = 20  # V5: Augmenter à 20s pour laisser temps aux seeds
+        if (store.updates_count or 0) < 3 or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay):
+            elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
+            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0} updates)...")
             continue
         
-        # Stabilisation
-        if store.last_update_time and (now - store.last_update_time).total_seconds() < 3.0:
+        # Stabilisation : attendre que les agents aient fini d'envoyer leurs données
+        if store.last_update_time and (now - store.last_update_time).total_seconds() < 5.0:
             print(f"[ON] Attente stabilisation ({(now - store.last_update_time).total_seconds():.1f}s)...")
             continue
         
