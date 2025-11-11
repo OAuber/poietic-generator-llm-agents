@@ -17,7 +17,7 @@
     "",
     "1) EVALUATE PREDICTION ERRORS:",
     "   - For each W agent, compare their PREVIOUS predictions with the CURRENT reality (O snapshot).",
-    "   - Extract from W agents data: agent_id, previous predictions.collective_after_prediction",
+    "   - Extract from W agents data: agent_id, and PREVIOUS predictions (use 'previous_predictions' field if present; otherwise infer from 'previous_snapshot').",
     "   - Compare with O snapshot: structures, formal_relations.summary",
     "   - Calculate prediction error (0.0 = perfect, 1.0 = completely wrong):",
     "     • 0.0-0.2: Excellent prediction (agent understood dynamics well)",

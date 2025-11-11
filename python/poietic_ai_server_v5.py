@@ -18,18 +18,22 @@ import re
 class WAgentDataStore:
     """Store pour les données envoyées par les agents W"""
     def __init__(self):
-        self.agents_data = {}  # {agent_id: {position, rationale, predictions, strategy, iteration, timestamp}}
+        self.agents_data = {}  # {agent_id: {position, rationale, predictions, previous_predictions, strategy, iteration, previous_iteration, timestamp}}
         self.last_update_time: Optional[datetime] = None
     
     def update_agent_data(self, agent_id: str, data: dict):
         """Mettre à jour les données d'un agent W"""
+        previous_record = self.agents_data.get(agent_id, {})
         self.agents_data[agent_id] = {
             'agent_id': agent_id,
             'position': data.get('position', [0, 0]),
             'iteration': data.get('iteration', 0),
+            'previous_iteration': previous_record.get('iteration'),
             'strategy': data.get('strategy', 'N/A'),
             'rationale': data.get('rationale', ''),
             'predictions': data.get('predictions', {}),
+            # Conserver les prédictions de l'itération précédente pour N (évaluation erreur)
+            'previous_predictions': previous_record.get('predictions', {}),
             'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat())
         }
         self.last_update_time = datetime.now(timezone.utc)
