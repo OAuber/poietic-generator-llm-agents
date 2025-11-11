@@ -501,11 +501,11 @@
     <!-- Scripts V4 - O/W Alternation -->
     <script type="module" src="js/spatial-analysis.js?v=20250116-52"></script>
     <script type="module" src="js/llava-canvas.js?v=20250124-053"></script>
-    <!-- Load Gemini V4 and expose globally -->
+    <!-- Load Gemini V5 and expose globally -->
     <script type="module">
-        import { GeminiV4Adapter } from './js/llm-adapters/gemini-v4.js?v=20250124-v4';
-        window.GeminiV4Adapter = GeminiV4Adapter;
-        console.log('✅ [V4] Gemini V4 Adapter (O/W Alternation) exposed globally');
+        import { GeminiV5Adapter } from './js/llm-adapters/gemini-v5.js?v=20250124-v5';
+        window.GeminiV5Adapter = GeminiV5Adapter;
+        console.log('✅ [V5] Gemini V5 Adapter (O-N-W Architecture) exposed globally');
     </script>
     <script type="module" src="js/ai-player-v5.js?v=20250124-v5"></script>
 </body>

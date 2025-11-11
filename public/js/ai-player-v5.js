@@ -54,12 +54,12 @@ class AIPlayerV5 {
 
     // Initialiser la clé API depuis le stockage et synchroniser l'UI
     try {
-      const saved = window.GeminiV4Adapter?.getApiKey?.() || '';
+      const saved = window.GeminiV5Adapter?.getApiKey?.() || '';
       if (this.elements.apiKey && !this.elements.apiKey.value && saved) {
         this.elements.apiKey.value = saved;
       }
-      if (window.GeminiV4Adapter) {
-        window.GeminiV4Adapter.apiKey = saved;
+      if (window.GeminiV5Adapter) {
+        window.GeminiV5Adapter.apiKey = saved;
       }
     } catch (_) {}
 
@@ -68,7 +68,7 @@ class AIPlayerV5 {
       if (e.key === 'gemini_api_key') {
         const v = e.newValue || '';
         if (this.elements.apiKey) this.elements.apiKey.value = v;
-        if (window.GeminiV4Adapter) window.GeminiV4Adapter.apiKey = v;
+        if (window.GeminiV5Adapter) window.GeminiV5Adapter.apiKey = v;
         if (this.elements.llmStatusBadge) {
           this.elements.llmStatusBadge.textContent = v ? 'LLM: Active' : 'LLM: Inactive';
         }
@@ -383,7 +383,7 @@ class AIPlayerV5 {
       const persist = () => {
         const v = this.elements.apiKey.value || '';
         try { localStorage.setItem('gemini_api_key', v); } catch(_) {}
-        if (window.GeminiV4Adapter) window.GeminiV4Adapter.apiKey = v;
+        if (window.GeminiV5Adapter) window.GeminiV5Adapter.apiKey = v;
         if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = v ? 'LLM: Active' : 'LLM: Inactive';
       };
       this.elements.apiKey.addEventListener('change', persist);
@@ -677,7 +677,7 @@ class AIPlayerV5 {
         }
         
         // Vérifier la présence de la clé API avant appel LLM
-        const apiKey = window.GeminiV4Adapter?.getApiKey?.() || '';
+        const apiKey = window.GeminiV5Adapter?.getApiKey?.() || '';
         if (!apiKey) {
           this.log('Clé API Gemini manquante — seed ignoré jusqu\'à saisie.');
           if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Inactive';
@@ -691,19 +691,19 @@ class AIPlayerV5 {
         }
         
         // Build prompt seed et appel LLM
-        const systemText = await window.GeminiV4Adapter.buildSystemPrompt('seed', ctx);
+        const systemText = await window.GeminiV5Adapter.buildSystemPrompt('seed', ctx);
         const globalUrlBefore = await this.captureGlobalSnapshot('W seed — global canvas (before)');
         const localUrl = this.captureLocalCanvasBase64();
         
         let parsed = null;
         let pixelsToExecute = [];
         try {
-          const raw = await window.GeminiV4Adapter.callAPI(systemText, {
+          const raw = await window.GeminiV5Adapter.callAPI(systemText, {
             globalImageBase64: globalUrlBefore,
             localImageBase64: localUrl
           });
           if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
-          parsed = window.GeminiV4Adapter.parseJSONResponse(raw);
+          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
           this.storeVerbatimResponse('W', parsed, this.iterationCount);
           pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
         } catch (error) {
@@ -837,7 +837,7 @@ class AIPlayerV5 {
         }
         
         // Vérifier la présence de la clé API avant appel LLM
-        const apiKey = window.GeminiV4Adapter?.getApiKey?.() || '';
+        const apiKey = window.GeminiV5Adapter?.getApiKey?.() || '';
         if (!apiKey) {
           this.log('Clé API Gemini manquante — action ignorée jusqu\'à saisie.');
           if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Inactive';
@@ -855,6 +855,7 @@ class AIPlayerV5 {
         ctx.U   = this.Osnapshot?.simplicity_assessment?.U_current?.value ?? null;
         ctx.lastObservation = this.Osnapshot || null;
         ctx.prevPredictions = this.prevPredictions || null;
+        ctx.prediction_error = this.myPredictionError ?? 0; // V5: Erreur de prédiction personnelle (de N)
         // Mettre à jour le graphique O si snapshot disponible
         if (this.Osnapshot) this.updateOMetrics(this.Osnapshot);
 
@@ -863,7 +864,7 @@ class AIPlayerV5 {
         ctx.neighborColors = neighborColors;
 
         // Build prompt action et appel LLM
-        const systemText = await window.GeminiV4Adapter.buildSystemPrompt('action', ctx);
+        const systemText = await window.GeminiV5Adapter.buildSystemPrompt('action', ctx);
         // Debug + images pour Gemini (capture AVANT les pixels - c'est OK pour W qui doit voir l'état actuel)
         const globalUrlBefore = await this.captureGlobalSnapshot('W action — global canvas (before)');
         const localUrl = this.captureLocalCanvasBase64();
@@ -871,12 +872,12 @@ class AIPlayerV5 {
         let parsed = null;
         let pixelsToExecute = [];
         try {
-          const raw = await window.GeminiV4Adapter.callAPI(systemText, {
+          const raw = await window.GeminiV5Adapter.callAPI(systemText, {
             globalImageBase64: globalUrlBefore,
             localImageBase64: localUrl
           });
           if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
-          parsed = window.GeminiV4Adapter.parseJSONResponse(raw);
+          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
           // Afficher dans Verbatim
           this.storeVerbatimResponse('W', parsed, this.iterationCount);
           pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
