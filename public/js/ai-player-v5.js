@@ -644,21 +644,61 @@ class AIPlayerV5 {
         
         let parsed = null;
         let pixelsToExecute = [];
-        try {
-          // V5: Seed sans images (à l'aveugle)
-          const raw = await window.GeminiV5Adapter.callAPI(systemText, null);
-          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
-          this.storeVerbatimResponse('W', parsed, this.iterationCount);
-          pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-        } catch (error) {
-          // Gérer les erreurs API (503, rate limit, etc.)
-          this.log(`Erreur appel Gemini pour seed: ${error.message}`);
-          this.storeVerbatimResponse('W', {
-            seed: { concept: 'Erreur API', rationale: `Erreur: ${error.message}` },
-            predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
-            pixels: []
-          }, this.iterationCount);
-          // Continuer avec le fallback
+        const maxRetries = 3;
+        
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            // V5: Seed sans images (à l'aveugle)
+            const raw = await window.GeminiV5Adapter.callAPI(systemText, null);
+            parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+            
+            // V5: Valider que la réponse seed est complète (a au moins seed.concept ou seed.artistic_reference)
+            const isValid = parsed?.seed && (
+              parsed.seed.concept || 
+              parsed.seed.artistic_reference || 
+              parsed.seed.rationale
+            );
+            
+            if (isValid) {
+              // Réponse valide
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+              break; // Sortir de la boucle de retry
+            } else {
+              // Réponse invalide (manque seed concept/rationale)
+              const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+              this.log(`[W Seed] Réponse invalide: seed=${!!parsed?.seed}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
+              if (attempt < maxRetries - 1) {
+                const delay = 2 * (attempt + 1); // 2s, 4s, 6s
+                this.log(`[W Seed] Retry dans ${delay}s... (tentative ${attempt + 1}/${maxRetries})`);
+                await new Promise(r => setTimeout(r, delay * 1000));
+                continue;
+              } else {
+                // Dernière tentative échouée
+                this.log(`[W Seed] ⚠️ Réponse invalide après ${maxRetries} tentatives (manque seed concept/rationale)`);
+                // Continuer avec parsed (qui a au moins les pixels si disponibles)
+                this.storeVerbatimResponse('W', parsed, this.iterationCount);
+                pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+              }
+            }
+          } catch (error) {
+            // Erreur API (503, rate limit, etc.)
+            if (attempt < maxRetries - 1) {
+              const delay = 2 * (attempt + 1);
+              this.log(`[W Seed] Erreur API (tentative ${attempt + 1}/${maxRetries}): ${error.message}, retry dans ${delay}s...`);
+              await new Promise(r => setTimeout(r, delay * 1000));
+              continue;
+            } else {
+              // Dernière tentative échouée
+              this.log(`[W Seed] Erreur API après ${maxRetries} tentatives: ${error.message}`);
+              this.storeVerbatimResponse('W', {
+                seed: { concept: 'Erreur API', rationale: `Erreur: ${error.message}` },
+                predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
+                pixels: []
+              }, this.iterationCount);
+              break;
+            }
+          }
         }
         
         // Fallback seed: si aucun pixel retourné (erreur API ou réponse vide), générer un seed minimal local
@@ -815,26 +855,68 @@ class AIPlayerV5 {
         
         let parsed = null;
         let pixelsToExecute = [];
-        try {
-          const raw = await window.GeminiV5Adapter.callAPI(systemText, {
-            globalImageBase64: globalUrlBefore,
-            localImageBase64: localUrl
-          });
-          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
-          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
-          // Afficher dans Verbatim
-          this.storeVerbatimResponse('W', parsed, this.iterationCount);
-          pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-        } catch (error) {
-          // Gérer les erreurs API (503, rate limit, etc.)
-          this.log(`Erreur appel Gemini pour action: ${error.message}`);
-          this.storeVerbatimResponse('W', {
-            strategy: 'ERROR',
-            rationale: `Erreur API: ${error.message}`,
-            predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
-            pixels: []
-          }, this.iterationCount);
-          // Continuer avec pixels vides (l'itération sera ignorée mais on incrémente quand même)
+        const maxRetries = 3;
+        
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            const raw = await window.GeminiV5Adapter.callAPI(systemText, {
+              globalImageBase64: globalUrlBefore,
+              localImageBase64: localUrl
+            });
+            if (localUrl && attempt === 0) this.addDebugImage('W input — local 20x20', localUrl);
+            parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+            
+            // V5: Valider que la réponse action est complète (a au moins strategy ou rationale)
+            const isValid = parsed && (
+              parsed.strategy || 
+              parsed.rationale ||
+              (parsed.delta_complexity && (
+                parsed.delta_complexity.delta_C_w_bits !== undefined ||
+                parsed.delta_complexity.delta_C_d_bits !== undefined
+              ))
+            );
+            
+            if (isValid) {
+              // Réponse valide
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+              break; // Sortir de la boucle de retry
+            } else {
+              // Réponse invalide (manque strategy/rationale/delta_complexity)
+              const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+              this.log(`[W Action] Réponse invalide: strategy=${!!parsed?.strategy}, rationale=${!!parsed?.rationale}, delta=${!!parsed?.delta_complexity}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
+              if (attempt < maxRetries - 1) {
+                const delay = 2 * (attempt + 1); // 2s, 4s, 6s
+                this.log(`[W Action] Retry dans ${delay}s... (tentative ${attempt + 1}/${maxRetries})`);
+                await new Promise(r => setTimeout(r, delay * 1000));
+                continue;
+              } else {
+                // Dernière tentative échouée
+                this.log(`[W Action] ⚠️ Réponse invalide après ${maxRetries} tentatives (manque strategy/rationale/delta_complexity)`);
+                // Continuer avec parsed (qui a au moins les pixels si disponibles)
+                this.storeVerbatimResponse('W', parsed, this.iterationCount);
+                pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+              }
+            }
+          } catch (error) {
+            // Erreur API (503, rate limit, etc.)
+            if (attempt < maxRetries - 1) {
+              const delay = 2 * (attempt + 1);
+              this.log(`[W Action] Erreur API (tentative ${attempt + 1}/${maxRetries}): ${error.message}, retry dans ${delay}s...`);
+              await new Promise(r => setTimeout(r, delay * 1000));
+              continue;
+            } else {
+              // Dernière tentative échouée
+              this.log(`[W Action] Erreur API après ${maxRetries} tentatives: ${error.message}`);
+              this.storeVerbatimResponse('W', {
+                strategy: 'ERROR',
+                rationale: `Erreur API: ${error.message}`,
+                predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
+                pixels: []
+              }, this.iterationCount);
+              break;
+            }
+          }
         }
 
         // V5: Erreur de prédiction vient de N-machine (déjà dans this.myPredictionError)
