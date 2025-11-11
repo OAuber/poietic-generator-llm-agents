@@ -639,18 +639,14 @@ class AIPlayerV5 {
         }
         
         // Build prompt seed et appel LLM
+        // V5: Seed dessine à l'aveugle (pas d'images) pour maximiser la diversité
         const systemText = await window.GeminiV5Adapter.buildSystemPrompt('seed', ctx);
-        const globalUrlBefore = await this.captureGlobalSnapshot('W seed — global canvas (before)');
-        const localUrl = this.captureLocalCanvasBase64();
         
         let parsed = null;
         let pixelsToExecute = [];
         try {
-          const raw = await window.GeminiV5Adapter.callAPI(systemText, {
-            globalImageBase64: globalUrlBefore,
-            localImageBase64: localUrl
-          });
-          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
+          // V5: Seed sans images (à l'aveugle)
+          const raw = await window.GeminiV5Adapter.callAPI(systemText, null);
           parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
           this.storeVerbatimResponse('W', parsed, this.iterationCount);
           pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
