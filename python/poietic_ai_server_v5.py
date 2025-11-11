@@ -10,6 +10,8 @@ import json
 import os
 import base64
 import re
+import websockets
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 # ==============================================================================
 # STORES
@@ -114,6 +116,96 @@ class OSnapshotStore:
 # Instances globales
 store = OSnapshotStore()
 w_store = WAgentDataStore()
+
+# ==============================================================================
+# CLIENT SERVEUR DE MÉTRIQUES
+# ==============================================================================
+
+class MetricsClient:
+    """Client WebSocket pour envoyer snapshots O/N au serveur de métriques"""
+    def __init__(self, url: str = "ws://localhost:5005/metrics"):
+        self.url = url
+        self.websocket = None
+        self.connected = False
+        self.reconnect_delay = 5
+        self._reconnect_task = None
+    
+    async def connect(self):
+        """Se connecter au serveur de métriques avec reconnexion automatique"""
+        while True:
+            try:
+                print(f"[Metrics] Connexion au serveur de métriques {self.url}...")
+                self.websocket = await websockets.connect(self.url)
+                self.connected = True
+                print("[Metrics] ✅ Connecté au serveur de métriques")
+                
+                # Demander l'état initial
+                await self.send({'type': 'get_state'})
+                
+                # Écouter les messages (pour debug, en arrière-plan)
+                try:
+                    while True:
+                        try:
+                            message = await asyncio.wait_for(self.websocket.recv(), timeout=1.0)
+                            # Messages du serveur (pour debug, ignorés pour l'instant)
+                        except asyncio.TimeoutError:
+                            # Timeout normal, continuer à écouter
+                            continue
+                except ConnectionClosed:
+                    print("[Metrics] Connexion fermée par le serveur")
+                    self.connected = False
+                    self.websocket = None
+                        
+            except (ConnectionRefusedError, OSError, WebSocketException) as e:
+                self.connected = False
+                self.websocket = None
+                print(f"[Metrics] ⚠️ Erreur connexion métriques: {e}")
+                print(f"[Metrics] Reconnexion dans {self.reconnect_delay}s...")
+                await asyncio.sleep(self.reconnect_delay)
+            except Exception as e:
+                self.connected = False
+                self.websocket = None
+                print(f"[Metrics] Erreur inattendue: {e}")
+                await asyncio.sleep(self.reconnect_delay)
+    
+    async def send(self, message: dict):
+        """Envoyer un message au serveur de métriques"""
+        if not self.connected or not self.websocket:
+            return False
+        
+        try:
+            await self.websocket.send(json.dumps(message))
+            return True
+        except (ConnectionClosed, WebSocketException) as e:
+            print(f"[Metrics] Erreur envoi message: {e}")
+            self.connected = False
+            self.websocket = None
+            return False
+        except Exception as e:
+            print(f"[Metrics] Erreur inattendue envoi: {e}")
+            return False
+    
+    async def send_o_snapshot(self, snapshot: dict):
+        """Envoyer snapshot O au serveur de métriques"""
+        return await self.send({
+            'type': 'o_snapshot',
+            'snapshot': snapshot
+        })
+    
+    async def send_n_snapshot(self, snapshot: dict):
+        """Envoyer snapshot N au serveur de métriques"""
+        return await self.send({
+            'type': 'n_snapshot',
+            'snapshot': snapshot
+        })
+    
+    def start_background_connection(self):
+        """Démarrer la connexion en arrière-plan"""
+        if self._reconnect_task is None or self._reconnect_task.done():
+            self._reconnect_task = asyncio.create_task(self.connect())
+
+# Instance globale
+metrics_client = MetricsClient()
 
 # ==============================================================================
 # CHARGEMENT DES PROMPTS
@@ -496,6 +588,9 @@ async def periodic_on_task():
                 store.set_snapshot(snapshot)
             continue
         
+        # V5: Envoyer snapshot O au serveur de métriques
+        await metrics_client.send_o_snapshot(o_result)
+        
         # Étape 2 : N analysis (narrative + C_w + erreurs prédiction)
         w_data = w_store.get_all_agents_data()
         n_result = None
@@ -568,6 +663,10 @@ async def periodic_on_task():
             
             store.set_snapshot(combined_snapshot)
             print(f"[ON] Snapshot O+N combiné (version {store.version}, {len(combined_snapshot['structures'])} structures, U={u_value})")
+            
+            # V5: Envoyer snapshot N (combiné) au serveur de métriques
+            # Le snapshot combiné contient toutes les données N (narrative, C_w, prediction_errors)
+            await metrics_client.send_n_snapshot(combined_snapshot)
         
         except Exception as e:
             print(f"[ON] Erreur combinaison O+N: {e}")
@@ -579,6 +678,9 @@ async def periodic_on_task():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Démarrer la connexion au serveur de métriques
+    metrics_client.start_background_connection()
+    # Démarrer la tâche périodique O→N
     asyncio.create_task(periodic_on_task())
     yield
 
