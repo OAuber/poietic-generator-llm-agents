@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from fastapi import FastAPI, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, Tuple, List
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 import asyncio
@@ -255,6 +255,45 @@ def load_n_prompt():
     if not isinstance(n_prompt_template, str):
         n_prompt_template = "You are an N-machine."
     return n_prompt_template
+
+# ==============================================================================
+# VALIDATION STRUCTURES
+# ==============================================================================
+
+def validate_structures_no_overlap(o_result: dict) -> Tuple[bool, List[str]]:
+    """
+    Valide que chaque agent [X,Y] n'apparaît qu'une seule fois dans toutes les structures.
+    Retourne (is_valid, list_of_errors).
+    """
+    if not o_result or 'structures' not in o_result:
+        return True, []  # Pas de structures = pas de chevauchement
+    
+    structures = o_result.get('structures', [])
+    agent_to_structure = {}  # {tuple(X,Y): structure_idx}
+    errors = []
+    
+    for idx, struct in enumerate(structures):
+        agent_positions = struct.get('agent_positions', [])
+        if not isinstance(agent_positions, list):
+            continue
+        
+        for pos in agent_positions:
+            if not isinstance(pos, list) or len(pos) != 2:
+                continue
+            pos_tuple = tuple(pos)  # Convertir [X,Y] en tuple pour hashable
+            
+            if pos_tuple in agent_to_structure:
+                # Agent déjà dans une autre structure !
+                other_idx = agent_to_structure[pos_tuple]
+                errors.append(
+                    f"Agent {list(pos_tuple)} appears in both structure {idx} "
+                    f"({struct.get('type', 'unknown')}) and structure {other_idx}"
+                )
+            else:
+                agent_to_structure[pos_tuple] = idx
+    
+    is_valid = len(errors) == 0
+    return is_valid, errors
 
 # ==============================================================================
 # APPELS GEMINI
@@ -557,7 +596,23 @@ async def periodic_on_task():
         for attempt in range(3):  # Augmenter à 3 tentatives
             o_result = await call_gemini_o(store.latest_image_base64, store.agents_count, store.latest)
             if o_result:
-                break
+                # V5: Valider qu'aucun agent n'apparaît dans plusieurs structures
+                is_valid, errors = validate_structures_no_overlap(o_result)
+                if not is_valid:
+                    print("=" * 60)
+                    print("[O] ⚠️  ERREUR VALIDATION: Agents apparaissant dans plusieurs structures:")
+                    for err in errors:
+                        print(f"[O]    {err}")
+                    print("[O] ⚠️  Le résultat O sera ignoré, conservation snapshot précédent")
+                    print("=" * 60)
+                    o_result = None  # Invalider le résultat
+                    if attempt < 2:
+                        delay = 3 * (attempt + 1)
+                        print(f"[O] Retry dans {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                else:
+                    break  # Résultat valide
             if attempt < 2:
                 delay = 3 * (attempt + 1)  # Délai progressif: 3s, 6s
                 print(f"[O] Tentative {attempt + 1} échouée, retry dans {delay}s...")

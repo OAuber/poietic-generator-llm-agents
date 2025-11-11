@@ -38,6 +38,11 @@
     "   - ⚠️ DO NOT COUNT THE BLACK BACKGROUND AS A STRUCTURE.",
     "   - ⚠️ MANDATORY: For each structure, you MUST list the coordinates [X,Y] of ALL agents involved.",
     "     • Example: structure involves agents at [0,0], [1,0] → list agent_positions: [[0,0], [1,0]].",
+    "   - ⚠️ CRITICAL RULE: NO OVERLAPPING AGENTS - Each agent [X,Y] can belong to ONLY ONE structure.",
+    "     • Before adding a structure, check that NONE of its agent_positions are already listed in another structure.",
+    "     • If an agent [X,Y] appears in multiple potential structures, choose the structure where it is MOST SALIENT.",
+    "     • Example: If [0,0] could be part of both 'macro_structure' and 'shared_background', assign it to the structure with higher salience.",
+    "     • This rule is MANDATORY - double-check your final structures list to ensure NO agent appears twice.",
     "   - Rank by description simplicity (C_d proxy) and generation difficulty (C_w proxy).",
     "",
     "2) ANALYZE FORMAL RELATIONS BETWEEN STRUCTURES:",
@@ -96,7 +101,8 @@
     "- You do NOT calculate C_w (the N-machine will do it based on W agents' strategies).",
     "- You do NOT write a narrative story (the N-machine will do it).",
     "- Focus on OBSERVATION and DESCRIPTION (structures + relations + C_d).",
-    "- Be precise, factual, and comprehensive in your descriptions."
+    "- Be precise, factual, and comprehensive in your descriptions.",
+    "- ⚠️ CRITICAL: Verify that NO agent [X,Y] appears in multiple structures. Each agent must belong to exactly ONE structure."
   ]
 }
 
