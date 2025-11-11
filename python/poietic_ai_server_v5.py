@@ -563,9 +563,11 @@ async def periodic_on_task():
             continue
         
         # Vérifier obsolescence (agents déconnectés)
-        if store.is_stale(timeout_seconds=30):
+        # V5: Timeout plus long pour la phase initiale (seeds peuvent prendre du temps)
+        timeout_seconds = 60 if (store.updates_count or 0) < 5 else 30
+        if store.is_stale(timeout_seconds=timeout_seconds):
             if store.agents_count > 0:
-                print(f"[ON] Timeout détecté, agents considérés déconnectés")
+                print(f"[ON] Timeout détecté ({timeout_seconds}s), agents considérés déconnectés")
                 store.set_agents_count(0)
         
         if store.agents_count == 0:
@@ -574,11 +576,23 @@ async def periodic_on_task():
         
         # Warmup : attendre que les agents aient terminé leurs seeds
         now = datetime.now(timezone.utc)
-        warmup_delay = 25  # V5: Augmenter à 25s pour laisser temps aux seeds d'être visibles
-        min_updates = 4  # V5: Augmenter à 4 updates pour s'assurer que les seeds sont appliqués
+        warmup_delay = 30  # V5: Augmenter à 30s pour laisser temps aux seeds d'être visibles et appliqués
+        min_updates = 5  # V5: Augmenter à 5 updates pour s'assurer que les seeds sont bien appliqués
         if (store.updates_count or 0) < min_updates or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay):
             elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
             print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0}/{min_updates} updates)...")
+            continue
+        
+        # V5: Vérifier qu'il y a des données W disponibles (au moins 1 agent a fait une action)
+        # Pour la première analyse, on peut accepter 0 données W (seeds seulement)
+        # Mais pour les analyses suivantes, on veut s'assurer qu'il y a des données W récentes
+        w_data = w_store.get_all_agents_data()
+        if len(w_data) == 0 and store.latest is None:
+            # Première analyse : accepter même sans données W (seeds seulement)
+            pass
+        elif len(w_data) == 0 and store.latest is not None:
+            # Analyse suivante mais pas de données W : attendre
+            print(f"[ON] Aucune donnée W disponible, attente données agents...")
             continue
         
         # V5: Vérifier que l'image a été mise à jour récemment (dans les 15 dernières secondes)
@@ -591,8 +605,10 @@ async def periodic_on_task():
                 continue
         
         # Stabilisation : attendre que les agents aient fini d'envoyer leurs données
-        if store.last_update_time and (now - store.last_update_time).total_seconds() < 5.0:
-            print(f"[ON] Attente stabilisation ({(now - store.last_update_time).total_seconds():.1f}s)...")
+        # V5: Délai plus long pour la première analyse (seeds peuvent prendre du temps)
+        stabilization_delay = 8.0 if store.latest is None else 5.0
+        if store.last_update_time and (now - store.last_update_time).total_seconds() < stabilization_delay:
+            print(f"[ON] Attente stabilisation ({(now - store.last_update_time).total_seconds():.1f}s / {stabilization_delay}s)...")
             continue
         
         img_size = len(store.latest_image_base64) if store.latest_image_base64 else 0
