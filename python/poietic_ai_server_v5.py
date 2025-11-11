@@ -562,9 +562,23 @@ async def periodic_on_task():
             print("[ON] Pas d'image disponible, attente...")
             continue
         
-        # Vérifier obsolescence (agents déconnectés)
+        # Warmup : attendre que les agents aient terminé leurs seeds
+        now = datetime.now(timezone.utc)
+        warmup_delay = 30  # V5: Augmenter à 30s pour laisser temps aux seeds d'être visibles et appliqués
+        # V5: Réduire min_updates à 3 (2 agents peuvent ne pas atteindre 5 updates rapidement)
+        # Mais exiger au moins 2 updates par agent (donc min_updates = agents_count * 2, minimum 3)
+        min_updates = max(3, store.agents_count * 2) if store.agents_count > 0 else 3
+        is_warmup = (store.updates_count or 0) < min_updates or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay)
+        
+        if is_warmup:
+            elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
+            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0}/{min_updates} updates)...")
+            # V5: Ne pas marquer les agents déconnectés pendant le warmup
+            continue
+        
+        # Vérifier obsolescence (agents déconnectés) - seulement après le warmup
         # V5: Timeout plus long pour la phase initiale (seeds peuvent prendre du temps)
-        timeout_seconds = 60 if (store.updates_count or 0) < 5 else 30
+        timeout_seconds = 60 if (store.updates_count or 0) < 10 else 30
         if store.is_stale(timeout_seconds=timeout_seconds):
             if store.agents_count > 0:
                 print(f"[ON] Timeout détecté ({timeout_seconds}s), agents considérés déconnectés")
@@ -572,15 +586,6 @@ async def periodic_on_task():
         
         if store.agents_count == 0:
             print("[ON] Pas d'agents actifs, attente...")
-            continue
-        
-        # Warmup : attendre que les agents aient terminé leurs seeds
-        now = datetime.now(timezone.utc)
-        warmup_delay = 30  # V5: Augmenter à 30s pour laisser temps aux seeds d'être visibles et appliqués
-        min_updates = 5  # V5: Augmenter à 5 updates pour s'assurer que les seeds sont bien appliqués
-        if (store.updates_count or 0) < min_updates or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay):
-            elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
-            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0}/{min_updates} updates)...")
             continue
         
         # V5: Vérifier qu'il y a des données W disponibles (au moins 1 agent a fait une action)
@@ -595,13 +600,15 @@ async def periodic_on_task():
             print(f"[ON] Aucune donnée W disponible, attente données agents...")
             continue
         
-        # V5: Vérifier que l'image a été mise à jour récemment (dans les 15 dernières secondes)
-        # Sinon, c'est probablement une vieille image et on doit attendre
+        # V5: Vérifier que l'image a été mise à jour récemment
+        # Pendant le warmup ou la première analyse, être plus tolérant (30s)
+        # Sinon, 15s maximum
         image_age = 0
         if store.last_update_time:
             image_age = (now - store.last_update_time).total_seconds()
-            if image_age > 15:
-                print(f"[ON] Image trop ancienne ({image_age:.1f}s), attente mise à jour récente...")
+            max_image_age = 30.0 if store.latest is None else 15.0
+            if image_age > max_image_age:
+                print(f"[ON] Image trop ancienne ({image_age:.1f}s > {max_image_age}s), attente mise à jour récente...")
                 continue
         
         # Stabilisation : attendre que les agents aient fini d'envoyer leurs données
