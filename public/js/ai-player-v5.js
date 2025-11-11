@@ -22,8 +22,7 @@ class AIPlayerV5 {
 
     // Métriques pour graphiques
     this.oMetrics = { versions: [], C_w: [], C_d: [], U: [] };
-    this.wMetrics = { iterations: [], C_w: [], C_d: [], U: [] };
-    // V5: Métriques erreurs de prédiction
+    // V5: Métriques erreurs de prédiction (remplace graphique W-machine qui n'a plus de sens avec deltas)
     this.predictionMetrics = { iterations: [], my_error: [], mean_error: [], std_error: [] };
 
     // URLs
@@ -247,26 +246,6 @@ class AIPlayerV5 {
     this.drawOChart();
   }
 
-  updateWMetrics(C_w, C_d, U) {
-    const iter = this.iterationCount;
-    this.wMetrics.iterations.push(iter);
-    this.wMetrics.C_w.push(C_w);
-    this.wMetrics.C_d.push(C_d);
-    this.wMetrics.U.push(U);
-
-    // Mettre à jour l'affichage texte
-    const wIter = document.getElementById('w-iteration');
-    const wCw = document.getElementById('w-cw');
-    const wCd = document.getElementById('w-cd');
-    const wU = document.getElementById('w-u');
-    if (wIter) wIter.textContent = iter;
-    if (wCw) wCw.textContent = Math.round(C_w);
-    if (wCd) wCd.textContent = Math.round(C_d);
-    if (wU) wU.textContent = Math.round(U);
-
-    this.drawWChart();
-  }
-
   drawOChart() {
     const canvas = document.getElementById('simplicity-chart-o');
     if (!canvas) return;
@@ -292,40 +271,6 @@ class AIPlayerV5 {
     this.drawCurve(ctx, data.versions, data.C_w, scaleX, scaleY, height, '#4A90E2');
     this.drawCurve(ctx, data.versions, data.C_d, scaleX, scaleY, height, '#E24A4A');
     this.drawCurve(ctx, data.versions, data.U, scaleX, scaleY, height, '#4AE290');
-
-    ctx.strokeStyle = '#666';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, height - 10);
-    ctx.lineTo(width, height - 10);
-    ctx.stroke();
-  }
-
-  drawWChart() {
-    const canvas = document.getElementById('simplicity-chart-w');
-    if (!canvas) return;
-    if (!canvas.width || canvas.width === 0) canvas.width = canvas.offsetWidth || 400;
-    if (!canvas.height || canvas.height === 0) canvas.height = canvas.offsetHeight || 120;
-
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height);
-
-    const data = this.wMetrics;
-    if (!data.iterations || data.iterations.length === 0) return;
-
-    const allValues = [...data.C_w, ...data.C_d, ...data.U.map(u => Math.abs(u))];
-    const maxY = Math.max(...allValues, 1);
-    if (maxY === 0) return;
-
-    const numPoints = data.iterations.length;
-    const scaleX = numPoints > 1 ? width / (numPoints - 1) : width;
-    const scaleY = (height - 20) / maxY;
-
-    this.drawCurve(ctx, data.iterations, data.C_w, scaleX, scaleY, height, '#4A90E2');
-    this.drawCurve(ctx, data.iterations, data.C_d, scaleX, scaleY, height, '#E24A4A');
-    this.drawCurve(ctx, data.iterations, data.U, scaleX, scaleY, height, '#4AE290');
 
     ctx.strokeStyle = '#666';
     ctx.lineWidth = 1;
@@ -950,14 +895,12 @@ class AIPlayerV5 {
         // Store predictions for next time
         this.prevPredictions = parsed?.predictions || null;
 
-        // Log local metrics (W)
+        // Log local metrics (W) - V5: Plus de graphique W (remplacé par Prediction Errors)
         const CwBefore = ctx.C_w || 0, CdBefore = ctx.C_d || 0;
         const CwAfter = CwBefore + (deltas.deltaCwBits || 0);
         const CdAfter = Math.max(0, CdBefore - (deltas.deltaCdBits || 0));
         const UAfter = CwAfter - CdAfter;
-        this.log(`W metrics: before U=${(CwBefore-CdBefore)} after U'=${UAfter}`);
-        // Mettre à jour le graphique W
-        this.updateWMetrics(CwAfter, CdAfter, UAfter);
+        this.log(`W deltas: ΔC_w=${deltas.deltaCwBits || 0}, ΔC_d=${deltas.deltaCdBits || 0}, U'=${UAfter}`);
       }
 
       this.iterationCount++;

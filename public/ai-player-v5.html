@@ -395,14 +395,14 @@
 
                     <!-- Tab 2: Monitoring / Metrics -->
                     <div class="tab-panel" id="tab-monitoring">
-                        <!-- Simplicity Theory Metrics - V4: Double Graph (O and W) -->
+                        <!-- Simplicity Theory Metrics - V5: O-machine + Prediction Errors -->
                         <div class="section">
-                            <div class="section-title">Simplicity Theory Metrics (V4 - O/W)</div>
+                            <div class="section-title">Simplicity Theory Metrics (V5 - O-N-W)</div>
                             <div id="simplicity-metrics-container" style="background: #1a1a1a; padding: 10px; border-radius: 6px; font-family: monospace;">
                                 
-                                <!-- O-machine Graph (Server-side) -->
+                                <!-- O+N-machine Graph (Server-side) -->
                                 <div style="margin-bottom: 15px;">
-                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">O-machine (Observation/Narration)</h4>
+                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">O+N-machine (Observation + Narration)</h4>
                                     <canvas id="simplicity-chart-o" width="400" height="120" style="width: 100%; height: 120px;"></canvas>
                                     <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
                                         <span style="color: #4A90E2;">■</span> C_w
@@ -417,28 +417,14 @@
                                     </div>
                                 </div>
 
-                                <!-- W-machine Graph (Client-side) -->
-                                <div style="margin-bottom: 15px;">
-                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">W-machine (Action/Generation) [<span id="agent-position">0,0</span>]</h4>
-                                    <canvas id="simplicity-chart-w" width="400" height="120" style="width: 100%; height: 120px;"></canvas>
-                                    <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
-                                        <span style="color: #4A90E2;">■</span> C_w
-                                        <span style="color: #E24A4A;">■</span> C_d
-                                        <span style="color: #4AE290;">■</span> U
-                                    </div>
-                                    <div style="color: #888; font-size: 9px; margin-top: 3px;">
-                                        Iter: <span id="w-iteration">0</span> | 
-                                        C_w: <span id="w-cw">0</span> | 
-                                        C_d: <span id="w-cd">0</span> | 
-                                        U: <span id="w-u">0</span> | 
-                                        Error: <span id="prediction-error">0.00</span>
-                                    </div>
-                                </div>
-                                
-                                <!-- V5: Graphique erreurs de prédiction -->
+                                <!-- V5: Graphique erreurs de prédiction (remplace graphique W-machine) -->
                                 <div style="margin-bottom: 15px;">
                                     <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">Prediction Errors (V5: N-machine Evaluation)</h4>
-                                    <canvas id="predictionErrorChart" width="800" height="300" style="width: 100%; height: 300px;"></canvas>
+                                    <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
+                                        Agent [<span id="agent-position">0,0</span>] | 
+                                        My Error: <span id="prediction-error">0.00</span>
+                                    </div>
+                                    <canvas id="predictionErrorChart" width="800" height="400" style="width: 100%; height: 400px;"></canvas>
                                     <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
                                         <span style="color: #007bff; font-weight: bold;">●</span> My Error
                                         <span style="margin-left: 12px; color: #28a745; font-weight: bold;">●</span> Mean Error
