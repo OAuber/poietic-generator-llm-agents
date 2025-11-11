@@ -1,5 +1,3 @@
-import { SimplicityMetrics } from './simplicity-metrics.js';
-
 class AIPlayerV5 {
   constructor() {
     this.isRunning = false;
@@ -843,20 +841,17 @@ class AIPlayerV5 {
           // Continuer avec pixels vides (l'itération sera ignorée mais on incrémente quand même)
         }
 
-        // Prediction error (if observation narrative exists)
-        const prevPred = this.prevPredictions?.collective_after_prediction || '';
-        const narrativeNow = this.Osnapshot?.narrative?.summary || '';
-        const err = SimplicityMetrics.predictionError(prevPred, narrativeNow);
-        if (this.elements.predError) this.elements.predError.textContent = err.toFixed(2);
+        // V5: Erreur de prédiction vient de N-machine (déjà dans this.myPredictionError)
+        if (this.elements.predError) {
+          this.elements.predError.textContent = (this.myPredictionError || 0).toFixed(2);
+        }
 
-        // Estimate deltas
-        const deltas = SimplicityMetrics.estimateDeltaBits({
-          strategy: parsed?.strategy,
-          inStructure: true, // placeholder, à améliorer avec structures O
-          colorCohesion: true,
-          symmetry: false,
-          anchors: 1
-        });
+        // V5: Deltas viennent directement de Gemini W (parsed.delta_complexity)
+        const deltas = parsed?.delta_complexity || {
+          delta_C_w_bits: 0,
+          delta_C_d_bits: 0,
+          U_after_expected: 0
+        };
 
         // Execute pixels (la promesse se résout quand tous les pixels sont envoyés)
         await this.executePixels(pixelsToExecute);
@@ -897,10 +892,10 @@ class AIPlayerV5 {
 
         // Log local metrics (W) - V5: Plus de graphique W (remplacé par Prediction Errors)
         const CwBefore = ctx.C_w || 0, CdBefore = ctx.C_d || 0;
-        const CwAfter = CwBefore + (deltas.deltaCwBits || 0);
-        const CdAfter = Math.max(0, CdBefore - (deltas.deltaCdBits || 0));
+        const CwAfter = CwBefore + (deltas.delta_C_w_bits || 0);
+        const CdAfter = Math.max(0, CdBefore - (deltas.delta_C_d_bits || 0));
         const UAfter = CwAfter - CdAfter;
-        this.log(`W deltas: ΔC_w=${deltas.deltaCwBits || 0}, ΔC_d=${deltas.deltaCdBits || 0}, U'=${UAfter}`);
+        this.log(`W deltas: ΔC_w=${deltas.delta_C_w_bits || 0}, ΔC_d=${deltas.delta_C_d_bits || 0}, U'=${UAfter}`);
       }
 
       this.iterationCount++;
