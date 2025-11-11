@@ -33,6 +33,9 @@ class AIPlayerV5 {
     this.WS_URL = `${WS_PROTOCOL}//${WS_HOST}/updates?type=bot`;
     // V5: O-N-machine server on port 8005
     this.O_API_BASE = loc.origin.replace(/:\d+$/, ':8005');
+    // V5: Metrics server on port 5005
+    this.METRICS_WS_URL = `${WS_PROTOCOL}//${WS_HOST.replace(/:\d+$/, '')}:5005/metrics`;
+    this.metricsSocket = null;
 
     this.elements = {
       apiKey: document.getElementById('api-key'),
@@ -353,6 +356,8 @@ class AIPlayerV5 {
         this.elements.btnStart.textContent = '■ Stop';
         try {
           await this.connectWebSocket();
+          // V5: Connexion au serveur de métriques
+          this.connectMetricsServer();
         } catch (e) {
           this.log('WS error:', e?.message || e);
           this.isRunning = false;
@@ -1030,6 +1035,80 @@ class AIPlayerV5 {
     } catch(e) {
       console.error('[V5] Erreur envoi données W à N:', e);
     }
+    
+    // V5: Envoyer aussi les deltas au serveur de métriques
+    if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN && parsed?.delta_complexity) {
+      try {
+        this.metricsSocket.send(JSON.stringify({
+          type: 'agent_update',
+          user_id: agentId,
+          position: this.myPosition,
+          delta_C_w: parsed.delta_complexity.delta_C_w_bits || 0,
+          delta_C_d: parsed.delta_complexity.delta_C_d_bits || 0,
+          U_after_expected: parsed.delta_complexity.U_after_expected || 0,
+          prediction_error: this.myPredictionError || 0,
+          strategy: parsed?.strategy || 'N/A'
+        }));
+      } catch(e) {
+        console.error('[V5] Erreur envoi métriques:', e);
+      }
+    }
+  }
+  
+  // === V5: Connexion serveur de métriques ===
+  connectMetricsServer() {
+    if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN) {
+      return; // Déjà connecté
+    }
+    
+    try {
+      this.metricsSocket = new WebSocket(this.METRICS_WS_URL);
+      
+      this.metricsSocket.onopen = () => {
+        console.log('[V5] ✅ Connecté au serveur de métriques');
+        // Demander l'état actuel
+        this.metricsSocket.send(JSON.stringify({ type: 'get_state' }));
+      };
+      
+      this.metricsSocket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'state_update' && msg.data) {
+            // Mettre à jour l'affichage avec les métriques agrégées
+            this.updateMetricsDisplay(msg.data);
+          } else if (msg.type === 'o_snapshot_update' || msg.type === 'n_snapshot_update') {
+            // Snapshots O/N mis à jour (pour info)
+            console.log(`[V5] ${msg.type}:`, msg.data);
+          }
+        } catch(e) {
+          console.error('[V5] Erreur parsing métriques:', e);
+        }
+      };
+      
+      this.metricsSocket.onerror = (error) => {
+        console.warn('[V5] Erreur WebSocket métriques:', error);
+      };
+      
+      this.metricsSocket.onclose = () => {
+        console.log('[V5] Déconnecté du serveur de métriques, reconnexion dans 5s...');
+        setTimeout(() => this.connectMetricsServer(), 5000);
+      };
+    } catch(e) {
+      console.error('[V5] Erreur connexion métriques:', e);
+    }
+  }
+  
+  // === V5: Mise à jour affichage métriques agrégées ===
+  updateMetricsDisplay(data) {
+    if (!data.averages) return;
+    
+    const avg = data.averages;
+    // Afficher les métriques agrégées dans l'UI (si éléments existent)
+    // Pour l'instant, on log juste
+    if (avg.std_prediction_error !== undefined) {
+      // L'écart-type est déjà calculé côté serveur et inclus dans les métriques
+      // On peut l'afficher dans l'UI si nécessaire
+    }
   }
   
   // === V5: Mise à jour métriques erreurs prédiction ===
@@ -1086,9 +1165,9 @@ class AIPlayerV5 {
     ctx.lineTo(w - pad, h - pad);
     ctx.stroke();
     
-    // Labels
+    // Labels (typos plus grandes)
     ctx.fillStyle = '#666';
-    ctx.font = '12px monospace';
+    ctx.font = '14px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('Iteration', w / 2, h - 10);
     ctx.save();
