@@ -574,11 +574,21 @@ async def periodic_on_task():
         
         # Warmup : attendre que les agents aient terminé leurs seeds
         now = datetime.now(timezone.utc)
-        warmup_delay = 20  # V5: Augmenter à 20s pour laisser temps aux seeds
-        if (store.updates_count or 0) < 3 or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay):
+        warmup_delay = 25  # V5: Augmenter à 25s pour laisser temps aux seeds d'être visibles
+        min_updates = 4  # V5: Augmenter à 4 updates pour s'assurer que les seeds sont appliqués
+        if (store.updates_count or 0) < min_updates or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay):
             elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
-            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0} updates)...")
+            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0}/{min_updates} updates)...")
             continue
+        
+        # V5: Vérifier que l'image a été mise à jour récemment (dans les 15 dernières secondes)
+        # Sinon, c'est probablement une vieille image et on doit attendre
+        image_age = 0
+        if store.last_update_time:
+            image_age = (now - store.last_update_time).total_seconds()
+            if image_age > 15:
+                print(f"[ON] Image trop ancienne ({image_age:.1f}s), attente mise à jour récente...")
+                continue
         
         # Stabilisation : attendre que les agents aient fini d'envoyer leurs données
         if store.last_update_time and (now - store.last_update_time).total_seconds() < 5.0:
@@ -586,7 +596,13 @@ async def periodic_on_task():
             continue
         
         img_size = len(store.latest_image_base64) if store.latest_image_base64 else 0
-        print(f"[ON] Analyse avec Gemini ({store.agents_count} agents, image: {img_size} bytes)...")
+        # V5: Vérifier taille minimale d'image (éviter images vides ou trop petites)
+        min_image_size = 1000  # 1KB minimum (une image 20x20 avec quelques pixels devrait faire ~2-5KB)
+        if img_size < min_image_size:
+            print(f"[ON] Image trop petite ({img_size} bytes < {min_image_size} bytes), attente image valide...")
+            continue
+        
+        print(f"[ON] Analyse avec Gemini ({store.agents_count} agents, image: {img_size} bytes, age: {image_age:.1f}s)...")
         
         # Nettoyer agents W obsolètes
         w_store.clear_stale_agents(timeout=30)
