@@ -139,8 +139,7 @@ class AIPlayerV5 {
         `📖 N-MACHINE (Narration)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `\n📚 NARRATIVE\n${narrative.summary || 'N/A'}\n` +
-        `\n📊 C_w (Generation Complexity): ${s.C_w_current?.value ?? 'N/A'} bits\n` +
-        `Rationale: ${s.C_w_current?.rationale || 'N/A'}\n`;
+        `\n📊 C_w (Generation Complexity): ${s.C_w_current?.value ?? 'N/A'} bits\n`;
       
       const errorEntries = Object.entries(prediction_errors);
       if (errorEntries.length > 0) {

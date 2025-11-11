@@ -481,7 +481,7 @@ async def periodic_on_task():
                     'narrative': {'summary': 'Waiting for first O+N analysis...'},
                     'prediction_errors': {},
                     'simplicity_assessment': {
-                        'C_w_current': {'value': 0, 'rationale': 'Waiting for first analysis'},
+                        'C_w_current': {'value': 0},
                         'C_d_current': {'value': 0, 'description': 'Waiting for first analysis'},
                         'U_current': {'value': 0, 'interpretation': 'WEAK_EMERGENCE'},
                         'reasoning_o': 'Waiting for first O analysis...',
@@ -522,7 +522,7 @@ async def periodic_on_task():
                     'narrative': store.latest.get('narrative', {'summary': 'Previous narrative preserved'}),
                     'prediction_errors': store.latest.get('prediction_errors', {}),
                     'simplicity_assessment': {
-                        'C_w_current': store.latest['simplicity_assessment'].get('C_w_current', {'value': 15, 'rationale': 'Preserved from previous snapshot'}),
+                        'C_w_current': store.latest['simplicity_assessment'].get('C_w_current', {'value': 15}),
                         'reasoning': store.latest['simplicity_assessment'].get('reasoning_n', 'Preserved from previous N analysis')
                     }
                 }
@@ -533,8 +533,8 @@ async def periodic_on_task():
                     'narrative': {'summary': 'First N analysis pending. Agents are initializing their strategies.'},
                     'prediction_errors': {},
                     'simplicity_assessment': {
-                        'C_w_current': {'value': 15, 'rationale': 'Default: canvas initialization + basic seed parameters'},
-                        'reasoning': 'Default C_w for initial setup. Waiting for first agent strategies to evaluate.'
+                        'C_w_current': {'value': 15},
+                        'reasoning': 'Default C_w for initial setup (canvas initialization + basic seed parameters). Waiting for first agent strategies to evaluate.'
                     }
                 }
         
