@@ -22,23 +22,35 @@ app.add_middleware(
 )
 
 class GlobalSimplicityTrackerV5:
+    """
+    Tracker global pour métriques V5 (Architecture O-N-W)
+    
+    Stocke:
+    - Agents W: deltas (ΔC_w, ΔC_d, U_after_expected), erreurs prédiction, stratégies
+    - Snapshots O: structures, C_d, relations formelles
+    - Snapshots N: narrative, C_w, erreurs prédiction (avec écart-type = fragmentation narrative)
+    
+    Calcule:
+    - Moyennes des deltas agents W
+    - Moyenne et écart-type des erreurs de prédiction (fragmentation narrative)
+    """
     def __init__(self):
         self.agents: Dict[str, dict] = {}
         self.update_count = 0
         self.history = []
         self.o_snapshots = []  # Historique snapshots O (structures, C_d)
-        self.n_snapshots = []  # Historique snapshots N (narrative, C_w, erreurs)
+        self.n_snapshots = []  # Historique snapshots N (narrative, C_w, erreurs avec std)
     
     def update_agent(self, user_id: str, position: List[int], 
-                     C_w: float, C_d: float, U: float, 
+                     delta_C_w: float, delta_C_d: float, U_after_expected: float, 
                      prediction_error: Optional[float] = None, 
                      strategy: Optional[str] = None):
-        """Update agent with simplicity assessments and prediction error"""
+        """Update agent with deltas (ΔC_w, ΔC_d, U_after_expected) and prediction error"""
         self.agents[user_id] = {
             'position': position,
-            'C_w': C_w,
-            'C_d': C_d,
-            'U': U,
+            'delta_C_w': delta_C_w,  # V5: Delta, pas valeur absolue
+            'delta_C_d': delta_C_d,  # V5: Delta, pas valeur absolue
+            'U_after_expected': U_after_expected,  # V5: U attendu après action
             'prediction_error': prediction_error if prediction_error is not None else 0.0,
             'strategy': strategy or 'N/A',
             'timestamp': datetime.now().isoformat()
@@ -63,13 +75,21 @@ class GlobalSimplicityTrackerV5:
         errors = snapshot.get('prediction_errors', {})
         error_values = [e.get('error', 0) for e in errors.values() if isinstance(e, dict)]
         
+        # Calcul moyenne et écart-type
+        mean_error = sum(error_values) / len(error_values) if error_values else 0.0
+        std_error = 0.0
+        if len(error_values) > 1:
+            variance = sum([(e - mean_error) ** 2 for e in error_values]) / len(error_values)
+            std_error = variance ** 0.5
+        
         self.n_snapshots.append({
             'timestamp': datetime.now().isoformat(),
             'version': snapshot.get('version', 0),
             'C_w': snapshot.get('simplicity_assessment', {}).get('C_w_current', {}).get('value', 0),
             'narrative_length': len(snapshot.get('narrative', {}).get('summary', '')),
             'agents_count': len(errors),
-            'mean_prediction_error': sum(error_values) / len(error_values) if error_values else 0.0,
+            'mean_prediction_error': mean_error,
+            'std_prediction_error': std_error,  # V5: Écart-type (fragmentation narrative)
             'max_prediction_error': max(error_values) if error_values else 0.0,
             'min_prediction_error': min(error_values) if error_values else 0.0
         })
@@ -82,29 +102,39 @@ class GlobalSimplicityTrackerV5:
             del self.agents[user_id]
     
     def calculate_average_metrics(self):
-        """Calculate average C_w, C_d, U, prediction_error across all agents"""
+        """Calculate average deltas (ΔC_w, ΔC_d, U_after_expected), prediction_error, and std_dev of prediction errors"""
         if not self.agents:
             return None
         
         agent_list = list(self.agents.values())
         
-        # Calcul moyennes (excluant valeurs nulles)
-        non_zero_cw = [a['C_w'] for a in agent_list if a['C_w'] > 0]
-        non_zero_cd = [a['C_d'] for a in agent_list if a['C_d'] > 0]
-        non_zero_u = [a['U'] for a in agent_list if a['U'] != 0]
-        prediction_errors = [a['prediction_error'] for a in agent_list if a['prediction_error'] > 0]
+        # V5: Calcul moyennes des DELTAS (pas valeurs absolues)
+        delta_cw_values = [a.get('delta_C_w', 0) for a in agent_list]
+        delta_cd_values = [a.get('delta_C_d', 0) for a in agent_list]
+        u_after_values = [a.get('U_after_expected', 0) for a in agent_list]
+        prediction_errors = [a.get('prediction_error', 0) for a in agent_list if a.get('prediction_error', 0) >= 0]
         
-        avg_cw = sum(non_zero_cw) / len(non_zero_cw) if non_zero_cw else 0
-        avg_cd = sum(non_zero_cd) / len(non_zero_cd) if non_zero_cd else 0
-        avg_u = sum(non_zero_u) / len(non_zero_u) if non_zero_u else 0
+        # Moyennes
+        avg_delta_cw = sum(delta_cw_values) / len(delta_cw_values) if delta_cw_values else 0
+        avg_delta_cd = sum(delta_cd_values) / len(delta_cd_values) if delta_cd_values else 0
+        avg_u_after = sum(u_after_values) / len(u_after_values) if u_after_values else 0
         avg_error = sum(prediction_errors) / len(prediction_errors) if prediction_errors else 0
+        
+        # V5: Écart-type des erreurs de prédiction (mesure fragmentation narrative)
+        # Un écart-type élevé = agents ont des visions divergentes de l'évolution du canvas
+        # Un écart-type faible = agents ont une vision cohérente (narrative unifiée)
+        std_error = 0.0
+        if len(prediction_errors) > 1:
+            variance = sum([(e - avg_error) ** 2 for e in prediction_errors]) / len(prediction_errors)
+            std_error = variance ** 0.5
         
         return {
             'agents_count': len(self.agents),
-            'avg_C_w': round(avg_cw, 2),
-            'avg_C_d': round(avg_cd, 2),
-            'avg_U': round(avg_u, 2),
+            'avg_delta_C_w': round(avg_delta_cw, 2),  # V5: Moyenne des deltas
+            'avg_delta_C_d': round(avg_delta_cd, 2),  # V5: Moyenne des deltas
+            'avg_U_after_expected': round(avg_u_after, 2),  # V5: Moyenne U attendu
             'avg_prediction_error': round(avg_error, 3),
+            'std_prediction_error': round(std_error, 3),  # V5: Écart-type (fragmentation narrative)
             'timestamp': datetime.now().isoformat()
         }
     
@@ -151,16 +181,16 @@ async def metrics_endpoint(websocket: WebSocket):
             msg_type = msg.get('type')
             
             if msg_type == 'agent_update':
-                # Mise à jour agent W
+                # Mise à jour agent W (V5: deltas au lieu de valeurs absolues)
                 user_id = msg.get('user_id')
                 position = msg.get('position', [0, 0])
-                C_w = msg.get('C_w', 0)
-                C_d = msg.get('C_d', 0)
-                U = msg.get('U', 0)
+                delta_C_w = msg.get('delta_C_w', 0)  # V5: Delta, pas valeur absolue
+                delta_C_d = msg.get('delta_C_d', 0)  # V5: Delta, pas valeur absolue
+                U_after_expected = msg.get('U_after_expected', 0)  # V5: U attendu après action
                 prediction_error = msg.get('prediction_error')
                 strategy = msg.get('strategy')
                 
-                tracker.update_agent(user_id, position, C_w, C_d, U, prediction_error, strategy)
+                tracker.update_agent(user_id, position, delta_C_w, delta_C_d, U_after_expected, prediction_error, strategy)
                 tracker.record_history()
                 
                 # Broadcast state to all connected clients
