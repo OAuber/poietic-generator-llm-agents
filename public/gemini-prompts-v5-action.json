@@ -41,6 +41,7 @@
     "💡 KEY PRINCIPLE:",
     "- The goal is to MAXIMIZE the GAP between C_w (high) and C_d (low).",
     "- Recognizable, meaningful forms achieve this: COMPLEX to generate (high C_w) but SIMPLE to describe (low C_d).",
+    "- ⚠️ CENTERED STRUCTURES: Simple centered compositions have low C_d BUT also low C_w → low U. Exception: PERSPECTIVE (vanishing point, foreshortening) → high C_w, low C_d → high U.",
     "",
     "📈 STRATEGIES TO INCREASE C_w (Generation Complexity):",
     "- Add layers, gradients, textures, or internal details to existing patterns (+2-5 bits)",
