@@ -491,6 +491,15 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
             result = parse_json_robust(text, "[N]")
             if result:
                 print(f"[N] ✅ Gemini N réussi (longueur réponse: {len(text)} chars, thoughts: {data.get('usageMetadata', {}).get('thoughtsTokenCount', 0)} tokens)")
+                # Log aperçu des erreurs de prédiction retournées
+                pred_errors = result.get('prediction_errors', {})
+                if isinstance(pred_errors, dict):
+                    print(f"[N] 📊 Erreurs de prédiction retournées par Gemini: {len(pred_errors)} agents")
+                    for agent_id, err in list(pred_errors.items())[:3]:  # Max 3 pour lisibilité
+                        err_val = err.get('error', 'N/A') if isinstance(err, dict) else 'N/A'
+                        print(f"[N]    → Agent {agent_id[:8]}: error={err_val}")
+                else:
+                    print(f"[N] ⚠️  prediction_errors n'est pas un dict: {type(pred_errors)}")
             else:
                 print(f"[N] ❌ Parsing JSON échoué")
             return result
@@ -729,8 +738,10 @@ async def periodic_on_task():
                 # V5: Valider que tous les agents W actifs ont une erreur de prédiction
                 prediction_errors = n_result.get('prediction_errors', {})
                 if not isinstance(prediction_errors, dict):
-                    print(f"[N] ⚠️  prediction_errors n'est pas un dict, conversion...")
+                    print(f"[N] ⚠️  prediction_errors n'est pas un dict (type: {type(prediction_errors)}), conversion...")
                     prediction_errors = {}
+                
+                print(f"[N] 🔍 Validation: {len(w_data)} agents W actifs, {len(prediction_errors)} erreurs retournées par Gemini")
                 
                 missing_agents = []
                 invalid_agents = []
@@ -738,13 +749,16 @@ async def periodic_on_task():
                 for agent_id in w_data.keys():
                     if agent_id not in prediction_errors:
                         missing_agents.append(agent_id)
+                        print(f"[N]    ⚠️  Agent {agent_id[:8]} manquant dans prediction_errors")
                     else:
                         # Vérifier que l'erreur est valide (a 'error' et 'explanation')
                         err_data = prediction_errors[agent_id]
                         if not isinstance(err_data, dict):
                             invalid_agents.append(agent_id)
+                            print(f"[N]    ⚠️  Agent {agent_id[:8]}: erreur n'est pas un dict (type: {type(err_data)})")
                         elif 'error' not in err_data or 'explanation' not in err_data:
                             invalid_agents.append(agent_id)
+                            print(f"[N]    ⚠️  Agent {agent_id[:8]}: erreur manque 'error' ou 'explanation' (keys: {list(err_data.keys())})")
                         elif not err_data.get('explanation') or err_data.get('explanation', '').strip() == '':
                             # Erreur existe mais explication vide
                             err_data['explanation'] = 'Prediction error calculated but no explanation provided'
@@ -775,11 +789,12 @@ async def periodic_on_task():
                 
                 n_result['prediction_errors'] = prediction_errors
                 
-                # Log résumé des erreurs
-                if prediction_errors:
-                    print(f"[N] ✅ Erreurs de prédiction validées: {len(prediction_errors)} agents")
-                    for agent_id, err in list(prediction_errors.items())[:3]:  # Max 3 pour lisibilité
-                        print(f"[N]    → Agent {agent_id[:8]}: error={err.get('error', 0):.2f}, explanation={err.get('explanation', 'N/A')[:50]}...")
+                # Log résumé final des erreurs
+                print(f"[N] ✅ Erreurs de prédiction validées: {len(prediction_errors)} agents (attendu: {len(w_data)})")
+                for agent_id, err in list(prediction_errors.items())[:5]:  # Max 5 pour lisibilité
+                    err_val = err.get('error', 0) if isinstance(err, dict) else 0
+                    err_exp = err.get('explanation', 'N/A') if isinstance(err, dict) else 'N/A'
+                    print(f"[N]    → Agent {agent_id[:8]}: error={err_val:.2f}, explanation={err_exp[:60]}...")
                 
                 break
             if attempt < 2:

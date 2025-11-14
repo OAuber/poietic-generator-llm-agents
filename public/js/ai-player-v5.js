@@ -801,22 +801,37 @@ class AIPlayerV5 {
         this.lastOVersionSeen = currentOVersion;
         
         // V5: Afficher le snapshot O+N dans Verbatim (séparé O et N)
+        // IMPORTANT: Récupérer snapshot complet (sans agent_id) pour avoir toutes les erreurs de prédiction
         if (this.Osnapshot) {
+          // Récupérer snapshot complet pour affichage verbatim (toutes les erreurs)
+          let fullSnapshot = this.Osnapshot;
+          // Si snapshot personnalisé (avec agent_id), récupérer version complète
+          if (this.Osnapshot.prediction_errors && Object.keys(this.Osnapshot.prediction_errors).length === 1) {
+            try {
+              const fullRes = await fetch(`${this.O_API_BASE}/o/latest`);
+              if (fullRes.ok) {
+                fullSnapshot = await fullRes.json();
+              }
+            } catch (_) {
+              // En cas d'erreur, utiliser snapshot personnalisé
+            }
+          }
+          
           // Extraire et afficher O et N séparément
           const oData = {
-            structures: this.Osnapshot.structures,
-            formal_relations: this.Osnapshot.formal_relations,
+            structures: fullSnapshot.structures,
+            formal_relations: fullSnapshot.formal_relations,
             simplicity_assessment: {
-              C_d_current: this.Osnapshot.simplicity_assessment?.C_d_current,
-              reasoning: this.Osnapshot.simplicity_assessment?.reasoning_o || this.Osnapshot.simplicity_assessment?.reasoning
+              C_d_current: fullSnapshot.simplicity_assessment?.C_d_current,
+              reasoning: fullSnapshot.simplicity_assessment?.reasoning_o || fullSnapshot.simplicity_assessment?.reasoning
             }
           };
           const nData = {
-            narrative: this.Osnapshot.narrative,
-            prediction_errors: this.Osnapshot.prediction_errors,
+            narrative: fullSnapshot.narrative,
+            prediction_errors: fullSnapshot.prediction_errors || {},
             simplicity_assessment: {
-              C_w_current: this.Osnapshot.simplicity_assessment?.C_w_current,
-              reasoning: this.Osnapshot.simplicity_assessment?.reasoning_n
+              C_w_current: fullSnapshot.simplicity_assessment?.C_w_current,
+              reasoning: fullSnapshot.simplicity_assessment?.reasoning_n
             }
           };
           
