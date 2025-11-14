@@ -440,7 +440,9 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         prompt = prompt.replace('{{w_agents_data}}', w_json)
         # Log aperçu des données W injectées
         for agent_id, data in list(w_agents_data.items())[:3]:  # Max 3 agents pour lisibilité
-            print(f"[N]    → Agent {agent_id[:8]}: strategy={data.get('strategy', 'N/A')}, iter={data.get('iteration', 'N/A')}")
+            has_prev_pred = bool(data.get('previous_predictions'))
+            has_pred = bool(data.get('predictions'))
+            print(f"[N]    → Agent {agent_id[:8]}: strategy={data.get('strategy', 'N/A')}, iter={data.get('iteration', 'N/A')}, has_prev_pred={has_prev_pred}, has_pred={has_pred}")
         
         # Injecter snapshot précédent (si disponible)
         if previous_combined:
