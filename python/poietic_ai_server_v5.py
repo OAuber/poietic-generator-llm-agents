@@ -62,17 +62,24 @@ class WAgentDataStore:
         
         for agent_id, data in self.agents_data.items():
             timestamp_str = data.get('timestamp', '')
+            iteration = data.get('iteration', -1)
             try:
                 agent_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 delta = (now - agent_time).total_seconds()
-                if delta > timeout:
+                # CRITIQUE: Ne pas supprimer les agents qui ont fait un seed (iteration 0) mais pas encore d'action
+                # car on a besoin de leurs prédictions pour évaluer l'erreur de prédiction de leur première action
+                # Timeout plus long pour les seeds (120s) car ils peuvent prendre du temps avant première action
+                seed_timeout = 120 if iteration == 0 else timeout
+                if delta > seed_timeout:
                     stale_agents.append(agent_id)
             except:
                 pass
         
         for agent_id in stale_agents:
+            iteration = self.agents_data.get(agent_id, {}).get('iteration', -1)
             del self.agents_data[agent_id]
-            print(f"[W] Agent {agent_id} supprimé (inactif > {timeout}s)")
+            timeout_used = 120 if iteration == 0 else timeout
+            print(f"[W] Agent {agent_id} supprimé (inactif > {timeout_used}s, iter={iteration})")
     
     def all_agents_finished(self, quiescence_delay=5.0):
         """
