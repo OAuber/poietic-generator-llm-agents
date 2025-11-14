@@ -790,9 +790,25 @@ class AIPlayerV5 {
         const currentOVersion = this.Osnapshot?.version ?? -1;
         
         // Exception : pour la première action (itération 1), accepter le snapshot disponible
-        // même si la version n'a pas changé depuis le seed, car O peut ne pas avoir encore
-        // généré de nouveau snapshot après le seed du client
+        // MAIS seulement s'il est valide (non vide, non pending)
         const isFirstAction = this.iterationCount === 1;
+        
+        // CRITIQUE : Vérifier que le snapshot est valide (non vide, non pending)
+        const isSnapshotValid = this.Osnapshot && 
+          !this.Osnapshot._pending &&
+          this.Osnapshot.structures &&
+          Array.isArray(this.Osnapshot.structures) &&
+          (this.Osnapshot.structures.length > 0 || 
+           (this.Osnapshot.simplicity_assessment?.C_d_current?.description && 
+            this.Osnapshot.simplicity_assessment.C_d_current.description !== 'N/A' &&
+            this.Osnapshot.simplicity_assessment.C_d_current.description !== 'Waiting for first analysis...'));
+        
+        if (!isSnapshotValid) {
+          // Snapshot invalide (vide, pending, ou N/A) - attendre un snapshot valide
+          this.log(`Snapshot invalide (pending=${this.Osnapshot?._pending}, structures=${this.Osnapshot?.structures?.length || 0}, description=${this.Osnapshot?.simplicity_assessment?.C_d_current?.description?.substring(0, 30) || 'N/A'}) - attente snapshot valide...`);
+          await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
+          continue; // Passer à l'itération suivante sans appeler Gemini
+        }
         
         // CRITIQUE : Vérifier que le snapshot est POSTÉRIEUR à la dernière action
         // (pas juste à la dernière version vue, mais à la version disponible lors de la dernière action)
@@ -809,7 +825,7 @@ class AIPlayerV5 {
         this._waitAttempts = 0;
         // Mettre à jour la version vue
         if (isFirstAction) {
-          this.log(`Première action (itération 1) : utilisation snapshot disponible (version ${currentOVersion})`);
+          this.log(`Première action (itération 1) : snapshot valide détecté (version ${currentOVersion}, ${this.Osnapshot.structures.length} structures)`);
         } else {
           this.log(`Nouveau snapshot O détecté (version ${currentOVersion} > ${this.lastOVersionAtAction}), action autorisée`);
         }
