@@ -293,5 +293,5 @@ if __name__ == "__main__":
     print("   State: http://localhost:5005/state")
     print("   O History: http://localhost:5005/o-history")
     print("   N History: http://localhost:5005/n-history")
-    uvicorn.run(app, host="0.0.0.0", port=5005, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=5005, log_level="info", access_log=False)
 
