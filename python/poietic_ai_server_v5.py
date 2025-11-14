@@ -726,6 +726,61 @@ async def periodic_on_task():
         for attempt in range(3):  # Augmenter à 3 tentatives
             n_result = await call_gemini_n(o_result, w_data, store.latest)
             if n_result:
+                # V5: Valider que tous les agents W actifs ont une erreur de prédiction
+                prediction_errors = n_result.get('prediction_errors', {})
+                if not isinstance(prediction_errors, dict):
+                    print(f"[N] ⚠️  prediction_errors n'est pas un dict, conversion...")
+                    prediction_errors = {}
+                
+                missing_agents = []
+                invalid_agents = []
+                
+                for agent_id in w_data.keys():
+                    if agent_id not in prediction_errors:
+                        missing_agents.append(agent_id)
+                    else:
+                        # Vérifier que l'erreur est valide (a 'error' et 'explanation')
+                        err_data = prediction_errors[agent_id]
+                        if not isinstance(err_data, dict):
+                            invalid_agents.append(agent_id)
+                        elif 'error' not in err_data or 'explanation' not in err_data:
+                            invalid_agents.append(agent_id)
+                        elif not err_data.get('explanation') or err_data.get('explanation', '').strip() == '':
+                            # Erreur existe mais explication vide
+                            err_data['explanation'] = 'Prediction error calculated but no explanation provided'
+                            print(f"[N]    → Agent {agent_id[:8]}: explication vide, ajout message par défaut")
+                
+                if missing_agents:
+                    print(f"[N] ⚠️  Agents sans erreur de prédiction: {len(missing_agents)} agents")
+                    for agent_id in missing_agents:
+                        # Ajouter erreur par défaut pour agents manquants
+                        prediction_errors[agent_id] = {
+                            'error': 0.0,
+                            'explanation': 'No previous prediction available (first action or no prediction data)'
+                        }
+                        print(f"[N]    → Agent {agent_id[:8]}: ajout erreur par défaut (0.0)")
+                
+                if invalid_agents:
+                    print(f"[N] ⚠️  Agents avec format d'erreur invalide: {len(invalid_agents)} agents")
+                    for agent_id in invalid_agents:
+                        # Corriger format invalide
+                        err_data = prediction_errors.get(agent_id, {})
+                        if not isinstance(err_data, dict):
+                            err_data = {}
+                        prediction_errors[agent_id] = {
+                            'error': err_data.get('error', 0.0) if isinstance(err_data.get('error'), (int, float)) else 0.0,
+                            'explanation': err_data.get('explanation', 'Invalid error format, defaulted to 0.0') if isinstance(err_data.get('explanation'), str) else 'Invalid error format, defaulted to 0.0'
+                        }
+                        print(f"[N]    → Agent {agent_id[:8]}: correction format erreur")
+                
+                n_result['prediction_errors'] = prediction_errors
+                
+                # Log résumé des erreurs
+                if prediction_errors:
+                    print(f"[N] ✅ Erreurs de prédiction validées: {len(prediction_errors)} agents")
+                    for agent_id, err in list(prediction_errors.items())[:3]:  # Max 3 pour lisibilité
+                        print(f"[N]    → Agent {agent_id[:8]}: error={err.get('error', 0):.2f}, explanation={err.get('explanation', 'N/A')[:50]}...")
+                
                 break
             if attempt < 2:
                 delay = 3 * (attempt + 1)  # Délai progressif: 3s, 6s
@@ -838,10 +893,19 @@ async def get_latest_o(agent_id: Optional[str] = Query(None)):
     
     # Personnaliser si agent_id fourni
     if agent_id:
+        # Récupérer l'erreur de prédiction pour cet agent, ou utiliser valeur par défaut
+        all_errors = snapshot.get('prediction_errors', {})
+        agent_error = all_errors.get(agent_id)
+        if not agent_error:
+            # Pas d'erreur pour cet agent : utiliser valeur par défaut
+            agent_error = {
+                'error': 0.0,
+                'explanation': 'No previous prediction available (first action or no prediction data)'
+            }
         personalized = {
             **snapshot,
             'prediction_errors': {
-                agent_id: snapshot.get('prediction_errors', {}).get(agent_id, {'error': 0, 'explanation': 'No data available'})
+                agent_id: agent_error
             }
         }
         return personalized
