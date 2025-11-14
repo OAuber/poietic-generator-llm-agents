@@ -109,25 +109,25 @@ class AIPlayerV5 {
       const formal_relations = data?.formal_relations || {};
       const reasoning = s?.reasoning || '';
       content = 
-        `🔍 O-MACHINE (Observation)\n` +
+        `O-MACHINE (Observation)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `\n📐 STRUCTURES (${structs.length})\n`;
+        `\nSTRUCTURES (${structs.length})\n`;
       structs.forEach((st, i) => {
         const positions = st.agent_positions ? `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
         content += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
       });
       if (structs.length === 0) content += `  (none detected)\n`;
-      content += `\n🔗 FORMAL RELATIONS\n${formal_relations.summary || 'N/A'}\n`;
+      content += `\nFORMAL RELATIONS\n${formal_relations.summary || 'N/A'}\n`;
       if (formal_relations.connections && formal_relations.connections.length > 0) {
         content += `\nConnections:\n`;
         formal_relations.connections.forEach(c => {
           content += `  • Structure ${c.from_structure_idx} → ${c.to_structure_idx}: ${c.type} (strength: ${c.strength})\n`;
         });
       }
-      content += `\n📊 C_d (Description Complexity): ${s.C_d_current?.value ?? 'N/A'} bits\n`;
+      content += `\nC_d (Description Complexity): ${s.C_d_current?.value ?? 'N/A'} bits\n`;
       content += `Description: ${s.C_d_current?.description || 'N/A'}\n`;
       if (reasoning) {
-        content += `\n🧠 REASONING O\n${reasoning}\n`;
+        content += `\nREASONING O\n${reasoning}\n`;
       }
     } else if (source === 'N') {
       // V5: Format N-machine output (narrative + C_w + erreurs prédiction)
@@ -136,14 +136,14 @@ class AIPlayerV5 {
       const prediction_errors = data?.prediction_errors || {};
       const reasoning = s?.reasoning || '';
       content = 
-        `📖 N-MACHINE (Narration)\n` +
+        `N-MACHINE (Narration)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `\n📚 NARRATIVE\n${narrative.summary || 'N/A'}\n` +
-        `\n📊 C_w (Generation Complexity): ${s.C_w_current?.value ?? 'N/A'} bits\n`;
+        `\nNARRATIVE\n${narrative.summary || 'N/A'}\n` +
+        `\nC_w (Generation Complexity): ${s.C_w_current?.value ?? 'N/A'} bits\n`;
       
       const errorEntries = Object.entries(prediction_errors);
       if (errorEntries.length > 0) {
-        content += `\n🎯 PREDICTION ERRORS (${errorEntries.length} agents)\n`;
+        content += `\nPREDICTION ERRORS (${errorEntries.length} agents)\n`;
         errorEntries.forEach(([agent_id, err]) => {
           // Récupérer la position de l'agent depuis otherUsers
           let position = 'N/A';
@@ -159,7 +159,7 @@ class AIPlayerV5 {
       }
       
       if (reasoning) {
-        content += `\n🧠 REASONING N\n${reasoning}\n`;
+        content += `\nREASONING N\n${reasoning}\n`;
       }
     } else if (source === 'W') {
       // Format W response (seed/action)
@@ -169,14 +169,14 @@ class AIPlayerV5 {
         const preds = data?.predictions || {};
         const pixels = data?.pixels || [];
         content =
-          `🌱 W-MACHINE (Seed Generation)\n` +
+          `W-MACHINE (Seed Generation)\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-          `\n💡 CONCEPT\n${seed.concept || 'N/A'}\n` +
-          `\n💭 RATIONALE\n${seed.rationale || 'N/A'}\n` +
-          `\n🔮 PREDICTIONS\n` +
+          `\nCONCEPT\n${seed.concept || 'N/A'}\n` +
+          `\nRATIONALE\n${seed.rationale || 'N/A'}\n` +
+          `\nPREDICTIONS\n` +
           `Individual: ${preds.individual_after_prediction || 'N/A'}\n` +
           `Collective: ${preds.collective_after_prediction || 'N/A'}\n` +
-          `\n📊 PIXELS: ${pixels.length} generated\n`;
+          `\nPIXELS: ${pixels.length} generated\n`;
       } else {
         // Action format
         const strategy = data?.strategy || 'N/A';
@@ -185,18 +185,18 @@ class AIPlayerV5 {
         const delta = data?.delta_complexity || {};
         const pixels = data?.pixels || [];
         content =
-          `⚡ W-MACHINE (Action/Generation)\n` +
+          `W-MACHINE (Action/Generation)\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-          `\n🎯 STRATEGY\n${strategy}\n` +
-          `\n💭 RATIONALE\n${rationale || 'N/A'}\n` +
-          `\n📈 DELTA COMPLEXITY\n` +
+          `\nSTRATEGY\n${strategy}\n` +
+          `\nRATIONALE\n${rationale || 'N/A'}\n` +
+          `\nDELTA COMPLEXITY\n` +
           `ΔC_w: ${delta.delta_C_w_bits ?? 'N/A'} bits | ` +
           `ΔC_d: ${delta.delta_C_d_bits ?? 'N/A'} bits | ` +
           `U' expected: ${delta.U_after_expected ?? 'N/A'} bits\n` +
-          `\n🔮 PREDICTIONS\n` +
+          `\nPREDICTIONS\n` +
           `Individual: ${preds.individual_after_prediction || 'N/A'}\n` +
           `Collective: ${preds.collective_after_prediction || 'N/A'}\n` +
-          `\n📊 PIXELS: ${pixels.length} generated\n`;
+          `\nPIXELS: ${pixels.length} generated\n`;
       }
     }
 
