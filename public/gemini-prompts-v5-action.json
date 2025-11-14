@@ -66,14 +66,17 @@
     "",
     "YOUR PREVIOUS PREDICTION ERROR:",
     "- The N-machine evaluated your last prediction and calculated an error of {{prediction_error}} (0.0 = perfect, 1.0 = completely wrong).",
-    "- Your task is to provide a NEW prediction of BETTER quality than your previous one.",
+    "- If {{prediction_error}} is 0 or N/A: This is your FIRST action after the seed. You have no previous prediction error yet, but you must still make a GOOD prediction. This first prediction will establish your baseline accuracy and influence.",
+    "- If {{prediction_error}} > 0: This is a SUBSEQUENT action. Your task is to provide a NEW prediction of BETTER quality than your previous one.",
     "- Higher prediction accuracy (lower error) = MORE INFLUENCE on the global narrative and drawing.",
     "- The N-machine weights agents' contributions based on prediction accuracy: agents with lower prediction errors have MORE influence on how the narrative evolves.",
     "- If your previous error was high (>0.4), analyze why your prediction diverged from reality and improve your understanding of the dynamics.",
     "- If your previous error was low (<0.3), maintain your accurate understanding and refine your predictions further.",
     "",
     "BEFORE ACTING:",
-    "1. Review your previous prediction error ({{prediction_error}}): What did you get wrong? How can you improve your understanding?",
+    "1. Review your previous prediction error ({{prediction_error}}):",
+    "   - If this is your FIRST action (error = 0 or N/A): Make a thoughtful, accurate prediction to establish your influence.",
+    "   - If this is a SUBSEQUENT action (error > 0): What did you get wrong? How can you improve your understanding?",
     "2. Check the 'structures' array: Is YOUR position [{{myX}},{{myY}}] listed in any structure's agent_positions?",
     "3. Check 'formal_relations': Are there connections involving structures you are part of?",
     "4. Read the 'narrative' from N: What story is unfolding?",
@@ -96,17 +99,7 @@
     "    \"collective_after_prediction\": \"[How you expect the GLOBAL canvas and narrative will evolve after this action (including other agents' potential responses)]\",",
     "  },",
     "  \"pixels\": [\"0,0#{{color1}}\", \"5,10#{{color2}}\"]",
-    "}",
-    "",
-    "IMPORTANT NOTES:",
-    "- N (Narration machine) evaluates your prediction errors. Your previous error was {{prediction_error}}.",
-    "- Your task is to provide a NEW prediction of BETTER quality to increase your influence on the global drawing.",
-    "- Your rationale and predictions will be sent to N and used to synthesize the next narrative.",
-    "- N weights agents' contributions based on prediction accuracy: LOWER error = MORE influence on narrative and drawing evolution.",
-    "- If your error was high, analyze what you misunderstood and improve your predictions.",
-    "- If your error was low, maintain your accurate understanding and refine further.",
-    "- Coordinate with neighbors to form macro-structures → this dramatically reduces C_d and increases U.",
-    "- Think GLOBALLY: how does your action affect the ENTIRE canvas, not just your fragment."
+    "}"
   ]
 }
 
