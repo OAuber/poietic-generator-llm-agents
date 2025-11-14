@@ -654,10 +654,29 @@ async def periodic_on_task():
         
         # Vérifier qu'on a au moins des données W si des agents sont actifs
         w_data_check = w_store.get_all_agents_data()
-        if store.agents_count > 0 and len(w_data_check) == 0:
-            # Des agents sont actifs mais n'ont pas encore envoyé de données (en cours de démarrage/seed)
-            print(f"[ON] {store.agents_count} agents actifs mais aucune donnée W reçue - attente seed...")
-            continue
+        
+        # CRITIQUE: Pour la première analyse, attendre que TOUS les agents actifs aient envoyé au moins leur seed
+        if store.latest is None:
+            # Première analyse : on doit avoir des données W pour tous les agents actifs
+            if store.agents_count > 0:
+                if len(w_data_check) == 0:
+                    # Aucune donnée W reçue alors que des agents sont actifs
+                    print(f"[ON] ⏳ Première analyse: {store.agents_count} agents actifs mais aucune donnée W reçue - attente seeds...")
+                    continue
+                elif len(w_data_check) < store.agents_count:
+                    # Pas tous les agents ont envoyé leurs données
+                    print(f"[ON] ⏳ Première analyse: {len(w_data_check)}/{store.agents_count} agents ont envoyé leurs données - attente seeds restants...")
+                    continue
+                # Vérifier aussi qu'on a attendu assez longtemps après la dernière mise à jour
+                if time_since_last_w_update < 3.0:  # Minimum 3s après dernière seed
+                    print(f"[ON] ⏳ Première analyse: dernière seed il y a {time_since_last_w_update:.1f}s < 3s - attente stabilisation...")
+                    continue
+        else:
+            # Analyses suivantes : vérification standard
+            if store.agents_count > 0 and len(w_data_check) == 0:
+                # Des agents sont actifs mais n'ont pas encore envoyé de données (en cours de démarrage/seed)
+                print(f"[ON] {store.agents_count} agents actifs mais aucune donnée W reçue - attente seed...")
+                continue
         
         if not all_finished:
             # Des agents W sont encore en train d'agir, attendre
