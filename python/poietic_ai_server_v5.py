@@ -97,6 +97,7 @@ class OSnapshotStore:
         self.version: int = 0
         self.latest_image_base64: Optional[str] = None
         self.agents_count: int = 0
+        self.first_analysis_start_time: Optional[datetime] = None  # V5: Timestamp début attente première analyse
         self.last_update_time: Optional[datetime] = None
         self.first_update_time: Optional[datetime] = None
         self.updates_count: int = 0
@@ -106,6 +107,9 @@ class OSnapshotStore:
         snapshot['version'] = self.version
         snapshot['timestamp'] = datetime.now(timezone.utc).isoformat()
         self.latest = snapshot
+        # V5: Réinitialiser timestamp première analyse après snapshot réussi
+        if self.first_analysis_start_time is not None:
+            self.first_analysis_start_time = None
 
     def set_image(self, image_base64: str):
         self.latest_image_base64 = image_base64
@@ -600,9 +604,9 @@ async def periodic_on_task():
         
         # Warmup : attendre que les agents aient terminé leurs seeds
         warmup_delay = 30  # V5: Augmenter à 30s pour laisser temps aux seeds d'être visibles et appliqués
-        # V5: Réduire min_updates à 3 (2 agents peuvent ne pas atteindre 5 updates rapidement)
-        # Mais exiger au moins 2 updates par agent (donc min_updates = agents_count * 2, minimum 3)
-        min_updates = max(3, store.agents_count * 2) if store.agents_count > 0 else 3
+        # V5: Réduire min_updates (1 update par agent minimum, mais au moins 3)
+        # Pour 4 agents, on attend au moins 4 updates (1 par agent)
+        min_updates = max(3, store.agents_count) if store.agents_count > 0 else 3
         is_warmup = (store.updates_count or 0) < min_updates or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay)
         
         if is_warmup:
@@ -655,18 +659,37 @@ async def periodic_on_task():
         # Vérifier qu'on a au moins des données W si des agents sont actifs
         w_data_check = w_store.get_all_agents_data()
         
-        # CRITIQUE: Pour la première analyse, attendre que TOUS les agents actifs aient envoyé au moins leur seed
+        # CRITIQUE: Pour la première analyse, attendre que les agents actifs aient envoyé au moins leur seed
         if store.latest is None:
-            # Première analyse : on doit avoir des données W pour tous les agents actifs
+            # Première analyse : initialiser le timestamp si c'est la première fois
+            if store.first_analysis_start_time is None:
+                store.first_analysis_start_time = now
+            
             if store.agents_count > 0:
                 if len(w_data_check) == 0:
                     # Aucune donnée W reçue alors que des agents sont actifs
                     print(f"[ON] ⏳ Première analyse: {store.agents_count} agents actifs mais aucune donnée W reçue - attente seeds...")
                     continue
-                elif len(w_data_check) < store.agents_count:
+                
+                # Calculer temps d'attente depuis début attente première analyse
+                wait_time = (now - store.first_analysis_start_time).total_seconds()
+                min_agents_ratio = 0.75  # Accepter si 75% des agents ont envoyé leurs données
+                min_agents_count = max(2, int(store.agents_count * min_agents_ratio))  # Au moins 2 agents ou 75%
+                timeout_first_analysis = 20.0  # Timeout de 20s pour première analyse
+                
+                if len(w_data_check) < store.agents_count:
                     # Pas tous les agents ont envoyé leurs données
-                    print(f"[ON] ⏳ Première analyse: {len(w_data_check)}/{store.agents_count} agents ont envoyé leurs données - attente seeds restants...")
-                    continue
+                    if len(w_data_check) >= min_agents_count:
+                        # On a assez d'agents (75% ou au moins 2) : accepter l'analyse
+                        print(f"[ON] ✅ Première analyse: {len(w_data_check)}/{store.agents_count} agents ont envoyé leurs données (≥{min_agents_count} requis) - analyse autorisée")
+                    elif wait_time >= timeout_first_analysis:
+                        # Timeout atteint : accepter avec les agents disponibles
+                        print(f"[ON] ⚠️  Première analyse: timeout ({wait_time:.1f}s ≥ {timeout_first_analysis}s) - analyse avec {len(w_data_check)}/{store.agents_count} agents disponibles")
+                    else:
+                        # Attendre encore
+                        print(f"[ON] ⏳ Première analyse: {len(w_data_check)}/{store.agents_count} agents ont envoyé leurs données (attente {wait_time:.1f}s/{timeout_first_analysis}s)...")
+                        continue
+                
                 # Vérifier aussi qu'on a attendu assez longtemps après la dernière mise à jour
                 if time_since_last_w_update < 3.0:  # Minimum 3s après dernière seed
                     print(f"[ON] ⏳ Première analyse: dernière seed il y a {time_since_last_w_update:.1f}s < 3s - attente stabilisation...")
