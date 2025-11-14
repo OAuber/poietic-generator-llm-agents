@@ -90,6 +90,17 @@ class AIPlayerV5 {
     return div.innerHTML;
   }
 
+  replaceComplexityTerms(text) {
+    // Replace C_d, C_w, and U with their full English equivalents
+    // Use word boundaries to avoid replacing in the middle of words
+    // For U, handle both "U" and "U'" (as in "U' expected")
+    return text
+      .replace(/\bC_d\b/g, 'the complexity of description')
+      .replace(/\bC_w\b/g, 'the complexity of generation')
+      .replace(/\bU'/g, "the unexpectedness'")
+      .replace(/\bU(?![a-zA-Z'])/g, 'the unexpectedness');
+  }
+
   storeVerbatimResponse(source, data, iteration) {
     const container = document.getElementById('verbatim-responses');
     if (!container) return;
@@ -129,6 +140,8 @@ class AIPlayerV5 {
       if (reasoning) {
         content += `\nREASONING O\n${reasoning}\n`;
       }
+      // Replace complexity terms in content
+      content = this.replaceComplexityTerms(content);
     } else if (source === 'N') {
       // V5: Format N-machine output (narrative + C_w + erreurs prédiction)
       const s = data?.simplicity_assessment || {};
@@ -161,6 +174,8 @@ class AIPlayerV5 {
       if (reasoning) {
         content += `\nREASONING N\n${reasoning}\n`;
       }
+      // Replace complexity terms in all N content (narrative, explanations, reasoning)
+      content = this.replaceComplexityTerms(content);
     } else if (source === 'W') {
       // Format W response (seed/action)
       if (iteration === 0) {
@@ -177,6 +192,8 @@ class AIPlayerV5 {
           `Individual: ${preds.individual_after_prediction || 'N/A'}\n` +
           `Collective: ${preds.collective_after_prediction || 'N/A'}\n` +
           `\nPIXELS: ${pixels.length} generated\n`;
+        // Replace complexity terms in seed content
+        content = this.replaceComplexityTerms(content);
       } else {
         // Action format
         const strategy = data?.strategy || 'N/A';
@@ -197,6 +214,8 @@ class AIPlayerV5 {
           `Individual: ${preds.individual_after_prediction || 'N/A'}\n` +
           `Collective: ${preds.collective_after_prediction || 'N/A'}\n` +
           `\nPIXELS: ${pixels.length} generated\n`;
+        // Replace complexity terms in action content
+        content = this.replaceComplexityTerms(content);
       }
     }
 
