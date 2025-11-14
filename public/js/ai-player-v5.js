@@ -801,20 +801,25 @@ class AIPlayerV5 {
         this.lastOVersionSeen = currentOVersion;
         
         // V5: Afficher le snapshot O+N dans Verbatim (séparé O et N)
-        // IMPORTANT: Récupérer snapshot complet (sans agent_id) pour avoir toutes les erreurs de prédiction
+        // IMPORTANT: Toujours récupérer snapshot complet (sans agent_id) pour avoir toutes les erreurs de prédiction
         if (this.Osnapshot) {
-          // Récupérer snapshot complet pour affichage verbatim (toutes les erreurs)
+          // Toujours récupérer snapshot complet pour affichage verbatim (toutes les erreurs)
+          // car this.Osnapshot peut être un snapshot personnalisé avec seulement l'erreur de cet agent
           let fullSnapshot = this.Osnapshot;
-          // Si snapshot personnalisé (avec agent_id), récupérer version complète
-          if (this.Osnapshot.prediction_errors && Object.keys(this.Osnapshot.prediction_errors).length === 1) {
-            try {
-              const fullRes = await fetch(`${this.O_API_BASE}/o/latest`);
-              if (fullRes.ok) {
-                fullSnapshot = await fullRes.json();
-              }
-            } catch (_) {
-              // En cas d'erreur, utiliser snapshot personnalisé
+          const predErrorsCount = this.Osnapshot.prediction_errors ? Object.keys(this.Osnapshot.prediction_errors).length : 0;
+          this.log(`[Verbatim] Snapshot actuel: ${predErrorsCount} erreur(s) de prédiction`);
+          
+          // Toujours récupérer snapshot complet pour avoir toutes les erreurs
+          try {
+            const fullRes = await fetch(`${this.O_API_BASE}/o/latest`);
+            if (fullRes.ok) {
+              fullSnapshot = await fullRes.json();
+              const fullPredErrorsCount = fullSnapshot.prediction_errors ? Object.keys(fullSnapshot.prediction_errors).length : 0;
+              this.log(`[Verbatim] Snapshot complet récupéré: ${fullPredErrorsCount} erreur(s) de prédiction`);
             }
+          } catch (e) {
+            this.log(`[Verbatim] Erreur récupération snapshot complet: ${e.message}, utilisation snapshot actuel`);
+            // En cas d'erreur, utiliser snapshot actuel
           }
           
           // Extraire et afficher O et N séparément
@@ -834,6 +839,10 @@ class AIPlayerV5 {
               reasoning: fullSnapshot.simplicity_assessment?.reasoning_n
             }
           };
+          
+          // Log pour diagnostiquer
+          const nPredErrorsCount = nData.prediction_errors ? Object.keys(nData.prediction_errors).length : 0;
+          this.log(`[Verbatim] Affichage N avec ${nPredErrorsCount} erreur(s) de prédiction`);
           
           this.storeVerbatimResponse('O', oData, this.iterationCount);
           this.storeVerbatimResponse('N', nData, this.iterationCount);
