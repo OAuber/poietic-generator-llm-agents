@@ -652,6 +652,13 @@ async def periodic_on_task():
         quiescence_delay = 5.0 if store.latest is None else 4.0  # 5s pour première analyse, 4s pour suivantes
         all_finished, time_since_last_w_update = w_store.all_agents_finished(quiescence_delay=quiescence_delay)
         
+        # Vérifier qu'on a au moins des données W si des agents sont actifs
+        w_data_check = w_store.get_all_agents_data()
+        if store.agents_count > 0 and len(w_data_check) == 0:
+            # Des agents sont actifs mais n'ont pas encore envoyé de données (en cours de démarrage/seed)
+            print(f"[ON] {store.agents_count} agents actifs mais aucune donnée W reçue - attente seed...")
+            continue
+        
         if not all_finished:
             # Des agents W sont encore en train d'agir, attendre
             print(f"[ON] Agents W encore actifs (dernière mise à jour il y a {time_since_last_w_update:.1f}s < {quiescence_delay}s), attente...")
