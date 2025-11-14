@@ -151,19 +151,18 @@ class NarrativeViewer {
       
       // Add O text if available
       if (entry.oText && entry.oText.trim() !== 'N/A') {
-        parts.push(`<div class="text-section"><div class="text">${this.escapeHtml(entry.oText)}</div></div>`);
+        parts.push(`<div class="text-section"><div class="machine-title">Observation machine: ${timeStr}</div><div class="text">${this.escapeHtml(entry.oText)}</div></div>`);
       }
       
       // Add N text if available
       if (entry.nText && entry.nText.trim() !== 'N/A') {
-        parts.push(`<div class="text-section"><div class="text">${this.escapeHtml(entry.nText)}</div></div>`);
+        parts.push(`<div class="text-section"><div class="machine-title">Narration machine: ${timeStr}</div><div class="text">${this.escapeHtml(entry.nText)}</div></div>`);
       }
       
       if (parts.length === 0) return '';
       
       return `
         <div class="text-entry">
-          <div class="timestamp">${timeStr}</div>
           ${parts.join('')}
         </div>
       `;
@@ -184,9 +183,8 @@ class NarrativeViewer {
       const positionStr = `[${entry.position[0]},${entry.position[1]}]`;
       return `
         <div class="text-entry">
-          <div class="timestamp">${timeStr}</div>
+          <div class="machine-title">World machine ${positionStr}: ${timeStr}</div>
           <div class="text">${this.escapeHtml(entry.text)}</div>
-          <div class="agent-info">Agent ${positionStr} | Iteration ${entry.iteration}</div>
         </div>
       `;
     }).join('');
