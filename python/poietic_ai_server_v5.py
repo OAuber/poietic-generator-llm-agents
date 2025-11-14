@@ -555,7 +555,7 @@ def calculate_u_interpretation(u_value: float) -> str:
 async def periodic_on_task():
     """Tâche périodique : O puis N puis combinaison"""
     while True:
-        await asyncio.sleep(25)
+        await asyncio.sleep(20)  # V5: Réduire à 20s pour accélérer les analyses O+N
         
         # Vérifications préalables
         if not store.latest_image_base64:
@@ -612,8 +612,8 @@ async def periodic_on_task():
                 continue
         
         # Stabilisation : attendre que les agents aient fini d'envoyer leurs données
-        # V5: Délai plus long pour la première analyse (seeds peuvent prendre du temps)
-        stabilization_delay = 8.0 if store.latest is None else 5.0
+        # V5: Réduire délai de stabilisation pour accélérer les analyses O+N
+        stabilization_delay = 5.0 if store.latest is None else 3.0
         if store.last_update_time and (now - store.last_update_time).total_seconds() < stabilization_delay:
             print(f"[ON] Attente stabilisation ({(now - store.last_update_time).total_seconds():.1f}s / {stabilization_delay}s)...")
             continue

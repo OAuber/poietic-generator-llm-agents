@@ -781,35 +781,24 @@ class AIPlayerV5 {
         
         // CRITIQUE : Vérifier que le snapshot est POSTÉRIEUR à la dernière action
         // (pas juste à la dernière version vue, mais à la version disponible lors de la dernière action)
+        // IMPORTANT : Ne JAMAIS exécuter une action W si le snapshot n'a pas changé depuis la dernière action
         if (!isFirstAction && currentOVersion <= this.lastOVersionAtAction) {
           // Pas de nouveau snapshot O postérieur à la dernière action, skip cette itération W
-          // Limiter les tentatives pour éviter les boucles infinies
-          const maxWaitAttempts = 15; // Maximum 15 tentatives (30s)
-          let waitAttempts = (this._waitAttempts || 0) + 1;
-          this._waitAttempts = waitAttempts;
-          
-          if (waitAttempts >= maxWaitAttempts) {
-            // Timeout : accepter le snapshot actuel même si version identique
-            this.log(`Timeout attente nouveau snapshot O (${waitAttempts} tentatives), utilisation snapshot disponible (version ${currentOVersion}, dernière action avec version ${this.lastOVersionAtAction})`);
-            this._waitAttempts = 0; // Reset compteur
-            // Accepter le snapshot actuel et continuer
-          } else {
-            this.log(`Pas de nouveau snapshot O postérieur à dernière action (version ${currentOVersion} <= ${this.lastOVersionAtAction}), attente... (tentative ${waitAttempts}/${maxWaitAttempts})`);
-            await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
-            // Ne pas incrémenter iterationCount pour rester en mode 'action' et réessayer
-            continue; // Passer à l'itération suivante sans appeler Gemini
-          }
-        } else {
-          // Nouveau snapshot détecté OU première action : reset le compteur d'attente
-          this._waitAttempts = 0;
-          // Mettre à jour la version vue
-          if (isFirstAction) {
-            this.log(`Première action (itération 1) : utilisation snapshot disponible (version ${currentOVersion})`);
-          } else {
-            this.log(`Nouveau snapshot O détecté (version ${currentOVersion} > ${this.lastOVersionAtAction}), action autorisée`);
-          }
-          this.lastOVersionSeen = currentOVersion;
+          this.log(`Pas de nouveau snapshot O postérieur à dernière action (version ${currentOVersion} <= ${this.lastOVersionAtAction}), attente nouveau snapshot...`);
+          await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
+          // Ne pas incrémenter iterationCount pour rester en mode 'action' et réessayer
+          continue; // Passer à l'itération suivante sans appeler Gemini
         }
+        
+        // Nouveau snapshot détecté OU première action : reset le compteur d'attente
+        this._waitAttempts = 0;
+        // Mettre à jour la version vue
+        if (isFirstAction) {
+          this.log(`Première action (itération 1) : utilisation snapshot disponible (version ${currentOVersion})`);
+        } else {
+          this.log(`Nouveau snapshot O détecté (version ${currentOVersion} > ${this.lastOVersionAtAction}), action autorisée`);
+        }
+        this.lastOVersionSeen = currentOVersion;
         
         // V5: Afficher le snapshot O+N dans Verbatim (séparé O et N)
         if (this.Osnapshot) {
