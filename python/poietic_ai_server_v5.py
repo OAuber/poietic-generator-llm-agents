@@ -384,7 +384,7 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
         'contents': [{'parts': parts}],
         'generationConfig': {
             'temperature': 0.7,
-            'maxOutputTokens': 16000  # V5: Augmenter pour laisser place aux thoughts + réponse
+            'maxOutputTokens': 12000  # V5: Réduire pour éviter MAX_TOKENS (prompts plus concis maintenant)
         }
     }
     
