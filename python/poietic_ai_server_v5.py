@@ -676,7 +676,8 @@ async def periodic_on_task():
         quiescence_delay = 5.0 if store.latest is None else 4.0  # 5s pour première analyse, 4s pour suivantes
         all_finished, time_since_last_w_update = w_store.all_agents_finished(quiescence_delay=quiescence_delay)
         
-        # Vérifier qu'on a au moins des données W si des agents sont actifs
+        # CRITIQUE: Récupérer les données W juste avant de vérifier (pas au début de la boucle)
+        # car d'autres agents peuvent avoir envoyé leurs données entre-temps
         w_data_check = w_store.get_all_agents_data()
         
         # CRITIQUE: Pour la première analyse, attendre que les agents actifs aient envoyé au moins leur seed
@@ -801,10 +802,17 @@ async def periodic_on_task():
         await metrics_client.send_o_snapshot(o_result)
         
         # Étape 2 : N analysis (narrative + C_w + erreurs prédiction)
+        # CRITIQUE: Récupérer les données W JUSTE AVANT d'appeler N (pas au début de la boucle)
+        # car d'autres agents peuvent avoir envoyé leurs données entre le début de la boucle et maintenant
         w_data = w_store.get_all_agents_data()
         n_result = None
         
         print(f"[N] Données W disponibles: {len(w_data)} agents (agents_count: {store.agents_count})")
+        
+        # Si on a moins de données W que d'agents actifs, c'est normal pour la première analyse
+        # mais pour les analyses suivantes, on devrait avoir des données pour tous les agents actifs
+        if len(w_data) < store.agents_count and store.latest is not None:
+            print(f"[N] ⚠️  Moins de données W ({len(w_data)}) que d'agents actifs ({store.agents_count}) - certains agents n'ont peut-être pas encore envoyé leurs données")
         
         # Si aucun agent W n'a de données mais qu'il y a des agents actifs,
         # cela signifie qu'ils sont peut-être encore en train de générer leur seed
