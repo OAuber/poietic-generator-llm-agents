@@ -731,11 +731,14 @@ class AIPlayerV5 {
             {x:center-1, y:center+1}, {x:center+1, y:center+1}
           ];
           pixelsToExecute = ring.map(p => `${p.x},${p.y}${color}`);
-          this.storeVerbatimResponse('W', {
+          const fallbackSeed = {
             seed: { concept: 'Fallback Seed (ring)', rationale: 'Seed minimal utilisé car 0 pixel retourné' },
             predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
             pixels: pixelsToExecute
-          }, this.iterationCount);
+          };
+          this.storeVerbatimResponse('W', fallbackSeed, this.iterationCount);
+          // Utiliser fallbackSeed comme parsed pour l'envoi à N
+          parsed = fallbackSeed;
         }
         
         // Execute pixels
@@ -763,6 +766,18 @@ class AIPlayerV5 {
         // CRITIQUE : Mettre à jour la version du snapshot disponible lors de ce seed
         // Cela permet de s'assurer que la première action attendra un snapshot POSTÉRIEUR au seed
         this.lastOVersionAtAction = this.Osnapshot?.version ?? this.lastOVersionSeen;
+        
+        // V5: Envoyer données W à N (seed: concept, rationale, predictions)
+        // IMPORTANT: Envoyer même pour le seed pour que N puisse évaluer les prédictions
+        if (parsed) {
+          // Formater les données seed comme une action pour compatibilité avec N
+          const seedData = {
+            strategy: parsed.seed?.concept || 'Seed generation',
+            rationale: parsed.seed?.rationale || '',
+            predictions: parsed.predictions || {}
+          };
+          await this.sendWDataToN(seedData, this.iterationCount);
+        }
         
         // Store predictions pour la prochaine itération (action)
         this.prevPredictions = parsed?.predictions || null;
