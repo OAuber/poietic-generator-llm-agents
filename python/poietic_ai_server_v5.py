@@ -65,6 +65,29 @@ class WAgentDataStore:
         for agent_id in stale_agents:
             del self.agents_data[agent_id]
             print(f"[W] Agent {agent_id} supprimé (inactif > {timeout}s)")
+    
+    def all_agents_finished(self, quiescence_delay=5.0):
+        """
+        Vérifier si tous les agents W actifs ont terminé leurs actions.
+        Un agent a terminé s'il n'a pas envoyé de données depuis quiescence_delay secondes.
+        Retourne (all_finished, time_since_last_update)
+        """
+        if not self.agents_data:
+            # Pas d'agents W actifs : considérer comme terminé
+            return True, 0.0
+        
+        now = datetime.now(timezone.utc)
+        
+        # Temps depuis la dernière mise à jour globale
+        if self.last_update_time:
+            time_since_last_update = (now - self.last_update_time).total_seconds()
+        else:
+            time_since_last_update = float('inf')
+        
+        # Vérifier que tous les agents ont terminé (pas de mise à jour depuis quiescence_delay)
+        all_finished = time_since_last_update >= quiescence_delay
+        
+        return all_finished, time_since_last_update
 
 
 class OSnapshotStore:
@@ -553,17 +576,20 @@ def calculate_u_interpretation(u_value: float) -> str:
 # ==============================================================================
 
 async def periodic_on_task():
-    """Tâche périodique : O puis N puis combinaison"""
+    """Tâche périodique : O puis N puis combinaison
+    Déclenche l'analyse O+N lorsque tous les agents W actifs ont terminé leurs actions.
+    """
     while True:
-        await asyncio.sleep(20)  # V5: Réduire à 20s pour accélérer les analyses O+N
+        await asyncio.sleep(2)  # V5: Vérifier toutes les 2s si tous les agents W ont terminé
         
         # Vérifications préalables
         if not store.latest_image_base64:
             print("[ON] Pas d'image disponible, attente...")
             continue
         
-        # Warmup : attendre que les agents aient terminé leurs seeds
         now = datetime.now(timezone.utc)
+        
+        # Warmup : attendre que les agents aient terminé leurs seeds
         warmup_delay = 30  # V5: Augmenter à 30s pour laisser temps aux seeds d'être visibles et appliqués
         # V5: Réduire min_updates à 3 (2 agents peuvent ne pas atteindre 5 updates rapidement)
         # Mais exiger au moins 2 updates par agent (donc min_updates = agents_count * 2, minimum 3)
@@ -611,11 +637,15 @@ async def periodic_on_task():
                 print(f"[ON] Image trop ancienne ({image_age:.1f}s > {max_image_age}s), attente mise à jour récente...")
                 continue
         
-        # Stabilisation : attendre que les agents aient fini d'envoyer leurs données
-        # V5: Réduire délai de stabilisation pour accélérer les analyses O+N
-        stabilization_delay = 5.0 if store.latest is None else 3.0
-        if store.last_update_time and (now - store.last_update_time).total_seconds() < stabilization_delay:
-            print(f"[ON] Attente stabilisation ({(now - store.last_update_time).total_seconds():.1f}s / {stabilization_delay}s)...")
+        # V5: CRITIQUE - Vérifier si tous les agents W actifs ont terminé leurs actions
+        # Quiescence : si aucun agent W n'a envoyé de données depuis quiescence_delay secondes,
+        # alors tous ont terminé et on peut déclencher l'analyse O+N
+        quiescence_delay = 5.0 if store.latest is None else 4.0  # 5s pour première analyse, 4s pour suivantes
+        all_finished, time_since_last_w_update = w_store.all_agents_finished(quiescence_delay=quiescence_delay)
+        
+        if not all_finished:
+            # Des agents W sont encore en train d'agir, attendre
+            print(f"[ON] Agents W encore actifs (dernière mise à jour il y a {time_since_last_w_update:.1f}s < {quiescence_delay}s), attente...")
             continue
         
         img_size = len(store.latest_image_base64) if store.latest_image_base64 else 0
