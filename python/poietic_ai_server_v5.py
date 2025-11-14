@@ -26,16 +26,24 @@ class WAgentDataStore:
     def update_agent_data(self, agent_id: str, data: dict):
         """Mettre à jour les données d'un agent W"""
         previous_record = self.agents_data.get(agent_id, {})
+        current_iteration = data.get('iteration', 0)
+        previous_iteration = previous_record.get('iteration', -1)
+        previous_predictions = previous_record.get('predictions', {})
+        
+        # Log pour diagnostiquer
+        if current_iteration > 0 and not previous_predictions:
+            print(f"[W] ⚠️  Agent {agent_id[:8]}: iteration {current_iteration} mais pas de previous_predictions (previous_iteration={previous_iteration})")
+        
         self.agents_data[agent_id] = {
             'agent_id': agent_id,
             'position': data.get('position', [0, 0]),
-            'iteration': data.get('iteration', 0),
-            'previous_iteration': previous_record.get('iteration'),
+            'iteration': current_iteration,
+            'previous_iteration': previous_iteration,
             'strategy': data.get('strategy', 'N/A'),
             'rationale': data.get('rationale', ''),
             'predictions': data.get('predictions', {}),
             # Conserver les prédictions de l'itération précédente pour N (évaluation erreur)
-            'previous_predictions': previous_record.get('predictions', {}),
+            'previous_predictions': previous_predictions,
             'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat())
         }
         self.last_update_time = datetime.now(timezone.utc)
@@ -439,10 +447,13 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         w_json = json.dumps(w_agents_data, ensure_ascii=False, indent=2)
         prompt = prompt.replace('{{w_agents_data}}', w_json)
         # Log aperçu des données W injectées
-        for agent_id, data in list(w_agents_data.items())[:3]:  # Max 3 agents pour lisibilité
+        for agent_id, data in w_agents_data.items():  # Tous les agents pour diagnostic
             has_prev_pred = bool(data.get('previous_predictions'))
             has_pred = bool(data.get('predictions'))
-            print(f"[N]    → Agent {agent_id[:8]}: strategy={data.get('strategy', 'N/A')}, iter={data.get('iteration', 'N/A')}, has_prev_pred={has_prev_pred}, has_pred={has_pred}")
+            prev_pred_keys = list(data.get('previous_predictions', {}).keys()) if data.get('previous_predictions') else []
+            iter_val = data.get('iteration', 'N/A')
+            prev_iter_val = data.get('previous_iteration', 'N/A')
+            print(f"[N]    → Agent {agent_id[:8]}: iter={iter_val}, prev_iter={prev_iter_val}, has_prev_pred={has_prev_pred}, has_pred={has_pred}, prev_pred_keys={prev_pred_keys}")
         
         # Injecter snapshot précédent (si disponible)
         if previous_combined:
