@@ -97,7 +97,7 @@
     "   7. Perspective construction → low C_d (landscape effect easy to describe)",
     "",
     "   - Provide C_d value (bits) and complete description.",
-    "   - Justify C_d with step-by-step reasoning.",
+    "   - Justify C_d with BRIEF reasoning (2-3 sentences max, avoid verbose step-by-step calculations).",
     "",
     "Response format (JSON only, no markdown):",
     "",

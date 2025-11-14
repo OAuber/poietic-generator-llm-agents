@@ -483,7 +483,7 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {
             'temperature': 0.7,
-            'maxOutputTokens': 16000  # V5: Augmenter pour laisser place aux thoughts + réponse
+            'maxOutputTokens': 12000  # V5: Réduire pour éviter MAX_TOKENS (prompts plus concis maintenant)
         }
     }
     
