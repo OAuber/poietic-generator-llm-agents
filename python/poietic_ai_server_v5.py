@@ -666,8 +666,15 @@ async def periodic_on_task():
         
         print(f"[ON] Analyse avec Gemini ({store.agents_count} agents, image: {img_size} bytes, age: {image_age:.1f}s)...")
         
-        # Nettoyer agents W obsolètes
-        w_store.clear_stale_agents(timeout=30)
+        # Nettoyer agents W obsolètes (mais seulement ceux vraiment inactifs)
+        # Ne pas nettoyer si on a des agents actifs selon agents_count
+        # car ils peuvent être en train de générer leur première action (seed)
+        if store.agents_count > 0:
+            # Nettoyer seulement les agents vraiment obsolètes (timeout plus long)
+            w_store.clear_stale_agents(timeout=60)  # 60s au lieu de 30s pour éviter de supprimer des agents en cours de démarrage
+        else:
+            # Pas d'agents actifs, nettoyer normalement
+            w_store.clear_stale_agents(timeout=30)
         
         # Étape 1 : O analysis (structures + C_d + relations formelles)
         o_result = None
@@ -728,7 +735,13 @@ async def periodic_on_task():
         w_data = w_store.get_all_agents_data()
         n_result = None
         
-        print(f"[N] Données W disponibles: {len(w_data)} agents")
+        print(f"[N] Données W disponibles: {len(w_data)} agents (agents_count: {store.agents_count})")
+        
+        # Si aucun agent W n'a de données mais qu'il y a des agents actifs,
+        # cela signifie qu'ils sont peut-être encore en train de générer leur seed
+        # Dans ce cas, on peut quand même faire l'analyse N avec 0 agents (première analyse)
+        if len(w_data) == 0 and store.agents_count > 0:
+            print(f"[N] ⚠️  Aucune donnée W disponible mais {store.agents_count} agents actifs - agents peut-être encore en cours de démarrage")
         for agent_id, data in w_data.items():
             print(f"  - Agent {agent_id[:8]}: iter={data.get('iteration')}, strategy={data.get('strategy')}")
         
