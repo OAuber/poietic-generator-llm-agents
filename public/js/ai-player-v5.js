@@ -22,6 +22,10 @@ class AIPlayerV5 {
     this.oMetrics = { versions: [], C_w: [], C_d: [], U: [] };
     // V5: Métriques erreurs de prédiction (remplace graphique W-machine qui n'a plus de sens avec deltas)
     this.predictionMetrics = { iterations: [], my_error: [], mean_error: [], std_error: [] };
+    // V5: Historique des stratégies utilisées (limite 50 itérations, cohérent avec predictionMetrics)
+    this.strategyHistory = [];
+    // V5: Identité artistique (persistante à travers les itérations)
+    this.artisticIdentity = null; // { concept, artistic_reference, rationale }
 
     // URLs
     const loc = window.location;
@@ -182,14 +186,21 @@ class AIPlayerV5 {
       } else {
         // Action format
         const strategy = data?.strategy || 'N/A';
+        const strategy_id = data?.strategy_id || 'N/A';
+        const source_agents = data?.source_agents || [];
         const rationale = data?.rationale || '';
         const preds = data?.predictions || {};
         const delta = data?.delta_complexity || {};
         const pixels = data?.pixels || [];
+        const sourceAgentsStr = source_agents.length > 0 
+          ? source_agents.map(pos => `[${pos[0]},${pos[1]}]`).join(', ')
+          : 'none';
         content =
           `W-MACHINE (Action/Generation)\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
           `\nSTRATEGY\n${strategy}\n` +
+          `Strategy ID: ${strategy_id}\n` +
+          `Source Agents: ${sourceAgentsStr}\n` +
           `\nRATIONALE\n${rationale || 'N/A'}\n` +
           `\nDELTA COMPLEXITY\n` +
           `ΔC_w: ${delta.delta_C_w_bits ?? 'N/A'} bits | ` +
@@ -526,6 +537,11 @@ class AIPlayerV5 {
           if (Array.isArray(pos) && pos.length === 2) {
             this.myPosition = [parseInt(pos[0]), parseInt(pos[1])];
             if (this.elements.headerPosition) this.elements.headerPosition.textContent = `[${this.myPosition[0]}, ${this.myPosition[1]}]`;
+            // Mettre à jour aussi la position dans l'onglet Metrics
+            const agentPositionEl = document.getElementById('agent-position');
+            const legendAgentPositionEl = document.getElementById('legend-agent-position');
+            if (agentPositionEl) agentPositionEl.textContent = `${this.myPosition[0]},${this.myPosition[1]}`;
+            if (legendAgentPositionEl) legendAgentPositionEl.textContent = `${this.myPosition[0]},${this.myPosition[1]}`;
           }
           resolve();
         }
@@ -678,6 +694,15 @@ class AIPlayerV5 {
             
             if (isValid) {
               // Réponse valide
+              // V5: Stocker l'identité artistique du seed pour persistance
+              if (parsed?.seed) {
+                this.artisticIdentity = {
+                  concept: parsed.seed.concept || '',
+                  artistic_reference: parsed.seed.artistic_reference || '',
+                  rationale: parsed.seed.rationale || ''
+                };
+                this.log(`[V5] 🌱 Identité artistique établie: "${this.artisticIdentity.concept}" (${this.artisticIdentity.artistic_reference})`);
+              }
               this.storeVerbatimResponse('W', parsed, this.iterationCount);
               pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
               break; // Sortir de la boucle de retry
@@ -708,8 +733,20 @@ class AIPlayerV5 {
             } else {
               // Dernière tentative échouée
               this.log(`[W Seed] Erreur API après ${maxRetries} tentatives: ${error.message}`);
+              // V5: Stocker une identité artistique minimale en cas d'erreur API
+              if (!this.artisticIdentity) {
+                this.artisticIdentity = {
+                  concept: 'Erreur API',
+                  artistic_reference: 'API error - no artistic reference available',
+                  rationale: `Erreur: ${error.message}`
+                };
+              }
               this.storeVerbatimResponse('W', {
-                seed: { concept: 'Erreur API', rationale: `Erreur: ${error.message}` },
+                seed: { 
+                  concept: this.artisticIdentity.concept,
+                  artistic_reference: this.artisticIdentity.artistic_reference,
+                  rationale: this.artisticIdentity.rationale
+                },
                 predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
                 pixels: []
               }, this.iterationCount);
@@ -720,6 +757,14 @@ class AIPlayerV5 {
         
         // Fallback seed: si aucun pixel retourné (erreur API ou réponse vide), générer un seed minimal local
         if (pixelsToExecute.length === 0) {
+          // V5: Si on a une identité artistique mais pas de pixels, créer un fallback qui préserve l'identité
+          if (!this.artisticIdentity) {
+            this.artisticIdentity = {
+              concept: 'Fallback Seed',
+              artistic_reference: 'Minimal geometric pattern',
+              rationale: 'Fallback seed used due to API error or empty response'
+            };
+          }
           const center = 10;
           const color = '#F5D142';
           const ring = [
@@ -729,8 +774,20 @@ class AIPlayerV5 {
             {x:center-1, y:center+1}, {x:center+1, y:center+1}
           ];
           pixelsToExecute = ring.map(p => `${p.x},${p.y}${color}`);
+          // V5: S'assurer que l'identité artistique est stockée même pour le fallback
+          if (!this.artisticIdentity) {
+            this.artisticIdentity = {
+              concept: 'Fallback Seed (ring)',
+              artistic_reference: 'Minimal geometric pattern',
+              rationale: 'Seed minimal utilisé car 0 pixel retourné'
+            };
+          }
           const fallbackSeed = {
-            seed: { concept: 'Fallback Seed (ring)', rationale: 'Seed minimal utilisé car 0 pixel retourné' },
+            seed: { 
+              concept: this.artisticIdentity.concept,
+              artistic_reference: this.artisticIdentity.artistic_reference,
+              rationale: this.artisticIdentity.rationale
+            },
             predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
             pixels: pixelsToExecute
           };
@@ -877,6 +934,8 @@ class AIPlayerV5 {
           this.updateOMetrics(this.Osnapshot);
           // V5: Mettre à jour les métriques d'erreur de prédiction
           this.updatePredictionMetrics(this.Osnapshot);
+          // V5: Mettre à jour actual_error dans l'historique des stratégies
+          this.updateStrategyHistoryActualError();
         }
         
         // Vérifier la présence de la clé API avant appel LLM
@@ -899,6 +958,10 @@ class AIPlayerV5 {
         ctx.lastObservation = this.Osnapshot || null;
         ctx.prevPredictions = this.prevPredictions || null;
         ctx.prediction_error = this.myPredictionError ?? 0; // V5: Erreur de prédiction personnelle (de N)
+        // V5: Historique des stratégies pour le prompt
+        ctx.strategy_history = this.formatStrategyHistoryText();
+        // V5: Identité artistique (persistante depuis le seed)
+        ctx.artistic_identity = this.artisticIdentity;
         // Mettre à jour le graphique O si snapshot disponible
         if (this.Osnapshot) this.updateOMetrics(this.Osnapshot);
 
@@ -930,6 +993,7 @@ class AIPlayerV5 {
             parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
             
             // V5: Valider que la réponse action est complète (a au moins strategy ou rationale)
+            const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
             const isValid = parsed && (
               parsed.strategy || 
               parsed.rationale ||
@@ -944,9 +1008,31 @@ class AIPlayerV5 {
               this.storeVerbatimResponse('W', parsed, this.iterationCount);
               pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
               break; // Sortir de la boucle de retry
+            } else if (hasPixels) {
+              // Réponse incomplète mais avec pixels : accepter avec valeurs par défaut
+              this.log(`[W Action] Réponse incomplète mais avec ${parsed.pixels.length} pixels - utilisation de valeurs par défaut`);
+              // Créer un objet complet avec valeurs par défaut
+              parsed = {
+                strategy: parsed?.strategy || 'Action with incomplete response',
+                strategy_id: parsed?.strategy_id || 'custom',
+                source_agents: parsed?.source_agents || [],
+                rationale: parsed?.rationale || 'Response from LLM was incomplete but pixels were generated',
+                delta_complexity: parsed?.delta_complexity || {
+                  delta_C_w_bits: 0,
+                  delta_C_d_bits: 0,
+                  U_after_expected: 0
+                },
+                predictions: parsed?.predictions || {
+                  individual_after_prediction: 'N/A (incomplete response)',
+                  collective_after_prediction: 'N/A (incomplete response)'
+                },
+                pixels: parsed.pixels
+              };
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = parsed.pixels;
+              break; // Accepter et continuer avec valeurs par défaut
             } else {
-              // Réponse invalide (manque strategy/rationale/delta_complexity)
-              const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+              // Réponse invalide (pas de pixels non plus)
               this.log(`[W Action] Réponse invalide: strategy=${!!parsed?.strategy}, rationale=${!!parsed?.rationale}, delta=${!!parsed?.delta_complexity}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
               if (attempt < maxRetries - 1) {
                 const delay = 2 * (attempt + 1); // 2s, 4s, 6s
@@ -954,11 +1040,26 @@ class AIPlayerV5 {
                 await new Promise(r => setTimeout(r, delay * 1000));
                 continue;
               } else {
-                // Dernière tentative échouée
-                this.log(`[W Action] ⚠️ Réponse invalide après ${maxRetries} tentatives (manque strategy/rationale/delta_complexity)`);
-                // Continuer avec parsed (qui a au moins les pixels si disponibles)
+                // Dernière tentative échouée - créer un objet par défaut pour éviter null
+                this.log(`[W Action] ⚠️ Réponse invalide après ${maxRetries} tentatives - création d'objet par défaut`);
+                parsed = {
+                  strategy: 'Action failed - incomplete response',
+                  strategy_id: 'custom',
+                  source_agents: [],
+                  rationale: 'LLM response was incomplete after all retries',
+                  delta_complexity: {
+                    delta_C_w_bits: 0,
+                    delta_C_d_bits: 0,
+                    U_after_expected: 0
+                  },
+                  predictions: {
+                    individual_after_prediction: 'N/A (incomplete response)',
+                    collective_after_prediction: 'N/A (incomplete response)'
+                  },
+                  pixels: Array.isArray(parsed?.pixels) ? parsed.pixels : []
+                };
                 this.storeVerbatimResponse('W', parsed, this.iterationCount);
-                pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+                pixelsToExecute = parsed.pixels;
               }
             }
           } catch (error) {
@@ -982,13 +1083,34 @@ class AIPlayerV5 {
           }
         }
 
+        // V5: S'assurer que parsed n'est jamais null après la boucle de retry
+        if (!parsed) {
+          this.log(`[W Action] ⚠️ parsed est null après tous les retries - création d'objet par défaut`);
+          parsed = {
+            strategy: 'Action failed - no response',
+            strategy_id: 'custom',
+            source_agents: [],
+            rationale: 'LLM returned no valid response after all retries',
+            delta_complexity: {
+              delta_C_w_bits: 0,
+              delta_C_d_bits: 0,
+              U_after_expected: 0
+            },
+            predictions: {
+              individual_after_prediction: 'N/A (no response)',
+              collective_after_prediction: 'N/A (no response)'
+            },
+            pixels: []
+          };
+        }
+
         // V5: Erreur de prédiction vient de N-machine (déjà dans this.myPredictionError)
         if (this.elements.predError) {
           this.elements.predError.textContent = (this.myPredictionError || 0).toFixed(2);
         }
 
         // V5: Deltas viennent directement de Gemini W (parsed.delta_complexity)
-        const deltas = parsed?.delta_complexity || {
+        const deltas = parsed.delta_complexity || {
           delta_C_w_bits: 0,
           delta_C_d_bits: 0,
           U_after_expected: 0
@@ -1028,6 +1150,9 @@ class AIPlayerV5 {
         
         // V5: Envoyer données W à N (rationale, predictions, strategy)
         await this.sendWDataToN(parsed, this.iterationCount);
+
+        // V5: Mettre à jour l'historique des stratégies (sera complété avec actual_error au snapshot suivant)
+        this.updateStrategyHistory(parsed, this.Osnapshot);
 
         // Store predictions for next time
         this.prevPredictions = parsed?.predictions || null;
@@ -1216,22 +1341,38 @@ class AIPlayerV5 {
   
   // === V5: Mise à jour métriques erreurs prédiction ===
   updatePredictionMetrics(snapshot) {
-    if (!snapshot || !snapshot.prediction_errors) return;
+    if (!snapshot || !snapshot.prediction_errors) {
+      console.log(`[V5] updatePredictionMetrics: Pas de snapshot ou pas d'erreurs (snapshot=${!!snapshot}, errors=${!!snapshot?.prediction_errors})`);
+      return;
+    }
     
     const errors = snapshot.prediction_errors || {};
-    const errorValues = Object.values(errors).map(e => e.error || 0).filter(v => !isNaN(v));
+    const errorValues = Object.values(errors).map(e => {
+      const err = e?.error;
+      return (typeof err === 'number' && !isNaN(err) && isFinite(err)) ? err : 0;
+    }).filter(v => v >= 0 && v <= 1); // Filtrer les valeurs valides entre 0 et 1
     
-    if (errorValues.length === 0) return;
+    if (errorValues.length === 0) {
+      console.log(`[V5] updatePredictionMetrics: Aucune valeur d'erreur valide trouvée`);
+      return;
+    }
     
     // Calcul moyenne et écart-type
     const mean = errorValues.reduce((a,b) => a+b, 0) / errorValues.length;
-    const variance = errorValues.reduce((a,b) => a + Math.pow(b - mean, 2), 0) / errorValues.length;
+    const variance = errorValues.length > 1 
+      ? errorValues.reduce((a,b) => a + Math.pow(b - mean, 2), 0) / errorValues.length
+      : 0;
     const std = Math.sqrt(variance);
     
+    // S'assurer que mean et std sont des nombres valides
+    const meanValid = (isNaN(mean) || !isFinite(mean)) ? 0 : mean;
+    const stdValid = (isNaN(std) || !isFinite(std)) ? 0 : std;
+    
+    // Ajouter les nouvelles valeurs
     this.predictionMetrics.iterations.push(this.iterationCount);
     this.predictionMetrics.my_error.push(this.myPredictionError || 0);
-    this.predictionMetrics.mean_error.push(mean);
-    this.predictionMetrics.std_error.push(std);
+    this.predictionMetrics.mean_error.push(meanValid);
+    this.predictionMetrics.std_error.push(stdValid);
     
     // Limiter à 50 dernières itérations
     if (this.predictionMetrics.iterations.length > 50) {
@@ -1241,7 +1382,88 @@ class AIPlayerV5 {
       this.predictionMetrics.std_error.shift();
     }
     
+    // Debug: afficher les valeurs pour vérifier
+    console.log(`[V5] updatePredictionMetrics: iteration=${this.iterationCount}, my_error=${(this.myPredictionError || 0).toFixed(2)}, mean=${meanValid.toFixed(2)}, std=${stdValid.toFixed(2)}, agents=${errorValues.length}`);
+    console.log(`[V5] updatePredictionMetrics arrays: iterations=${this.predictionMetrics.iterations.length}, my_error=${this.predictionMetrics.my_error.length}, mean_error=${this.predictionMetrics.mean_error.length}, std_error=${this.predictionMetrics.std_error.length}`);
+    
     this.drawPredictionErrorChart();
+  }
+  
+  // === V5: Formatage historique stratégies ===
+  formatStrategyHistoryText() {
+    if (!this.strategyHistory || this.strategyHistory.length === 0) {
+      return 'No previous strategies used.';
+    }
+    
+    let text = 'STRATEGY HISTORY:\n';
+    this.strategyHistory.forEach(entry => {
+      const coords = entry.source_agents.map(pos => `[${pos[0]}, ${pos[1]}]`).join(', ');
+      text += `- It. ${entry.iteration}: "${entry.strategy_name}", ${coords}, (predicted error: ${entry.predicted_error.toFixed(2)}, actual error: ${entry.actual_error.toFixed(2)})\n`;
+    });
+    
+    return text;
+  }
+  
+  // === V5: Mise à jour historique stratégies ===
+  updateStrategyHistory(parsed, snapshot) {
+    // Extraire strategy_name et source_agents depuis la réponse W
+    const strategyName = parsed?.strategy_name || parsed?.strategy || 'Unknown strategy';
+    const sourceAgents = parsed?.source_agents || [];
+    
+    // Extraire actual_error depuis le snapshot O+N actuel (sera mis à jour au prochain snapshot)
+    const actualError = this.myPredictionError || 0;
+    
+    // Extraire predicted_error depuis parsed (si disponible) ou utiliser valeur par défaut
+    const predictedError = parsed?.predicted_error || 0.2; // Valeur par défaut si non fournie
+    
+    // Extraire delta_C_w et delta_C_d depuis parsed
+    const deltaCw = parsed?.delta_complexity?.delta_C_w_bits || 0;
+    const deltaCd = parsed?.delta_complexity?.delta_C_d_bits || 0;
+    
+    // Vérifier si une entrée existe déjà pour cette itération (mise à jour)
+    const existingIndex = this.strategyHistory.findIndex(e => e.iteration === this.iterationCount);
+    
+    if (existingIndex >= 0) {
+      // Mettre à jour l'entrée existante (actual_error peut être mis à jour)
+      this.strategyHistory[existingIndex] = {
+        iteration: this.iterationCount,
+        strategy_name: strategyName,
+        strategy_id: parsed?.strategy_id || null,
+        source_agents: sourceAgents, // Tableau de coordonnées [X,Y]
+        predicted_error: predictedError,
+        actual_error: actualError, // Peut être mis à jour si snapshot suivant disponible
+        delta_C_w: deltaCw,
+        delta_C_d: deltaCd
+      };
+    } else {
+      // Ajouter nouvelle entrée
+      this.strategyHistory.push({
+        iteration: this.iterationCount,
+        strategy_name: strategyName,
+        strategy_id: parsed?.strategy_id || null,
+        source_agents: sourceAgents, // Tableau de coordonnées [X,Y]
+        predicted_error: predictedError,
+        actual_error: actualError,
+        delta_C_w: deltaCw,
+        delta_C_d: deltaCd
+      });
+    }
+    
+    // Limiter à 50 dernières itérations (cohérent avec predictionMetrics)
+    if (this.strategyHistory.length > 50) {
+      this.strategyHistory.shift();
+    }
+  }
+  
+  // === V5: Mise à jour actual_error dans historique après réception snapshot ===
+  updateStrategyHistoryActualError() {
+    // Mettre à jour l'actual_error de la dernière entrée avec l'erreur actuelle
+    if (this.strategyHistory.length > 0) {
+      const lastEntry = this.strategyHistory[this.strategyHistory.length - 1];
+      if (lastEntry.iteration === this.iterationCount - 1) { // Snapshot correspond à l'itération précédente
+        lastEntry.actual_error = this.myPredictionError || 0;
+      }
+    }
   }
   
   // === V5: Graphique erreurs prédiction ===
@@ -1249,65 +1471,133 @@ class AIPlayerV5 {
     const canvas = document.getElementById('predictionErrorChart');
     if (!canvas) return;
     
+    // Ajuster la hauteur du canvas pour correspondre au graphique SIMPLICITY METRICS
+    if (!canvas.width || canvas.width === 0) canvas.width = canvas.offsetWidth || 800;
+    if (!canvas.height || canvas.height === 0) canvas.height = canvas.offsetHeight || 120;
+    
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
-    const pad = 40;
+    const padLeft = 10; // Espace minimal à gauche (pas d'axe vertical)
+    const padTop = 10; // Espace minimal en haut
+    const padBottom = 10; // Espace minimal en bas (pas de label X)
+    const padRight = 10; // Espace minimal à droite
     
     ctx.clearRect(0, 0, w, h);
     
     const data = this.predictionMetrics;
     if (data.iterations.length < 2) return;
     
-    // Axes
+    // Axe horizontal seulement (pas d'axe vertical, pas de labels)
     ctx.strokeStyle = '#ccc';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(pad, pad);
-    ctx.lineTo(pad, h - pad);
-    ctx.lineTo(w - pad, h - pad);
+    ctx.moveTo(padLeft, h - padBottom);
+    ctx.lineTo(w - padRight, h - padBottom);
     ctx.stroke();
-    
-    // Labels (typos plus grandes)
-    ctx.fillStyle = '#666';
-    ctx.font = '14px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Iteration', w / 2, h - 10);
-    ctx.save();
-    ctx.translate(15, h / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText('Prediction Error (0-1)', 0, 0);
-    ctx.restore();
     
     // Échelles
     const minIter = Math.min(...data.iterations);
     const maxIter = Math.max(...data.iterations);
-    const maxError = Math.max(1.0, Math.max(...data.my_error, ...data.mean_error, ...data.std_error));
     
-    const scaleX = (iter) => pad + ((iter - minIter) / (maxIter - minIter || 1)) * (w - 2 * pad);
-    const scaleY = (error) => h - pad - (error / maxError) * (h - 2 * pad);
+    // Calculer maxError en gérant les cas où les tableaux sont vides
+    const allErrors = [
+      ...(data.my_error || []),
+      ...(data.mean_error || []),
+      ...(data.std_error || [])
+    ].filter(v => !isNaN(v) && isFinite(v));
+    const maxError = allErrors.length > 0 ? Math.max(1.0, ...allErrors) : 1.0;
+    
+    const scaleX = (iter) => padLeft + ((iter - minIter) / (maxIter - minIter || 1)) * (w - padLeft - padRight);
+    const scaleY = (error) => h - padBottom - (error / maxError) * (h - padTop - padBottom);
     
     // Dessiner courbes
     const drawCurve = (values, color, lineWidth = 2, dash = []) => {
-      if (values.length < 2) return;
+      if (!values || values.length < 2) {
+        console.log(`[V5] drawCurve: skipping (values=${!!values}, length=${values?.length || 0})`);
+        return;
+      }
+      // Filtrer les valeurs invalides et s'assurer qu'on a des valeurs correspondant aux iterations
+      if (values.length !== data.iterations.length) {
+        console.warn(`[V5] drawCurve: length mismatch (values=${values.length}, iterations=${data.iterations.length})`);
+        return;
+      }
+      const validPairs = [];
+      for (let i = 0; i < values.length; i++) {
+        if (!isNaN(values[i]) && isFinite(values[i]) && data.iterations[i] !== undefined) {
+          validPairs.push({ iter: data.iterations[i], val: values[i] });
+        }
+      }
+      if (validPairs.length < 2) {
+        console.log(`[V5] drawCurve: not enough valid pairs (${validPairs.length})`);
+        return;
+      }
       ctx.strokeStyle = color;
       ctx.lineWidth = lineWidth;
       ctx.setLineDash(dash);
       ctx.beginPath();
-      ctx.moveTo(scaleX(data.iterations[0]), scaleY(values[0]));
-      for (let i = 1; i < values.length; i++) {
-        ctx.lineTo(scaleX(data.iterations[i]), scaleY(values[i]));
+      // Dessiner la courbe avec les paires valides
+      for (let i = 0; i < validPairs.length; i++) {
+        const x = scaleX(validPairs[i].iter);
+        const y = scaleY(validPairs[i].val);
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
       }
       ctx.stroke();
       ctx.setLineDash([]);
     };
     
-    // Std (pointillés rouges)
-    drawCurve(data.std_error, '#dc3545', 2, [5, 5]);
-    // Mean (vert)
-    drawCurve(data.mean_error, '#28a745', 2);
-    // My error (bleu, plus épais)
-    drawCurve(data.my_error, '#007bff', 3);
+    // Debug: vérifier les données avant de dessiner
+    console.log(`[V5] drawPredictionErrorChart: iterations=${data.iterations.length}, my_error=${data.my_error?.length || 0}, mean_error=${data.mean_error?.length || 0}, std_error=${data.std_error?.length || 0}`);
+    if (data.mean_error && data.mean_error.length > 0) {
+      console.log(`[V5] mean_error sample: [${data.mean_error.slice(-5).map(v => v.toFixed(2)).join(', ')}]`);
+    }
+    if (data.std_error && data.std_error.length > 0) {
+      console.log(`[V5] std_error sample: [${data.std_error.slice(-5).map(v => v.toFixed(2)).join(', ')}]`);
+    }
+    
+    // Dessiner toutes les courbes (même si certaines sont vides, elles seront ignorées)
+    // CRITICAL: S'assurer que les tableaux ont la même longueur que iterations
+    const maxLen = data.iterations.length;
+    
+    // Std (pointillés rouges) - dessiner en premier pour être en arrière-plan
+    if (data.std_error && data.std_error.length > 0) {
+      // S'assurer que std_error a la même longueur que iterations
+      const stdValues = data.std_error.length === maxLen 
+        ? data.std_error 
+        : [...data.std_error, ...Array(maxLen - data.std_error.length).fill(0)];
+      console.log(`[V5] Drawing std_error curve (${stdValues.length} points, max=${maxLen}, sample=[${stdValues.slice(-3).map(v => v.toFixed(3)).join(', ')}])`);
+      drawCurve(stdValues, '#dc3545', 2, [5, 5]);
+    } else {
+      console.log(`[V5] std_error not available or empty (length=${data.std_error?.length || 0}, maxLen=${maxLen})`);
+    }
+    
+    // Mean (vert) - dessiner en deuxième
+    if (data.mean_error && data.mean_error.length > 0) {
+      // S'assurer que mean_error a la même longueur que iterations
+      const meanValues = data.mean_error.length === maxLen 
+        ? data.mean_error 
+        : [...data.mean_error, ...Array(maxLen - data.mean_error.length).fill(0)];
+      console.log(`[V5] Drawing mean_error curve (${meanValues.length} points, max=${maxLen}, sample=[${meanValues.slice(-3).map(v => v.toFixed(3)).join(', ')}])`);
+      drawCurve(meanValues, '#28a745', 2);
+    } else {
+      console.log(`[V5] mean_error not available or empty (length=${data.mean_error?.length || 0}, maxLen=${maxLen})`);
+    }
+    
+    // My error (bleu, plus épais) - dessiner en dernier pour être au premier plan
+    if (data.my_error && data.my_error.length > 0) {
+      // S'assurer que my_error a la même longueur que iterations
+      const myValues = data.my_error.length === maxLen 
+        ? data.my_error 
+        : [...data.my_error, ...Array(maxLen - data.my_error.length).fill(0)];
+      console.log(`[V5] Drawing my_error curve (${myValues.length} points, max=${maxLen})`);
+      drawCurve(myValues, '#007bff', 3);
+    } else {
+      console.log(`[V5] my_error not available or empty (length=${data.my_error?.length || 0}, maxLen=${maxLen})`);
+    }
   }
 
   async executePixels(pixelList) {

@@ -751,22 +751,32 @@ async def periodic_on_task():
             print(f"[ON] Aucune donnée W disponible, attente données agents...")
             continue
         
-        # V5: Vérifier que l'image a été mise à jour récemment
-        # Pendant le warmup ou la première analyse, être plus tolérant (30s)
-        # Sinon, 15s maximum
+        # V5: CRITIQUE - Vérifier si tous les agents W actifs ont terminé leurs actions
+        # Quiescence : si aucun agent W n'a envoyé de données depuis quiescence_delay secondes,
+        # alors tous ont terminé et on peut déclencher l'analyse O+N
+        quiescence_delay = 6.0 if store.latest is None else 5.0  # 6s pour première analyse, 5s pour suivantes (augmenté pour laisser temps aux images)
+        all_finished, time_since_last_w_update = w_store.all_agents_finished(quiescence_delay=quiescence_delay)
+        
+        # V5: CRITIQUE - Vérifier que l'image a été mise à jour récemment ET après les données W
+        # L'image doit être récente (moins de max_image_age secondes) ET idéalement après la dernière donnée W
         image_age = 0
         if store.last_update_time:
             image_age = (now - store.last_update_time).total_seconds()
-            max_image_age = 30.0 if store.latest is None else 15.0
+            max_image_age = 30.0 if store.latest is None else 10.0  # Réduire à 10s pour analyses suivantes (plus strict)
             if image_age > max_image_age:
                 print(f"[ON] Image trop ancienne ({image_age:.1f}s > {max_image_age}s), attente mise à jour récente...")
                 continue
         
-        # V5: CRITIQUE - Vérifier si tous les agents W actifs ont terminé leurs actions
-        # Quiescence : si aucun agent W n'a envoyé de données depuis quiescence_delay secondes,
-        # alors tous ont terminé et on peut déclencher l'analyse O+N
-        quiescence_delay = 5.0 if store.latest is None else 4.0  # 5s pour première analyse, 4s pour suivantes
-        all_finished, time_since_last_w_update = w_store.all_agents_finished(quiescence_delay=quiescence_delay)
+        # V5: CRITIQUE - Vérifier que l'image a été mise à jour après ou en même temps que les dernières données W
+        # Si les données W sont plus récentes que l'image, attendre que l'image soit mise à jour
+        if w_store.last_update_time and store.last_update_time:
+            w_update_time = w_store.last_update_time
+            image_update_time = store.last_update_time
+            time_diff = (w_update_time - image_update_time).total_seconds()
+            # Si les données W sont plus récentes que l'image de plus de 2s, attendre
+            if time_diff > 2.0:
+                print(f"[ON] ⏳ Données W plus récentes que l'image ({time_diff:.1f}s d'écart), attente mise à jour image...")
+                continue
         
         # CRITIQUE: Récupérer les données W juste avant de vérifier (pas au début de la boucle)
         # car d'autres agents peuvent avoir envoyé leurs données entre-temps
@@ -816,8 +826,17 @@ async def periodic_on_task():
         
         if not all_finished:
             # Des agents W sont encore en train d'agir, attendre
-            print(f"[ON] Agents W encore actifs (dernière mise à jour il y a {time_since_last_w_update:.1f}s < {quiescence_delay}s), attente...")
+            print(f"[ON] Agents W encore actifs (dernière mise à jour W il y a {time_since_last_w_update:.1f}s < {quiescence_delay}s), attente...")
             continue
+        
+        # V5: CRITIQUE - Vérification finale : s'assurer que l'image est vraiment récente
+        # (au cas où une nouvelle image serait arrivée pendant les vérifications précédentes)
+        now_final = datetime.now(timezone.utc)
+        if store.last_update_time:
+            final_image_age = (now_final - store.last_update_time).total_seconds()
+            if final_image_age > 8.0:  # Si l'image a plus de 8s, elle est probablement obsolète
+                print(f"[ON] ⏳ Image finale trop ancienne ({final_image_age:.1f}s), attente mise à jour...")
+                continue
         
         img_size = len(store.latest_image_base64) if store.latest_image_base64 else 0
         # V5: Vérifier taille minimale d'image (éviter images vides ou trop petites)

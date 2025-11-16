@@ -314,10 +314,10 @@
         <div class="control-panel">
             <!-- Header Banner -->
             <div class="header-banner">
-                <div class="banner-title">AI Player V4 - Poietic Generator (O/W Alternation)</div>
+                <div class="banner-title">AI Player V5 - Poietic Generator</div>
                 <div class="banner-info">
                     <span>Mode: <span id="v4-mode">seed</span></span>
-                    <span>LLM Model: <span id="header-llm-model">Gemini V4</span></span>
+                    <span>LLM Model: <span id="header-llm-model">Gemini Flash 2.5</span></span>
                     <span>Agent position: <span id="header-position">[-, -]</span></span>
                 </div>
                 <div class="banner-buttons">
@@ -397,12 +397,12 @@
                     <div class="tab-panel" id="tab-monitoring">
                         <!-- Simplicity Theory Metrics - V5: O-machine + Prediction Errors -->
                         <div class="section">
-                            <div class="section-title">Simplicity Theory Metrics (V5 - O-N-W)</div>
+                            <div class="section-title">SIMPLICITY METRICS</div>
                             <div id="simplicity-metrics-container" style="background: #1a1a1a; padding: 10px; border-radius: 6px; font-family: monospace;">
                                 
                                 <!-- O+N-machine Graph (Server-side) -->
                                 <div style="margin-bottom: 15px;">
-                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">O+N-machine (Observation + Narration)</h4>
+                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">Observation-machine + Narration machine</h4>
                                     <canvas id="simplicity-chart-o" width="400" height="120" style="width: 100%; height: 120px;"></canvas>
                                     <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
                                         <span style="color: #4A90E2;">■</span> C_w
@@ -419,16 +419,16 @@
 
                                 <!-- V5: Graphique erreurs de prédiction (remplace graphique W-machine) -->
                                 <div style="margin-bottom: 15px;">
-                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">Prediction Errors (V5: N-machine Evaluation)</h4>
+                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">PREDICTION ERRORS</h4>
                                     <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
                                         Agent [<span id="agent-position">0,0</span>] | 
-                                        My Error: <span id="prediction-error">0.00</span>
+                                        Current Error: <span id="prediction-error">0.00</span>
                                     </div>
-                                    <canvas id="predictionErrorChart" width="800" height="400" style="width: 100%; height: 400px;"></canvas>
+                                    <canvas id="predictionErrorChart" width="800" height="120" style="width: 100%; height: 120px;"></canvas>
                                     <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
-                                        <span style="color: #007bff; font-weight: bold;">●</span> My Error
-                                        <span style="margin-left: 12px; color: #28a745; font-weight: bold;">●</span> Mean Error
-                                        <span style="margin-left: 12px; color: #dc3545; font-weight: bold;">⋯</span> Std Deviation (Fragmentation Narrative)
+                                        <span style="color: #007bff; font-weight: bold;">●</span> Agent [<span id="legend-agent-position">0,0</span>] Error
+                                        <span style="margin-left: 12px; color: #28a745; font-weight: bold;">●</span> Mean Agents Error
+                                        <span style="margin-left: 12px; color: #dc3545; font-weight: bold;">⋯</span> Std Deviation
                                     </div>
                                 </div>
                             </div>
@@ -489,10 +489,10 @@
     <script type="module" src="js/llava-canvas.js?v=20250124-053"></script>
     <!-- Load Gemini V5 and expose globally -->
     <script type="module">
-        import { GeminiV5Adapter } from './js/llm-adapters/gemini-v5.js?v=20250124-v5';
+        import { GeminiV5Adapter } from './js/llm-adapters/gemini-v5.js?v=20250124-v5-2';
         window.GeminiV5Adapter = GeminiV5Adapter;
         console.log('✅ [V5] Gemini V5 Adapter (O-N-W Architecture) exposed globally');
     </script>
-    <script type="module" src="js/ai-player-v5.js?v=20250124-v5"></script>
+    <script type="module" src="js/ai-player-v5.js?v=20250124-v5-2"></script>
 </body>
 </html>
