@@ -122,6 +122,7 @@ export const GeminiV5Adapter = {
     const render = (s) => s
       .replaceAll('{{myX}}', context?.myX ?? 0)
       .replaceAll('{{myY}}', context?.myY ?? 0)
+      .replaceAll('{{iteration}}', String(context?.iteration ?? 0))
       // V4 compatibilité (pour seed)
       .replaceAll('{{C_w_computed}}', String(context?.C_w ?? ''))
       .replaceAll('{{C_d_computed}}', String(context?.C_d ?? ''))
@@ -129,6 +130,7 @@ export const GeminiV5Adapter = {
       .replaceAll('{{last_observation}}', context?.lastObservation ? JSON.stringify(context.lastObservation) : 'null')
       .replaceAll('{{my_previous_predictions}}', context?.prevPredictions ? JSON.stringify(context.prevPredictions) : 'null')
       .replaceAll('{{neighbor_colors}}', neighborColorsText)
+      .replaceAll('{{colorPalette}}', context?.colorPalette || 'No colors yet')
       // V5: Variables spécifiques O+N snapshot
       .replaceAll('{{structures}}', structures)
       .replaceAll('{{formal_relations}}', formal_relations)

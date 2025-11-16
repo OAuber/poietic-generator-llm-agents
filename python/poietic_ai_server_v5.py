@@ -28,11 +28,30 @@ class WAgentDataStore:
         previous_record = self.agents_data.get(agent_id, {})
         current_iteration = data.get('iteration', 0)
         previous_iteration = previous_record.get('iteration', -1)
+        
+        # CRITICAL: Conserver les prédictions de l'itération précédente
+        # Si previous_record existe, utiliser ses predictions comme previous_predictions
+        # Sinon, si current_iteration > 0, cela signifie que l'agent a été supprimé et recréé
         previous_predictions = previous_record.get('predictions', {})
+        
+        # Si l'itération actuelle est > 0 et qu'on n'a pas de previous_predictions,
+        # mais qu'on a un previous_record avec des predictions, utiliser celles-ci
+        if current_iteration > 0 and not previous_predictions:
+            # Vérifier si previous_record a des predictions (peut-être sous un autre format)
+            if 'predictions' in previous_record and previous_record['predictions']:
+                previous_predictions = previous_record['predictions']
         
         # Log pour diagnostiquer
         if current_iteration > 0 and not previous_predictions:
             print(f"[W] ⚠️  Agent {agent_id[:8]}: iteration {current_iteration} mais pas de previous_predictions (previous_iteration={previous_iteration})")
+            if previous_record:
+                print(f"[W] 🔍 Agent {agent_id[:8]}: previous_record existe mais pas de predictions: {list(previous_record.keys())}")
+            else:
+                print(f"[W] 🔍 Agent {agent_id[:8]}: previous_record n'existe pas (agent supprimé ou première fois)")
+        
+        # CRITICAL: Avant de mettre à jour, sauvegarder les predictions actuelles comme previous_predictions
+        # pour la prochaine itération
+        current_predictions = data.get('predictions', {})
         
         self.agents_data[agent_id] = {
             'agent_id': agent_id,
@@ -41,8 +60,10 @@ class WAgentDataStore:
             'previous_iteration': previous_iteration,
             'strategy': data.get('strategy', 'N/A'),
             'rationale': data.get('rationale', ''),
-            'predictions': data.get('predictions', {}),
+            'predictions': current_predictions,
             # Conserver les prédictions de l'itération précédente pour N (évaluation erreur)
+            # Si previous_predictions est vide mais qu'on a des predictions actuelles et iteration > 0,
+            # cela signifie que c'est la première action après seed, donc previous_predictions devrait être vide
             'previous_predictions': previous_predictions,
             'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat())
         }
@@ -53,7 +74,11 @@ class WAgentDataStore:
         return self.agents_data.copy()
     
     def clear_stale_agents(self, timeout=30):
-        """Nettoyer les agents inactifs (obsolètes)"""
+        """Nettoyer les agents inactifs (obsolètes)
+        
+        CRITICAL: Ne pas supprimer les agents qui ont des prédictions importantes
+        car on a besoin de leurs previous_predictions pour évaluer l'erreur de prédiction.
+        """
         if not self.agents_data:
             return
         
@@ -63,14 +88,29 @@ class WAgentDataStore:
         for agent_id, data in self.agents_data.items():
             timestamp_str = data.get('timestamp', '')
             iteration = data.get('iteration', -1)
+            has_predictions = bool(data.get('predictions', {}))
+            has_previous_predictions = bool(data.get('previous_predictions', {}))
+            
             try:
                 agent_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 delta = (now - agent_time).total_seconds()
+                
                 # CRITIQUE: Ne pas supprimer les agents qui ont fait un seed (iteration 0) mais pas encore d'action
                 # car on a besoin de leurs prédictions pour évaluer l'erreur de prédiction de leur première action
                 # Timeout plus long pour les seeds (120s) car ils peuvent prendre du temps avant première action
                 seed_timeout = 120 if iteration == 0 else timeout
-                if delta > seed_timeout:
+                
+                # CRITICAL: Ne pas supprimer les agents qui ont des prédictions mais pas encore de previous_predictions
+                # car ils vont bientôt envoyer leur prochaine itération et on aura besoin de leurs prédictions actuelles
+                # comme previous_predictions pour la prochaine itération
+                if has_predictions and not has_previous_predictions and iteration > 0:
+                    # Agent a des prédictions mais pas de previous_predictions - il va bientôt envoyer sa prochaine itération
+                    # Ne pas supprimer avant 180s (3 minutes) pour laisser le temps
+                    effective_timeout = max(seed_timeout, 180)
+                else:
+                    effective_timeout = seed_timeout
+                
+                if delta > effective_timeout:
                     stale_agents.append(agent_id)
             except:
                 pass
@@ -78,8 +118,7 @@ class WAgentDataStore:
         for agent_id in stale_agents:
             iteration = self.agents_data.get(agent_id, {}).get('iteration', -1)
             del self.agents_data[agent_id]
-            timeout_used = 120 if iteration == 0 else timeout
-            print(f"[W] Agent {agent_id} supprimé (inactif > {timeout_used}s, iter={iteration})")
+            print(f"[W] Agent {agent_id[:8]} supprimé (inactif > {timeout}s, iter={iteration})")
     
     def all_agents_finished(self, quiescence_delay=5.0):
         """
@@ -127,8 +166,13 @@ class OSnapshotStore:
             self.first_analysis_start_time = None
 
     def set_image(self, image_base64: str):
+        # V5: Accepter toutes les images (tous les clients envoient leur vue)
+        # Le serveur utilise simplement la dernière image reçue
+        # NOTE: Tous les clients devraient voir la même chose via WebSocket,
+        # donc leurs images devraient être identiques (ou très similaires)
+        now = datetime.now(timezone.utc)
         self.latest_image_base64 = image_base64
-        self.last_update_time = datetime.now(timezone.utc)
+        self.last_update_time = now
         if self.first_update_time is None:
             self.first_update_time = self.last_update_time
         self.updates_count += 1
@@ -341,7 +385,7 @@ def validate_structures_no_overlap(o_result: dict) -> Tuple[bool, List[str]]:
 # APPELS GEMINI
 # ==============================================================================
 
-async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None) -> Optional[dict]:
+async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None, agent_positions: Optional[list] = None) -> Optional[dict]:
     """Appelle Gemini pour O-machine (observation des structures et calcul C_d)"""
     print(f"[O] 🚀 Début appel Gemini O (agents: {agents_count}, image: {len(image_base64)} bytes)")
     api_key = os.getenv('GEMINI_API_KEY')
@@ -361,10 +405,29 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
     # Injecter agents_count
     try:
         prompt = prompt.replace('{{agents_count}}', str(agents_count))
-        print(f"[O] 📝 Prompt final: {len(prompt)} chars (~{len(prompt)//4} tokens)")
     except Exception as e:
         print(f"[O] Erreur injection agents_count: {e}")
         return None
+    
+    # Injecter les positions réelles des agents
+    try:
+        if agent_positions and len(agent_positions) > 0:
+            # Formater la liste des positions pour le prompt
+            positions_str = ', '.join([f'[{pos[0]},{pos[1]}]' for pos in agent_positions])
+            prompt = prompt.replace('{{agent_positions}}', positions_str)
+            print(f"[O] 📍 Positions agents injectées: {positions_str}")
+        else:
+            # Si pas de positions, remplacer par un message
+            prompt = prompt.replace('{{agent_positions}}', 'No agent positions available')
+            print(f"[O] ⚠️  Aucune position d'agent disponible")
+    except Exception as e:
+        print(f"[O] Erreur injection agent_positions: {e}")
+        # Continuer quand même sans les positions
+    
+    try:
+        print(f"[O] 📝 Prompt final: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+    except Exception as e:
+        pass
     
     # Préparer le body
     parts = [{'text': prompt}]
@@ -372,12 +435,22 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
         clean_base64 = image_base64
         if clean_base64.startswith('data:image/png;base64,'):
             clean_base64 = clean_base64.replace('data:image/png;base64,', '')
+        
+        # Vérifier que l'image base64 est valide (non vide, longueur raisonnable)
+        if len(clean_base64) < 100:
+            print(f"[O] ⚠️  Image base64 trop courte ({len(clean_base64)} chars) - peut-être invalide")
+        else:
+            print(f"[O] 📷 Image base64 valide: {len(clean_base64)} chars (début: {clean_base64[:50]}...)")
+        
         parts.append({
             'inline_data': {
                 'mime_type': 'image/png',
                 'data': clean_base64
             }
         })
+        print(f"[O] 📷 Image incluse dans la requête Gemini (parts: {len(parts)}, image: {len(clean_base64)} chars)")
+    else:
+        print(f"[O] ⚠️  ATTENTION: Aucune image fournie à Gemini O!")
     
     url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={api_key}"
     body = {
@@ -636,12 +709,31 @@ async def periodic_on_task():
             continue
         
         # Vérifier obsolescence (agents déconnectés) - seulement après le warmup
+        # CRITICAL: Les agents W peuvent prendre jusqu'à 7 minutes pour générer (timeout Gemini client = 420s)
+        # Il faut donc un timeout de détection de déconnexion suffisamment long pour éviter les fausses déconnexions
         # V5: Timeout plus long pour la phase initiale (seeds peuvent prendre du temps)
-        timeout_seconds = 60 if (store.updates_count or 0) < 10 else 30
-        if store.is_stale(timeout_seconds=timeout_seconds):
+        # CRITICAL: Vérifier aussi l'activité via les données W (plus fiable que seulement l'image)
+        w_data = w_store.get_all_agents_data()
+        w_last_update = w_store.last_update_time
+        w_activity_delta = (now - w_last_update).total_seconds() if w_last_update else float('inf')
+        
+        # Timeout de détection de déconnexion :
+        # - Phase initiale (premiers 10 updates) : 180s (3 minutes) - seeds peuvent prendre du temps
+        # - Phase normale : 300s (5 minutes) - laisse le temps aux agents de finir leurs appels Gemini (max 420s)
+        #   mais détecte quand même les vraies déconnexions (si un agent ne répond pas pendant 5 minutes, c'est suspect)
+        timeout_seconds = 180 if (store.updates_count or 0) < 10 else 300
+        image_stale = store.is_stale(timeout_seconds=timeout_seconds)
+        w_stale = w_activity_delta > timeout_seconds if w_last_update else False
+        
+        # Considérer les agents déconnectés seulement si image ET données W sont obsolètes
+        # (évite fausses déconnexions si les agents envoient des données W mais pas d'images)
+        if image_stale and w_stale:
             if store.agents_count > 0:
-                print(f"[ON] Timeout détecté ({timeout_seconds}s), agents considérés déconnectés")
+                print(f"[ON] Timeout détecté ({timeout_seconds}s): image obsolète ({image_stale}) ET données W obsolètes ({w_activity_delta:.1f}s) - agents considérés déconnectés")
                 store.set_agents_count(0)
+        elif image_stale and not w_stale:
+            # Image obsolète mais données W récentes : agents toujours actifs
+            print(f"[ON] Image obsolète mais données W récentes ({w_activity_delta:.1f}s < {timeout_seconds}s) - agents toujours actifs")
         
         if store.agents_count == 0:
             print("[ON] Pas d'agents actifs, attente...")
@@ -736,21 +828,60 @@ async def periodic_on_task():
         
         print(f"[ON] Analyse avec Gemini ({store.agents_count} agents, image: {img_size} bytes, age: {image_age:.1f}s)...")
         
-        # Nettoyer agents W obsolètes (mais seulement ceux vraiment inactifs)
-        # Ne pas nettoyer si on a des agents actifs selon agents_count
-        # car ils peuvent être en train de générer leur première action (seed)
-        if store.agents_count > 0:
-            # Nettoyer seulement les agents vraiment obsolètes (timeout plus long)
-            w_store.clear_stale_agents(timeout=60)  # 60s au lieu de 30s pour éviter de supprimer des agents en cours de démarrage
-        else:
-            # Pas d'agents actifs, nettoyer normalement
-            w_store.clear_stale_agents(timeout=30)
-        
         # Étape 1 : O analysis (structures + C_d + relations formelles)
+        # CRITICAL: Extraire les positions AVANT de nettoyer les agents obsolètes
+        # car on a besoin de toutes les positions pour O, même si certains agents sont inactifs
+        agent_positions_list = []
+        for agent_id, agent_data in w_data_check.items():
+            position = agent_data.get('position', [0, 0])
+            if isinstance(position, list) and len(position) == 2:
+                agent_positions_list.append(position)
+                print(f"[ON] 📍 Agent {agent_id[:8]}: position {position}")
+            else:
+                print(f"[ON] ⚠️  Agent {agent_id[:8]}: position invalide {position}")
+        
+        # Trier les positions pour cohérence (par Y puis X)
+        agent_positions_list.sort(key=lambda p: (p[1], p[0]))
+        print(f"[ON] 📍 Positions extraites pour O: {agent_positions_list}")
+        
+        if len(agent_positions_list) == 0:
+            print(f"[ON] ⚠️  ATTENTION: Aucune position d'agent extraite depuis w_data_check ({len(w_data_check)} agents)")
+            # Essayer de récupérer depuis agents_data directement
+            for agent_id, agent_data in w_data_check.items():
+                print(f"[ON] 🔍 Agent {agent_id[:8]}: données complètes = {json.dumps(agent_data, indent=2)[:200]}")
+        
+        # Vérifier si toutes les positions attendues sont présentes
+        if len(agent_positions_list) < store.agents_count:
+            print(f"[ON] ⚠️  ATTENTION: Seulement {len(agent_positions_list)} positions extraites pour {store.agents_count} agents actifs")
+        
+        # Nettoyer agents W obsolètes APRÈS avoir extrait les positions
+        # CRITICAL: Les agents peuvent prendre jusqu'à 7 minutes pour générer (timeout Gemini = 420s)
+        # Il faut donc un timeout suffisamment long pour éviter de supprimer des agents en cours de génération
+        if store.agents_count > 0:
+            # Nettoyer seulement les agents vraiment obsolètes (timeout très long pour laisser le temps aux appels Gemini)
+            w_store.clear_stale_agents(timeout=480)  # 480s (8 minutes) pour laisser le temps aux appels Gemini (max 420s) + marge
+        else:
+            # Pas d'agents actifs, nettoyer normalement (mais toujours avec une marge)
+            w_store.clear_stale_agents(timeout=300)  # 300s (5 minutes) même sans agents actifs
+        
         o_result = None
         for attempt in range(3):  # Augmenter à 3 tentatives
-            o_result = await call_gemini_o(store.latest_image_base64, store.agents_count, store.latest)
+            o_result = await call_gemini_o(store.latest_image_base64, store.agents_count, store.latest, agent_positions_list)
             if o_result:
+                # V5: Valider que toutes les positions dans les structures sont valides
+                if agent_positions_list and len(agent_positions_list) > 0:
+                    structures = o_result.get('structures', [])
+                    invalid_positions = []
+                    for struct in structures:
+                        agent_positions = struct.get('agent_positions', [])
+                        for pos in agent_positions:
+                            if pos not in agent_positions_list:
+                                invalid_positions.append(pos)
+                    if invalid_positions:
+                        print(f"[ON] ⚠️  ATTENTION: O a retourné des positions invalides: {invalid_positions}")
+                        print(f"[ON] 📍 Positions valides: {agent_positions_list}")
+                        # Ne pas rejeter complètement, mais loguer l'erreur
+                
                 # V5: Valider qu'aucun agent n'apparaît dans plusieurs structures
                 is_valid, errors = validate_structures_no_overlap(o_result)
                 if not is_valid:
@@ -783,14 +914,13 @@ async def periodic_on_task():
                 print("[O] Aucun snapshot précédent, création snapshot minimal (attente première analyse)")
                 snapshot = {
                     'structures': [],
-                    'formal_relations': {'summary': 'Waiting for first image analysis...', 'connections': []},
+                    'formal_relations': {'summary': 'Waiting for first image analysis...'},
                     'narrative': {'summary': 'Waiting for first O+N analysis...'},
                     'prediction_errors': {},
                     'simplicity_assessment': {
                         'C_w_current': {'value': 0},
                         'C_d_current': {'value': 0, 'description': 'Waiting for first analysis'},
                         'U_current': {'value': 0, 'interpretation': 'WEAK_EMERGENCE'},
-                        'reasoning_o': 'Waiting for first O analysis...',
                         'reasoning_n': 'Waiting for first N analysis...'
                     },
                     'agents_count': store.agents_count
@@ -905,8 +1035,7 @@ async def periodic_on_task():
                     'narrative': store.latest.get('narrative', {'summary': 'Previous narrative preserved'}),
                     'prediction_errors': store.latest.get('prediction_errors', {}),
                     'simplicity_assessment': {
-                        'C_w_current': store.latest['simplicity_assessment'].get('C_w_current', {'value': 15}),
-                        'reasoning': store.latest['simplicity_assessment'].get('reasoning_n', 'Preserved from previous N analysis')
+                        'C_w_current': store.latest['simplicity_assessment'].get('C_w_current', {'value': 15})
                     }
                 }
             else:
@@ -916,8 +1045,7 @@ async def periodic_on_task():
                     'narrative': {'summary': 'First N analysis pending. Agents are initializing their strategies.'},
                     'prediction_errors': {},
                     'simplicity_assessment': {
-                        'C_w_current': {'value': 15},
-                        'reasoning': 'Default C_w for initial setup (canvas initialization + basic seed parameters). Waiting for first agent strategies to evaluate.'
+                        'C_w_current': {'value': 15}
                     }
                 }
         
@@ -927,9 +1055,17 @@ async def periodic_on_task():
             c_d = o_result['simplicity_assessment']['C_d_current']['value']
             u_value = c_w - c_d
             
+            # V5: formal_relations ne contient plus que 'summary' (pas de 'connections')
+            formal_relations = o_result.get('formal_relations', {})
+            if isinstance(formal_relations, dict):
+                # S'assurer qu'on ne garde que 'summary', pas 'connections'
+                formal_relations = {'summary': formal_relations.get('summary', '')}
+            else:
+                formal_relations = {'summary': ''}
+            
             combined_snapshot = {
                 'structures': o_result.get('structures', []),
-                'formal_relations': o_result.get('formal_relations', {'summary': '', 'connections': []}),
+                'formal_relations': formal_relations,
                 'narrative': n_result.get('narrative', {'summary': ''}),
                 'prediction_errors': n_result.get('prediction_errors', {}),
                 'simplicity_assessment': {
@@ -939,8 +1075,7 @@ async def periodic_on_task():
                         'value': u_value,
                         'interpretation': calculate_u_interpretation(u_value)
                     },
-                    'reasoning_o': o_result['simplicity_assessment'].get('reasoning', ''),
-                    'reasoning_n': n_result['simplicity_assessment'].get('reasoning', '')
+                    'reasoning_n': ''  # V5: N no longer provides reasoning field (done internally)
                 },
                 'agents_count': store.agents_count
             }
@@ -986,14 +1121,16 @@ async def get_latest_o(agent_id: Optional[str] = Query(None)):
             'version': 0,
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'structures': [],
-            'formal_relations': {'summary': '', 'connections': []},
+            'formal_relations': {'summary': ''},
             'narrative': {'summary': ''},
             'prediction_errors': {},
             'simplicity_assessment': {
                 'C_w_current': {'value': 0},
-                'C_d_current': {'value': 0},
-                'U_current': {'value': 0}
-            }
+                'C_d_current': {'value': 0, 'description': 'No analysis yet - waiting for first O+N analysis...'},
+                'U_current': {'value': 0, 'interpretation': 'WAITING'},
+                'reasoning_n': 'Waiting for first N analysis...'
+            },
+            '_pending': True
         }
     
     # Personnaliser si agent_id fourni
@@ -1020,17 +1157,46 @@ async def get_latest_o(agent_id: Optional[str] = Query(None)):
 
 @app.post("/o/image")
 async def post_o_image(payload: dict = Body(...)):
-    """Recevoir l'image globale d'un agent W"""
+    """Recevoir l'image globale d'un agent W
+    
+    NOTE: Tous les clients W envoient leur image. Le serveur utilise la dernière image reçue.
+    Cela peut causer des problèmes si plusieurs clients envoient en même temps.
+    Solution: Le serveur accepte toutes les images mais utilise la plus récente (par timestamp).
+    """
     img = payload.get('image_base64') or ''
     agents = payload.get('agents_count')
     if img.startswith('data:image/png;base64,'):
         img = img.replace('data:image/png;base64,', '')
     if not img or any(c not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in img):
+        print(f"[O] ⚠️  Image invalide reçue: longueur={len(img)}, début={img[:50] if img else 'None'}")
         return {'ok': False, 'error': 'invalid_base64'}
-    store.set_image(img)
-    if agents is not None:
-        store.set_agents_count(agents)
-    return {'ok': True, 'timestamp': datetime.now(timezone.utc).isoformat(), 'agents_count': store.agents_count}
+    
+    # Vérifier si l'image est significativement différente de la précédente (pour éviter spam)
+    previous_size = len(store.latest_image_base64) if store.latest_image_base64 else 0
+    current_size = len(img)
+    size_diff = abs(current_size - previous_size)
+    
+    # CRITICAL: Mettre à jour last_update_time même si l'image est similaire
+    # pour indiquer que les agents sont toujours actifs (évite fausses déconnexions)
+    now = datetime.now(timezone.utc)
+    store.last_update_time = now
+    if store.first_update_time is None:
+        store.first_update_time = now
+    
+    # Accepter l'image si elle est nouvelle ou significativement différente
+    if not store.latest_image_base64 or size_diff > 100:  # Au moins 100 chars de différence
+        print(f"[O] 📥 Image reçue: {len(img)} chars base64, {agents} agents (diff: {size_diff} chars)")
+        store.set_image(img)
+        if agents is not None:
+            store.set_agents_count(agents)
+        return {'ok': True, 'timestamp': datetime.now(timezone.utc).isoformat(), 'agents_count': store.agents_count}
+    else:
+        # Image très similaire à la précédente - probablement un doublon, ignorer l'image mais mettre à jour timestamp
+        # CRITICAL: Mettre à jour last_update_time pour indiquer que les agents sont toujours actifs
+        print(f"[O] 📥 Image similaire ignorée (diff: {size_diff} chars < 100) mais timestamp mis à jour (agents actifs)")
+        if agents is not None:
+            store.set_agents_count(agents)
+        return {'ok': True, 'timestamp': datetime.now(timezone.utc).isoformat(), 'agents_count': store.agents_count, 'ignored': True}
 
 
 @app.get("/o/image")

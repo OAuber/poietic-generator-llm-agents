@@ -118,7 +118,6 @@ class AIPlayerV5 {
       const s = data?.simplicity_assessment || {};
       const structs = data?.structures || [];
       const formal_relations = data?.formal_relations || {};
-      const reasoning = s?.reasoning || '';
       content = 
         `O-MACHINE (Observation)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -129,17 +128,8 @@ class AIPlayerV5 {
       });
       if (structs.length === 0) content += `  (none detected)\n`;
       content += `\nFORMAL RELATIONS\n${formal_relations.summary || 'N/A'}\n`;
-      if (formal_relations.connections && formal_relations.connections.length > 0) {
-        content += `\nConnections:\n`;
-        formal_relations.connections.forEach(c => {
-          content += `  • Structure ${c.from_structure_idx} → ${c.to_structure_idx}: ${c.type} (strength: ${c.strength})\n`;
-        });
-      }
       content += `\nC_d (Description Complexity): ${s.C_d_current?.value ?? 'N/A'} bits\n`;
       content += `Description: ${s.C_d_current?.description || 'N/A'}\n`;
-      if (reasoning) {
-        content += `\nREASONING O\n${reasoning}\n`;
-      }
       // Replace complexity terms in content
       content = this.replaceComplexityTerms(content);
     } else if (source === 'N') {
@@ -147,7 +137,6 @@ class AIPlayerV5 {
       const s = data?.simplicity_assessment || {};
       const narrative = data?.narrative || {};
       const prediction_errors = data?.prediction_errors || {};
-      const reasoning = s?.reasoning || '';
       content = 
         `N-MACHINE (Narration)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -170,11 +159,7 @@ class AIPlayerV5 {
           content += `  • Agent ${position}: error=${(err.error || 0).toFixed(2)} — ${err.explanation || 'N/A'}\n`;
         });
       }
-      
-      if (reasoning) {
-        content += `\nREASONING N\n${reasoning}\n`;
-      }
-      // Replace complexity terms in all N content (narrative, explanations, reasoning)
+      // Replace complexity terms in all N content (narrative, explanations)
       content = this.replaceComplexityTerms(content);
     } else if (source === 'W') {
       // Format W response (seed/action)
@@ -455,31 +440,39 @@ class AIPlayerV5 {
         try {
           const url = canvas.toDataURL('image/png');
           if (url) {
+            console.log(`[V5] 📷 Image capturée depuis viewer: ${canvas.width}×${canvas.height}, ${url.length} chars`);
             this.addDebugImage(label, url);
             return url;
           }
-        } catch (_) { /* continue to retry */ }
+        } catch (e) { 
+          console.warn(`[V5] ⚠️  Erreur capture canvas viewer (tentative ${attempt+1}):`, e);
+        }
       }
       await new Promise(r => setTimeout(r, 200));
     }
 
-    // 2) Fallback: régénérer via LlavaCanvasGenerator (comme V3)
+    // 2) Fallback: régénérer via PositionCanvasGenerator
+    console.log(`[V5] 📷 Fallback: génération image via PositionCanvasGenerator (${Object.keys(this.otherUsers || {}).length} agents)`);
     try {
-      let gen = window.LlavaCanvasGenerator;
+      let gen = window.PositionCanvasGenerator;
       if (!gen) {
-        const mod = await import('/js/llava-canvas.js?v=20250124-053');
-        gen = mod?.LlavaCanvasGenerator || window.LlavaCanvasGenerator;
+        const mod = await import('/js/position-canvas.js?v=20250124-053');
+        gen = mod?.PositionCanvasGenerator || window.PositionCanvasGenerator;
       }
       if (gen && this.otherUsers) {
         const result = gen.generateGlobalCanvas(this.otherUsers, this.myUserId);
         const dataUrl = result?.pureCanvas ? `data:image/png;base64,${result.pureCanvas}` : null;
         if (dataUrl) {
+          console.log(`[V5] 📷 Image générée via PositionCanvasGenerator: ${dataUrl.length} chars`);
           this.addDebugImage(label, dataUrl);
           return dataUrl;
         }
       }
-    } catch (_) { /* ignore */ }
+    } catch (e) { 
+      console.error(`[V5] ⚠️  Erreur génération PositionCanvasGenerator:`, e);
+    }
 
+    console.warn(`[V5] ⚠️  Échec capture image globale pour ${label}`);
     return null;
   }
 
@@ -629,7 +622,8 @@ class AIPlayerV5 {
       // Build context
       const ctx = {
         myX: this.myPosition[0],
-        myY: this.myPosition[1]
+        myY: this.myPosition[1],
+        iteration: this.iterationCount
       };
 
       // Agent S→W : seed (itération 0) ou action (itération 1+)
@@ -656,6 +650,10 @@ class AIPlayerV5 {
         } else {
           if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Active';
         }
+        
+        // Extraire la palette de couleurs locale (même pour seed, peut être utile)
+        const colorPalette = this.extractLocalColorPalette();
+        ctx.colorPalette = colorPalette;
         
         // Build prompt seed et appel LLM
         // V5: Seed dessine à l'aveugle (pas d'images) pour maximiser la diversité
@@ -858,16 +856,14 @@ class AIPlayerV5 {
             structures: fullSnapshot.structures,
             formal_relations: fullSnapshot.formal_relations,
             simplicity_assessment: {
-              C_d_current: fullSnapshot.simplicity_assessment?.C_d_current,
-              reasoning: fullSnapshot.simplicity_assessment?.reasoning_o || fullSnapshot.simplicity_assessment?.reasoning
+              C_d_current: fullSnapshot.simplicity_assessment?.C_d_current
             }
           };
           const nData = {
             narrative: fullSnapshot.narrative,
             prediction_errors: fullSnapshot.prediction_errors || {},
             simplicity_assessment: {
-              C_w_current: fullSnapshot.simplicity_assessment?.C_w_current,
-              reasoning: fullSnapshot.simplicity_assessment?.reasoning_n
+              C_w_current: fullSnapshot.simplicity_assessment?.C_w_current
             }
           };
           
@@ -909,6 +905,10 @@ class AIPlayerV5 {
         // Extraire les couleurs des voisins pour faciliter la coordination
         const neighborColors = this.extractNeighborColors();
         ctx.neighborColors = neighborColors;
+        
+        // Extraire la palette de couleurs locale
+        const colorPalette = this.extractLocalColorPalette();
+        ctx.colorPalette = colorPalette;
 
         // Build prompt action et appel LLM
         const systemText = await window.GeminiV5Adapter.buildSystemPrompt('action', ctx);
@@ -1008,6 +1008,7 @@ class AIPlayerV5 {
         try {
           if (globalUrlAfter) {
             const agentsCount = Object.keys(this.otherUsers || {}).length;
+            console.log(`[V5] 📤 Envoi image globale à O: ${globalUrlAfter.length} chars, ${agentsCount} agents`);
             await fetch(`${this.O_API_BASE}/o/image`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1090,6 +1091,29 @@ class AIPlayerV5 {
     }
 
     return neighborInfo.length > 0 ? neighborInfo : null;
+  }
+
+  // === Extraction palette de couleurs locale ===
+  extractLocalColorPalette() {
+    if (!this.myCellState || Object.keys(this.myCellState).length === 0) {
+      return 'No colors yet (empty grid)';
+    }
+    
+    // Extraire les couleurs uniques (sans compter le noir)
+    const colors = new Set();
+    Object.values(this.myCellState).forEach(color => {
+      if (color && color !== '#000000' && color !== '#000' && color !== 'transparent') {
+        colors.add(color.toUpperCase());
+      }
+    });
+    
+    if (colors.size === 0) {
+      return 'No colors yet (only black pixels)';
+    }
+    
+    // Retourner la liste des couleurs (max 10 pour éviter trop de tokens)
+    const colorArray = Array.from(colors).slice(0, 10);
+    return colorArray.join(', ');
   }
   
   // === V5: Envoi données W à N ===
@@ -1287,7 +1311,25 @@ class AIPlayerV5 {
   }
 
   async executePixels(pixelList) {
-    if (!Array.isArray(pixelList) || pixelList.length === 0) return Promise.resolve(0);
+    if (!Array.isArray(pixelList) || pixelList.length === 0) {
+      return Promise.resolve(0);
+    }
+    
+    // CRITICAL: Attendre que le WebSocket soit prêt avant d'envoyer les pixels
+    // Le premier agent (agent [0,0]) peut essayer d'envoyer avant que le WebSocket soit ouvert
+    const maxWaitTime = 10000; // 10 secondes max d'attente
+    const checkInterval = 100; // Vérifier toutes les 100ms
+    let waited = 0;
+    while ((!this.socket || this.socket.readyState !== WebSocket.OPEN) && waited < maxWaitTime) {
+      await new Promise(r => setTimeout(r, checkInterval));
+      waited += checkInterval;
+    }
+    
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      console.error(`[V5] ⚠️  WebSocket non prêt après ${waited}ms - pixels non envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+      return Promise.resolve(0);
+    }
+    
     // Normalize strings "x,y#HEX" into {x,y,color}
     const pixels = pixelList.map(p => {
       if (typeof p === 'string' && p.includes('#') && p.includes(',')) {
@@ -1315,25 +1357,39 @@ class AIPlayerV5 {
       }
       
       let sentCount = 0;
+      let actuallySentCount = 0; // Compteur des pixels réellement envoyés
       const totalPixels = pixels.length;
       
       for (let i=0;i<pixels.length;i++) {
         const timeoutId = setTimeout(() => {
           if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
-              type: 'cell_update',
-              sub_x: pixels[i].x,
-              sub_y: pixels[i].y,
-              color: pixels[i].color
-            }));
-            // Mettre à jour l'état local pour capture
-            const key = `${pixels[i].x},${pixels[i].y}`;
-            this.myCellState[key] = pixels[i].color;
+            try {
+              this.socket.send(JSON.stringify({
+                type: 'cell_update',
+                sub_x: pixels[i].x,
+                sub_y: pixels[i].y,
+                color: pixels[i].color
+              }));
+              // Mettre à jour l'état local pour capture
+              const key = `${pixels[i].x},${pixels[i].y}`;
+              this.myCellState[key] = pixels[i].color;
+              actuallySentCount++;
+            } catch (e) {
+              console.error(`[V5] ⚠️  Erreur envoi pixel ${i+1}/${totalPixels} pour agent [${this.myPosition[0]},${this.myPosition[1]}]:`, e);
+            }
+            sentCount++;
+          } else {
+            // WebSocket fermé pendant l'envoi - compter quand même pour éviter blocage
+            console.warn(`[V5] ⚠️  WebSocket fermé pendant envoi pixel ${i+1}/${totalPixels} pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+            sentCount++;
           }
-          sentCount++;
+          
           // Quand tous les pixels sont envoyés, résoudre la promesse
           if (sentCount === totalPixels) {
-            resolve(totalPixels);
+            if (actuallySentCount < totalPixels) {
+              console.warn(`[V5] ⚠️  Seulement ${actuallySentCount}/${totalPixels} pixels envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+            }
+            resolve(actuallySentCount);
           }
         }, i*delayPerPixel);
         this.pendingPixelTimeouts.push(timeoutId);
@@ -1343,8 +1399,8 @@ class AIPlayerV5 {
       const maxTime = (pixels.length * delayPerPixel) + 2000; // +2s de marge
       setTimeout(() => {
         if (sentCount < totalPixels) {
-          console.warn(`[V4] Timeout executePixels: ${sentCount}/${totalPixels} pixels envoyés`);
-          resolve(sentCount);
+          console.warn(`[V5] ⚠️  Timeout executePixels: ${sentCount}/${totalPixels} pixels comptés, ${actuallySentCount} réellement envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+          resolve(actuallySentCount);
         }
       }, maxTime);
     });
