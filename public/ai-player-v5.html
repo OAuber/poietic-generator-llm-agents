@@ -422,13 +422,30 @@
                                     <h4 style="color: #888; margin: 0 0 8px 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">PREDICTION ERRORS</h4>
                                     <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
                                         Agent [<span id="agent-position">0,0</span>] | 
-                                        Current Error: <span id="prediction-error">0.00</span>
+                                        Current Error: <span id="prediction-error">0.00</span> | 
+                                        Mean Error: <span id="mean-error-display">0.00</span> | 
+                                        Rank: <span id="rank-display">-</span>
                                     </div>
                                     <canvas id="predictionErrorChart" width="800" height="120" style="width: 100%; height: 120px;"></canvas>
                                     <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
                                         <span style="color: #007bff; font-weight: bold;">●</span> Agent [<span id="legend-agent-position">0,0</span>] Error
                                         <span style="margin-left: 12px; color: #28a745; font-weight: bold;">●</span> Mean Agents Error
                                         <span style="margin-left: 12px; color: #dc3545; font-weight: bold;">⋯</span> Std Deviation
+                                    </div>
+                                </div>
+
+                                <!-- V5: Agent Ranking Display -->
+                                <div style="margin-bottom: 15px;">
+                                    <h4 style="color: #888; margin: 0 0 8px 0; font-size: 14px; font-weight: normal;">AGENT RANKING (Prediction Accuracy)</h4>
+                                    <div id="agent-ranking-display" style="background: #1a1a1a; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px;">
+                                        <div style="color: #ccc; margin-bottom: 8px;">
+                                            Your rank: <span id="my-rank" style="color: #4AE290; font-weight: bold;">-</span> / <span id="total-agents">-</span> | 
+                                            Average error: <span id="my-avg-error" style="color: #4AE290; font-weight: bold;">-</span>
+                                        </div>
+                                        <div style="margin-top: 10px;">
+                                            <div style="font-size: 11px; color: #888; margin-bottom: 5px;">Top 5 Predictors:</div>
+                                            <div id="top-predictors" style="font-size: 11px; color: #ccc;"></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

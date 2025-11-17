@@ -155,6 +155,19 @@
       "delta_C_w_bits": 15,
       "delta_C_d_bits": -12,
       "difficulty": "very_hard"
+    },
+    {
+      "id": "form_exact_reproduction",
+      "name": "Exact form reproduction (translation or mirror)",
+      "category": "form",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "Reproduce a neighbor's form EXACTLY through translation (copy at different position) or mirror symmetry (reflect across axis). PARADOXICAL ADVANTAGES: (1) PREDICTION ERROR = 0.0 (you can predict the result with 100% accuracy since you're copying), (2) DRASTIC C_d reduction (two identical/symmetric forms are described as 'two X' or 'symmetric X' instead of 'X and Y'), (3) ANTICIPATION CAPABILITY: by copying, you demonstrate understanding of the source agent's pattern, potentially even 'copying into the future' if you anticipate their next move. This predictive ability is highly valued in the community and improves your ranking. While C_w is low (easy to generate by copying), the perfect prediction accuracy (error = 0) maximizes your influence on the global narrative, and the C_d reduction significantly increases global U.",
+      "predicted_error": 0.0,
+      "delta_C_w_bits": 2,
+      "delta_C_d_bits": -8,
+      "difficulty": "easy"
     }
   ]
 }

@@ -934,6 +934,8 @@ class AIPlayerV5 {
           this.updateOMetrics(this.Osnapshot);
           // V5: Mettre à jour les métriques d'erreur de prédiction
           this.updatePredictionMetrics(this.Osnapshot);
+          // V5: Mettre à jour l'affichage du ranking
+          this.updateRankingDisplay(this.Osnapshot);
           // V5: Mettre à jour actual_error dans l'historique des stratégies
           this.updateStrategyHistoryActualError();
         }
@@ -962,6 +964,9 @@ class AIPlayerV5 {
         ctx.strategy_history = this.formatStrategyHistoryText();
         // V5: Identité artistique (persistante depuis le seed)
         ctx.artistic_identity = this.artisticIdentity;
+        // V5: Ranking des agents pour compétition
+        ctx.myAgentId = this.myUserId;
+        ctx.agent_rankings = this.Osnapshot?.agent_rankings || {};
         // Mettre à jour le graphique O si snapshot disponible
         if (this.Osnapshot) this.updateOMetrics(this.Osnapshot);
 
@@ -1387,6 +1392,87 @@ class AIPlayerV5 {
     console.log(`[V5] updatePredictionMetrics arrays: iterations=${this.predictionMetrics.iterations.length}, my_error=${this.predictionMetrics.my_error.length}, mean_error=${this.predictionMetrics.mean_error.length}, std_error=${this.predictionMetrics.std_error.length}`);
     
     this.drawPredictionErrorChart();
+  }
+  
+  // === V5: Mise à jour affichage ranking ===
+  updateRankingDisplay(snapshot) {
+    if (!snapshot || !snapshot.agent_rankings) {
+      // Pas de rankings disponibles
+      if (document.getElementById('my-rank')) {
+        document.getElementById('my-rank').textContent = '-';
+        document.getElementById('total-agents').textContent = '-';
+        document.getElementById('my-avg-error').textContent = '-';
+        document.getElementById('rank-display').textContent = '-';
+        document.getElementById('top-predictors').innerHTML = '<div style="color: #888;">No rankings available yet</div>';
+      }
+      return;
+    }
+    
+    const rankings = snapshot.agent_rankings || {};
+    const myAgentId = this.myUserId;
+    const myRanking = rankings[myAgentId];
+    
+    // Calculer moyenne globale pour affichage
+    const allAvgErrors = Object.values(rankings).map(r => r.avg_error || 0);
+    const globalMeanError = allAvgErrors.length > 0 
+      ? (allAvgErrors.reduce((a, b) => a + b, 0) / allAvgErrors.length).toFixed(2)
+      : '0.00';
+    
+    // Mettre à jour mean-error-display
+    if (document.getElementById('mean-error-display')) {
+      document.getElementById('mean-error-display').textContent = globalMeanError;
+    }
+    
+    // Mettre à jour les informations personnelles
+    if (myRanking) {
+      const rank = myRanking.rank || 999;
+      const avgError = (myRanking.avg_error || 0).toFixed(3);
+      
+      if (document.getElementById('my-rank')) {
+        document.getElementById('my-rank').textContent = rank;
+      }
+      if (document.getElementById('total-agents')) {
+        document.getElementById('total-agents').textContent = Object.keys(rankings).length;
+      }
+      if (document.getElementById('my-avg-error')) {
+        document.getElementById('my-avg-error').textContent = avgError;
+      }
+      if (document.getElementById('rank-display')) {
+        document.getElementById('rank-display').textContent = rank;
+      }
+    } else {
+      if (document.getElementById('my-rank')) {
+        document.getElementById('my-rank').textContent = '-';
+      }
+      if (document.getElementById('total-agents')) {
+        document.getElementById('total-agents').textContent = Object.keys(rankings).length || '-';
+      }
+      if (document.getElementById('my-avg-error')) {
+        document.getElementById('my-avg-error').textContent = '-';
+      }
+      if (document.getElementById('rank-display')) {
+        document.getElementById('rank-display').textContent = '-';
+      }
+    }
+    
+    // Afficher top 5
+    const sorted = Object.entries(rankings)
+      .sort((a, b) => (a[1].rank || 999) - (b[1].rank || 999))
+      .slice(0, 5);
+    
+    const topHtml = sorted.map(([id, data]) => {
+      const pos = data.position || ['?', '?'];
+      const isMe = id === myAgentId;
+      const rank = data.rank || 999;
+      const avgError = (data.avg_error || 0).toFixed(3);
+      return `<div style="${isMe ? 'color: #4AE290; font-weight: bold;' : 'color: #ccc;'}">
+        ${rank}. Agent [${pos[0]},${pos[1]}]: error=${avgError}${isMe ? ' (YOU)' : ''}
+      </div>`;
+    }).join('');
+    
+    if (document.getElementById('top-predictors')) {
+      document.getElementById('top-predictors').innerHTML = topHtml || '<div style="color: #888;">No rankings available</div>';
+    }
   }
   
   // === V5: Formatage historique stratégies ===

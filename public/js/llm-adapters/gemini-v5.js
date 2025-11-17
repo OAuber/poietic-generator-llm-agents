@@ -261,6 +261,59 @@ export const GeminiV5Adapter = {
       artisticIdentityText = 'No artistic identity established yet (seed not completed or identity not available).';
     }
     
+    // Formater ranking des agents (seulement pour action)
+    let rankingText = '';
+    let myRank = 999;
+    let myAvgError = 1.0;
+    let totalAgents = 0;
+    
+    if (kind === 'action' && context?.agent_rankings) {
+      const rankings = context.agent_rankings;
+      const myAgentId = context?.myAgentId || '';
+      const myRanking = rankings[myAgentId] || {rank: 999, avg_error: 1.0, total_iterations: 0, position: [0, 0]};
+      
+      myRank = myRanking.rank || 999;
+      myAvgError = myRanking.avg_error || 1.0;
+      totalAgents = Object.keys(rankings).length;
+      
+      if (totalAgents > 0) {
+        rankingText = '\nAGENT RANKING (Prediction Accuracy Competition):\n';
+        rankingText += 'Agents are ranked by their cumulative average prediction error (lower = better rank).\n';
+        rankingText += 'Rank 1 = best predictor (lowest error), highest rank = worst predictor.\n\n';
+        
+        // Top 5
+        const sorted = Object.entries(rankings)
+          .sort((a, b) => a[1].rank - b[1].rank)
+          .slice(0, 5);
+        
+        if (sorted.length > 0) {
+          rankingText += 'TOP PREDICTORS (best anticipation):\n';
+          sorted.forEach(([id, data]) => {
+            const pos = data.position || ['?', '?'];
+            const isMe = id === myAgentId;
+            rankingText += `  ${data.rank}. Agent [${pos[0]},${pos[1]}]: avg_error=${data.avg_error.toFixed(3)}, iterations=${data.total_iterations}${isMe ? ' (YOU)' : ''}\n`;
+          });
+        }
+        
+        rankingText += '\nYOUR RANKING:\n';
+        rankingText += `  Rank: ${myRank} / ${totalAgents}\n`;
+        rankingText += `  Average error: ${myAvgError.toFixed(3)}\n`;
+        rankingText += `  Total iterations: ${myRanking.total_iterations || 0}\n`;
+        
+        if (myRank <= 3 && totalAgents >= 3) {
+          rankingText += '  EXCELLENT: You are among the top predictors! Your anticipation capability is highly valued.\n';
+        } else if (myRank <= Math.floor(totalAgents / 2)) {
+          rankingText += '  GOOD: You are above average. Keep improving your predictions.\n';
+        } else {
+          rankingText += '  NEEDS IMPROVEMENT: Your prediction accuracy is below average. Consider using strategies with lower predicted error (e.g., exact reproduction).\n';
+        }
+      } else {
+        rankingText = '\nAGENT RANKING: No rankings available yet (waiting for first predictions).\n';
+      }
+    } else if (kind === 'action') {
+      rankingText = '\nAGENT RANKING: Rankings not available yet.\n';
+    }
+    
     const render = (s) => s
       .replaceAll('{{myX}}', context?.myX ?? 0)
       .replaceAll('{{myY}}', context?.myY ?? 0)
@@ -285,7 +338,11 @@ export const GeminiV5Adapter = {
       .replaceAll('{{prediction_error}}', String(context?.prediction_error ?? 0)) // V5: Erreur de prédiction personnelle
       .replaceAll('{{strategies_reference}}', strategiesReference) // V5: Référence aux stratégies unilatérales
       .replaceAll('{{strategy_history}}', strategyHistory) // V5: Historique des stratégies utilisées
-      .replaceAll('{{artistic_identity}}', artisticIdentityText); // V5: Identité artistique persistante
+      .replaceAll('{{artistic_identity}}', artisticIdentityText) // V5: Identité artistique persistante
+      .replaceAll('{{agent_rankings}}', rankingText) // V5: Ranking des agents
+      .replaceAll('{{my_rank}}', String(myRank)) // V5: Rang personnel
+      .replaceAll('{{my_avg_error}}', String(myAvgError.toFixed(3))) // V5: Erreur moyenne personnelle
+      .replaceAll('{{total_agents}}', String(totalAgents)); // V5: Nombre total d'agents
     return lines.map(render).join('\n');
   },
 

@@ -293,6 +293,16 @@ class MetricsClient:
 # Instance globale
 metrics_client = MetricsClient()
 
+# Instance locale du tracker pour calculer les rankings (sans dépendre du serveur de métriques)
+# Import ici pour éviter import circulaire
+try:
+    from metrics_server_v5 import GlobalSimplicityTrackerV5
+    local_metrics_tracker = GlobalSimplicityTrackerV5()
+except ImportError as e:
+    print(f"[ON] ⚠️  Impossible d'importer GlobalSimplicityTrackerV5: {e}")
+    print("[ON] ⚠️  Les rankings ne seront pas calculés")
+    local_metrics_tracker = None
+
 # ==============================================================================
 # CHARGEMENT DES PROMPTS
 # ==============================================================================
@@ -384,6 +394,24 @@ def validate_structures_no_overlap(o_result: dict) -> Tuple[bool, List[str]]:
 # ==============================================================================
 # APPELS GEMINI
 # ==============================================================================
+
+def _truncate_text(text: str, max_length: int = 200) -> str:
+    """Tronquer un texte à max_length caractères"""
+    if not text or len(text) <= max_length:
+        return text
+    return text[:max_length] + '...'
+
+def _truncate_predictions(predictions: dict, max_length: int = 150) -> dict:
+    """Tronquer les valeurs de prédictions si elles sont trop longues"""
+    if not isinstance(predictions, dict):
+        return {}
+    truncated = {}
+    for key, value in predictions.items():
+        if isinstance(value, str):
+            truncated[key] = _truncate_text(value, max_length)
+        else:
+            truncated[key] = value
+    return truncated
 
 async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None, agent_positions: Optional[list] = None) -> Optional[dict]:
     """Appelle Gemini pour O-machine (observation des structures et calcul C_d)"""
@@ -519,12 +547,28 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
     
     # Construire le prompt avec les données O et W
     try:
-        # Injecter snapshot O
-        o_json = json.dumps(o_snapshot, ensure_ascii=False, indent=2)
+        # Injecter snapshot O (optimisé: pas d'indentation pour réduire taille)
+        o_json = json.dumps(o_snapshot, ensure_ascii=False, separators=(',', ':'))
         prompt = prompt.replace('{{o_snapshot}}', o_json)
         
-        # Injecter données W
-        w_json = json.dumps(w_agents_data, ensure_ascii=False, indent=2)
+        # Optimiser données W avant injection (réduire taille)
+        w_optimized = {}
+        for agent_id, data in w_agents_data.items():
+            # Ne garder que les champs essentiels et tronquer les textes longs
+            optimized_data = {
+                'agent_id': agent_id,
+                'position': data.get('position', [0, 0]),
+                'iteration': data.get('iteration', 0),
+                'previous_iteration': data.get('previous_iteration', -1),
+                'strategy': data.get('strategy', 'N/A'),
+                'rationale': _truncate_text(data.get('rationale', ''), max_length=200),  # Tronquer rationale à 200 chars
+                'predictions': _truncate_predictions(data.get('predictions', {}), max_length=150),  # Tronquer prédictions
+                'previous_predictions': _truncate_predictions(data.get('previous_predictions', {}), max_length=150)  # Tronquer prédictions précédentes
+            }
+            w_optimized[agent_id] = optimized_data
+        
+        # Injecter données W optimisées (pas d'indentation pour réduire taille)
+        w_json = json.dumps(w_optimized, ensure_ascii=False, separators=(',', ':'))
         prompt = prompt.replace('{{w_agents_data}}', w_json)
         # Log aperçu des données W injectées
         for agent_id, data in w_agents_data.items():  # Tous les agents pour diagnostic
@@ -535,9 +579,15 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
             prev_iter_val = data.get('previous_iteration', 'N/A')
             print(f"[N]    → Agent {agent_id[:8]}: iter={iter_val}, prev_iter={prev_iter_val}, has_prev_pred={has_prev_pred}, has_pred={has_pred}, prev_pred_keys={prev_pred_keys}")
         
-        # Injecter snapshot précédent (si disponible)
+        # Injecter snapshot précédent (si disponible, optimisé)
         if previous_combined:
-            prev_json = json.dumps(previous_combined, ensure_ascii=False, indent=2)
+            # Ne garder que les champs essentiels du snapshot précédent
+            prev_optimized = {
+                'narrative': previous_combined.get('narrative', {}),
+                'simplicity_assessment': previous_combined.get('simplicity_assessment', {}),
+                'version': previous_combined.get('version', 0)
+            }
+            prev_json = json.dumps(prev_optimized, ensure_ascii=False, separators=(',', ':'))
             prompt = prompt.replace('{{previous_snapshot}}', prev_json)
         else:
             prompt = prompt.replace('{{previous_snapshot}}', 'null')
@@ -1082,11 +1132,52 @@ async def periodic_on_task():
             else:
                 formal_relations = {'summary': ''}
             
+            # V5: Calculer le ranking des agents basé sur l'erreur de prédiction cumulative
+            prediction_errors = n_result.get('prediction_errors', {})
+            agent_positions = {}
+            w_data_check = w_store.get_all_agents_data()
+            active_agent_ids = set()  # IDs des agents actifs
+            for agent_id, agent_data in w_data_check.items():
+                if isinstance(agent_data, dict) and 'position' in agent_data:
+                    agent_positions[agent_id] = agent_data['position']
+                    active_agent_ids.add(agent_id)
+            
+            # Nettoyer l'historique des agents inactifs dans le tracker local
+            if local_metrics_tracker:
+                # Supprimer les agents qui ne sont plus actifs de l'historique
+                inactive_agents = []
+                for agent_id in list(local_metrics_tracker.agent_error_history.keys()):
+                    if agent_id not in active_agent_ids:
+                        inactive_agents.append(agent_id)
+                        del local_metrics_tracker.agent_error_history[agent_id]
+                if inactive_agents:
+                    print(f"[ON] 🧹 Nettoyage historique: {len(inactive_agents)} agents inactifs supprimés du ranking")
+            
+            # Calculer rankings via tracker local (seulement pour agents actifs)
+            rankings = {}
+            if local_metrics_tracker:
+                try:
+                    rankings = local_metrics_tracker.calculate_agent_rankings(prediction_errors, agent_positions)
+                    print(f"[ON] 📊 Rankings calculés: {len(rankings)} agents classés (agents actifs: {len(active_agent_ids)})")
+                    # Log top 3
+                    sorted_rankings = sorted(rankings.items(), key=lambda x: x[1]['rank'])[:3]
+                    for agent_id, rank_data in sorted_rankings:
+                        pos = rank_data.get('position', ['?', '?'])
+                        print(f"[ON]    Rank {rank_data['rank']}: Agent [{pos[0]},{pos[1]}] (error={rank_data['avg_error']:.3f}, iterations={rank_data['total_iterations']})")
+                except Exception as e:
+                    print(f"[ON] ⚠️  Erreur calcul rankings: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    rankings = {}
+            else:
+                print("[ON] ⚠️  Tracker local non disponible, rankings non calculés")
+            
             combined_snapshot = {
                 'structures': o_result.get('structures', []),
                 'formal_relations': formal_relations,
                 'narrative': n_result.get('narrative', {'summary': ''}),
-                'prediction_errors': n_result.get('prediction_errors', {}),
+                'prediction_errors': prediction_errors,
+                'agent_rankings': rankings,  # V5: Rankings des agents
                 'simplicity_assessment': {
                     'C_w_current': n_result['simplicity_assessment']['C_w_current'],
                     'C_d_current': o_result['simplicity_assessment']['C_d_current'],
@@ -1143,6 +1234,7 @@ async def get_latest_o(agent_id: Optional[str] = Query(None)):
             'formal_relations': {'summary': ''},
             'narrative': {'summary': ''},
             'prediction_errors': {},
+            'agent_rankings': {},  # V5: Rankings vides si pas de snapshot
             'simplicity_assessment': {
                 'C_w_current': {'value': 0},
                 'C_d_current': {'value': 0, 'description': 'No analysis yet - waiting for first O+N analysis...'},
@@ -1163,11 +1255,18 @@ async def get_latest_o(agent_id: Optional[str] = Query(None)):
                 'error': 0.0,
                 'explanation': 'No previous prediction available (first action or no prediction data)'
             }
+        # Inclure aussi le ranking de l'agent dans la réponse personnalisée
+        all_rankings = snapshot.get('agent_rankings', {})
+        agent_ranking = all_rankings.get(agent_id, {})
+        
         personalized = {
             **snapshot,
             'prediction_errors': {
                 agent_id: agent_error
-            }
+            },
+            'agent_rankings': {
+                agent_id: agent_ranking  # Inclure le ranking de l'agent
+            } if agent_ranking else {}
         }
         return personalized
     

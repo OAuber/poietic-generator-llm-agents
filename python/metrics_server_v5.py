@@ -40,6 +40,7 @@ class GlobalSimplicityTrackerV5:
         self.history = []
         self.o_snapshots = []  # Historique snapshots O (structures, C_d)
         self.n_snapshots = []  # Historique snapshots N (narrative, C_w, erreurs avec std)
+        self.agent_error_history: Dict[str, List[float]] = {}  # Historique cumulatif des erreurs par agent
     
     def update_agent(self, user_id: str, position: List[int], 
                      delta_C_w: float, delta_C_d: float, U_after_expected: float, 
@@ -100,6 +101,71 @@ class GlobalSimplicityTrackerV5:
     def remove_agent(self, user_id: str):
         if user_id in self.agents:
             del self.agents[user_id]
+        if user_id in self.agent_error_history:
+            del self.agent_error_history[user_id]
+    
+    def calculate_agent_rankings(self, prediction_errors: dict, agent_positions: dict) -> dict:
+        """
+        Calcule le ranking des agents basé sur leur erreur de prédiction moyenne cumulative.
+        Plus l'erreur est basse, meilleur est le rang (rank 1 = meilleur prédicteur).
+        
+        Args:
+            prediction_errors: Dict {agent_id: {'error': float, 'explanation': str}}
+            agent_positions: Dict {agent_id: [x, y]}
+        
+        Returns:
+            Dict {agent_id: {'rank': int, 'avg_error': float, 'total_iterations': int, 'position': [x,y]}}
+        """
+        # Pour chaque agent, mettre à jour son historique d'erreurs
+        for agent_id, error_data in prediction_errors.items():
+            if not isinstance(error_data, dict):
+                continue
+            error = error_data.get('error', 1.0)
+            
+            # Initialiser si nécessaire
+            if agent_id not in self.agent_error_history:
+                self.agent_error_history[agent_id] = []
+            
+            # Ajouter l'erreur à l'historique cumulatif
+            self.agent_error_history[agent_id].append(error)
+        
+        # Calculer moyenne cumulative pour chaque agent ACTIF uniquement
+        # (ne classer que les agents présents dans agent_positions)
+        agent_stats = {}
+        for agent_id, error_history in self.agent_error_history.items():
+            # Ignorer les agents qui ne sont pas actifs (pas dans agent_positions)
+            if agent_id not in agent_positions:
+                continue
+            if len(error_history) == 0:
+                continue
+            
+            # Moyenne cumulative sur toutes les itérations
+            avg_error = sum(error_history) / len(error_history)
+            position = agent_positions[agent_id]  # Garanti d'exister car on a vérifié ci-dessus
+            
+            agent_stats[agent_id] = {
+                'avg_error': avg_error,
+                'total_iterations': len(error_history),
+                'position': position
+            }
+        
+        # Trier par erreur moyenne croissante (meilleur = erreur la plus basse)
+        sorted_agents = sorted(
+            agent_stats.items(),
+            key=lambda x: x[1]['avg_error']
+        )
+        
+        # Assigner les rangs
+        rankings = {}
+        for rank, (agent_id, stats) in enumerate(sorted_agents, start=1):
+            rankings[agent_id] = {
+                'rank': rank,
+                'avg_error': stats['avg_error'],
+                'total_iterations': stats['total_iterations'],
+                'position': stats['position']
+            }
+        
+        return rankings
     
     def calculate_average_metrics(self):
         """Calculate average deltas (ΔC_w, ΔC_d, U_after_expected), prediction_error, and std_dev of prediction errors"""
