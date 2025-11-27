@@ -1,9 +1,11 @@
 export const GeminiV5Adapter = {
   name: 'Gemini V5',
-  version: '2025-01-24-v5-2',
+  version: '2025-01-24-v5-6',
   apiKey: null,
   prompts: null,
   strategies: null, // Cache pour strategies-v5.json
+  lastCallTime: 0, // Timestamp du dernier appel API
+  minCallInterval: 2000, // Intervalle minimum entre deux appels (2 secondes)
 
   async loadPromptFile(kind) {
     const map = {
@@ -135,11 +137,23 @@ export const GeminiV5Adapter = {
   },
 
   async callAPI(systemText, images) {
+    // Espacer les appels API pour éviter les rate limits
+    const now = Date.now();
+    const timeSinceLastCall = now - this.lastCallTime;
+    if (timeSinceLastCall < this.minCallInterval) {
+      const waitTime = this.minCallInterval - timeSinceLastCall;
+      console.log(`[Gemini V5] ⏳ Espacement des appels: attente ${waitTime}ms avant l'appel API`);
+      await new Promise(r => setTimeout(r, waitTime));
+    }
+    this.lastCallTime = Date.now();
+    
     const timeout = 420000;
     const key = this.getApiKey();
     if (!key) throw new Error('Clé API Gemini manquante');
     const model = 'gemini-2.5-flash';
     const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${key}`;
+    
+    console.log(`[Gemini V5] 📤 Appel API Gemini (${model}) - ${systemText.length} chars, ${images ? (images.globalImageBase64 ? '1 global' : '') + (images.localImageBase64 ? '1 local' : '') : 'no images'}`);
     const parts = [{ text: systemText }];
     // Ajouter images (global/local) si fournies
     const maybePushImage = (dataUrl) => {
@@ -174,15 +188,46 @@ export const GeminiV5Adapter = {
         
         if (r.status === 503 || r.status === 429) {
           // Rate limit ou service unavailable
+          // Lire le message d'erreur pour distinguer quota vs rate limit
+          let errorMessage = '';
+          try {
+            const errorText = await r.text();
+            try {
+              const errorData = JSON.parse(errorText);
+              errorMessage = errorData?.error?.message || errorData?.error?.status || '';
+            } catch (e) {
+              // Si ce n'est pas du JSON, utiliser le texte brut
+              errorMessage = errorText.substring(0, 200);
+            }
+          } catch (e) {
+            // Ignorer si on ne peut pas lire la réponse
+            errorMessage = 'Unable to read error message';
+          }
+          
           const retryAfter = parseInt(r.headers.get('Retry-After') || '0') * 1000;
-          const backoffDelay = retryAfter || (Math.pow(2, attempt) * 1000 + Math.random() * 2000); // Backoff exponentiel + jitter
+          
+          // "Resource has been exhausted" peut signifier soit un quota épuisé, soit un rate limit temporaire
+          // On ne peut pas le distinguer avec certitude, donc on essaie quand même avec des délais plus longs
+          const isQuotaMessage = errorMessage.toLowerCase().includes('quota') || 
+                                 errorMessage.toLowerCase().includes('resource has been exhausted');
+          
+          // Backoff exponentiel très agressif pour 429 : délais beaucoup plus longs
+          // Pour "Resource has been exhausted", on attend plus longtemps car cela peut être un rate limit sévère
+          const baseDelay = r.status === 429 
+            ? (isQuotaMessage 
+                ? Math.pow(4, attempt) * 10000  // 10s, 40s, 160s pour "resource exhausted" (rate limit sévère)
+                : Math.pow(3, attempt) * 5000)  // 5s, 15s, 45s pour rate limit normal
+            : Math.pow(2, attempt) * 1000;      // 1s, 2s, 4s pour 503
+          const jitter = Math.random() * 15000; // Jitter jusqu'à 15s
+          const backoffDelay = retryAfter || (baseDelay + jitter);
           
           if (attempt < maxRetries) {
-            console.warn(`[Gemini V5] Rate limit (${r.status}), retry dans ${Math.round(backoffDelay/1000)}s (tentative ${attempt + 1}/${maxRetries + 1})`);
+            const errorType = isQuotaMessage ? 'Rate limit sévère (resource exhausted)' : 'Rate limit';
+            console.warn(`[Gemini V5] ${errorType} (${r.status}): ${errorMessage || 'No details'}, retry dans ${Math.round(backoffDelay/1000)}s (tentative ${attempt + 1}/${maxRetries + 1})`);
             await new Promise(r => setTimeout(r, backoffDelay));
             continue; // Réessayer
           } else {
-            throw new Error(`HTTP ${r.status} - Rate limit après ${maxRetries + 1} tentatives`);
+            throw new Error(`HTTP ${r.status} - Rate limit après ${maxRetries + 1} tentatives: ${errorMessage || 'No details'}`);
           }
         }
         

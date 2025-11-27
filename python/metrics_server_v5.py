@@ -261,6 +261,7 @@ async def metrics_endpoint(websocket: WebSocket):
                 
                 # Broadcast state to all connected clients
                 state = tracker.get_state_summary()
+                dead_connections = []
                 for conn in connections:
                     try:
                         await conn.send_json({
@@ -268,7 +269,11 @@ async def metrics_endpoint(websocket: WebSocket):
                             'data': state
                         })
                     except:
-                        pass
+                        dead_connections.append(conn)
+                # Nettoyer les connexions mortes
+                for conn in dead_connections:
+                    if conn in connections:
+                        connections.remove(conn)
             
             elif msg_type == 'o_snapshot':
                 # Snapshot O-machine
@@ -276,6 +281,7 @@ async def metrics_endpoint(websocket: WebSocket):
                 tracker.store_o_snapshot(snapshot)
                 
                 # Broadcast
+                dead_connections = []
                 for conn in connections:
                     try:
                         await conn.send_json({
@@ -283,7 +289,11 @@ async def metrics_endpoint(websocket: WebSocket):
                             'data': tracker.o_snapshots[-1] if tracker.o_snapshots else None
                         })
                     except:
-                        pass
+                        dead_connections.append(conn)
+                # Nettoyer les connexions mortes
+                for conn in dead_connections:
+                    if conn in connections:
+                        connections.remove(conn)
             
             elif msg_type == 'n_snapshot':
                 # Snapshot N-machine
@@ -291,6 +301,7 @@ async def metrics_endpoint(websocket: WebSocket):
                 tracker.store_n_snapshot(snapshot)
                 
                 # Broadcast
+                dead_connections = []
                 for conn in connections:
                     try:
                         await conn.send_json({
@@ -298,7 +309,11 @@ async def metrics_endpoint(websocket: WebSocket):
                             'data': tracker.n_snapshots[-1] if tracker.n_snapshots else None
                         })
                     except:
-                        pass
+                        dead_connections.append(conn)
+                # Nettoyer les connexions mortes
+                for conn in dead_connections:
+                    if conn in connections:
+                        connections.remove(conn)
             
             elif msg_type == 'disconnect':
                 user_id = msg.get('user_id')
@@ -307,6 +322,7 @@ async def metrics_endpoint(websocket: WebSocket):
                 
                 # Broadcast
                 state = tracker.get_state_summary()
+                dead_connections = []
                 for conn in connections:
                     try:
                         await conn.send_json({
@@ -314,7 +330,11 @@ async def metrics_endpoint(websocket: WebSocket):
                             'data': state
                         })
                     except:
-                        pass
+                        dead_connections.append(conn)
+                # Nettoyer les connexions mortes
+                for conn in dead_connections:
+                    if conn in connections:
+                        connections.remove(conn)
             
             elif msg_type == 'get_state':
                 # Demande état complet

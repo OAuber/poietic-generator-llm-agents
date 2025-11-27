@@ -97,12 +97,38 @@ class AIPlayerV5 {
   replaceComplexityTerms(text) {
     // Replace C_d, C_w, and U with their full English equivalents
     // Use word boundaries to avoid replacing in the middle of words
-    // For U, handle both "U" and "U'" (as in "U' expected")
+    // EXCEPT in the DELTA COMPLEXITY line for W-agents, where we want:
+    //   ΔC_w: ... | ΔC_d: ... | U expected: ...
+    // i.e. keep "ΔC_w", "ΔC_d" and "U expected" / "U' expected" as-is.
     return text
-      .replace(/\bC_d\b/g, 'the complexity of description')
-      .replace(/\bC_w\b/g, 'the complexity of generation')
-      .replace(/\bU'/g, "the unexpectedness'")
-      .replace(/\bU(?![a-zA-Z'])/g, 'the unexpectedness');
+      // C_d → the complexity of description (but not after a Δ)
+      .replace(/\bC_d\b/g, (match, offset, str) => {
+        const prev = str[offset - 1] || '';
+        return prev === 'Δ' ? match : 'the complexity of description';
+      })
+      // C_w → the complexity of generation (but not after a Δ)
+      .replace(/\bC_w\b/g, (match, offset, str) => {
+        const prev = str[offset - 1] || '';
+        return prev === 'Δ' ? match : 'the complexity of generation';
+      })
+      // U' → the unexpectedness' (but not in \"U' expected\")
+      .replace(/\bU'/g, (match, offset, str) => {
+        const rest = str.slice(offset + match.length);
+        if (/^\s*expected\b/.test(rest)) {
+          // Garder \"U' expected\" intact dans DELTA COMPLEXITY
+          return match;
+        }
+        return 'the unexpectedness\'';
+      })
+      // U → the unexpectedness (but not in \"U expected\")
+      .replace(/\bU(?![a-zA-Z'])/g, (match, offset, str) => {
+        const rest = str.slice(offset + match.length);
+        if (/^\s*expected\b/.test(rest)) {
+          // Keep \"U expected\" intact in DELTA COMPLEXITY
+          return match;
+        }
+        return 'the unexpectedness';
+      });
   }
 
   storeVerbatimResponse(source, data, iteration) {
@@ -277,13 +303,20 @@ class AIPlayerV5 {
     const maxY = Math.max(...allValues, 1);
     if (maxY === 0) return;
 
-    const numPoints = data.versions.length;
-    const scaleX = numPoints > 1 ? width / (numPoints - 1) : width;
+    // Utiliser les versions O (globales) comme base X, pour que tous les clients
+    // aient le même profil de courbe, quel que soit le moment où ils se connectent
+    const versions = data.versions;
+    const minVersion = Math.min(...versions);
+    const maxVersion = Math.max(...versions);
+    const scaleX = (v) => {
+      if (maxVersion === minVersion) return width / 2; // un seul point, centré
+      return ((v - minVersion) / (maxVersion - minVersion)) * width;
+    };
     const scaleY = (height - 20) / maxY;
 
-    this.drawCurve(ctx, data.versions, data.C_w, scaleX, scaleY, height, '#4A90E2');
-    this.drawCurve(ctx, data.versions, data.C_d, scaleX, scaleY, height, '#E24A4A');
-    this.drawCurve(ctx, data.versions, data.U, scaleX, scaleY, height, '#4AE290');
+    this.drawCurve(ctx, versions, data.C_w, scaleX, scaleY, height, '#4A90E2');
+    this.drawCurve(ctx, versions, data.C_d, scaleX, scaleY, height, '#E24A4A');
+    this.drawCurve(ctx, versions, data.U, scaleX, scaleY, height, '#4AE290');
 
     ctx.strokeStyle = '#666';
     ctx.lineWidth = 1;
@@ -299,7 +332,7 @@ class AIPlayerV5 {
     ctx.lineWidth = 2;
     ctx.beginPath();
     for (let i = 0; i < values.length; i++) {
-      const x = i * scaleX;
+      const x = scaleX(indices[i] ?? i);
       const y = height - 10 - (values[i] * scaleY);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -493,6 +526,8 @@ class AIPlayerV5 {
       canvas.width = 200;
       canvas.height = 200;
       const ctx = canvas.getContext('2d');
+      
+      // Dessiner les pixels
       for (let y = 0; y < 20; y++) {
         for (let x = 0; x < 20; x++) {
           const color = this.myCellState[`${x},${y}`] || '#000000';
@@ -500,6 +535,25 @@ class AIPlayerV5 {
           ctx.fillRect(x * 10, y * 10, 10, 10);
         }
       }
+      
+      // Superposer une grille noire fine (1px) pour faciliter la lecture des coordonnées
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1;
+      // Lignes verticales
+      for (let x = 0; x <= 20; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * 10, 0);
+        ctx.lineTo(x * 10, 200);
+        ctx.stroke();
+      }
+      // Lignes horizontales
+      for (let y = 0; y <= 20; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * 10);
+        ctx.lineTo(200, y * 10);
+        ctx.stroke();
+      }
+      
       return canvas.toDataURL('image/png');
     } catch (_) { return null; }
   }
@@ -617,7 +671,10 @@ class AIPlayerV5 {
     // Délai aléatoire au démarrage pour éviter les pics simultanés avec plusieurs clients
     // (surtout important pour le seed qui se déclenche immédiatement)
     if (this.iterationCount === 0) {
-      const randomDelay = Math.random() * 3000; // 0-3s aléatoire
+      // Délai aléatoire plus long pour éviter que tous les agents démarrent simultanément
+      // et causent des erreurs 429 (rate limit)
+      const randomDelay = 5000 + Math.random() * 10000; // 5-15s aléatoire
+      this.log(`[Seed] Délai initial avant seed: ${Math.round(randomDelay/1000)}s`);
       await new Promise(r => setTimeout(r, randomDelay));
     }
     
@@ -677,82 +734,61 @@ class AIPlayerV5 {
         
         let parsed = null;
         let pixelsToExecute = [];
-        const maxRetries = 3;
         
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-          try {
-            // V5: Seed sans images (à l'aveugle)
-            const raw = await window.GeminiV5Adapter.callAPI(systemText, null);
-            parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
-            
-            // V5: Valider que la réponse seed est complète (a au moins seed.concept ou seed.artistic_reference)
-            const isValid = parsed?.seed && (
-              parsed.seed.concept || 
-              parsed.seed.artistic_reference || 
-              parsed.seed.rationale
-            );
-            
-            if (isValid) {
-              // Réponse valide
-              // V5: Stocker l'identité artistique du seed pour persistance
-              if (parsed?.seed) {
-                this.artisticIdentity = {
-                  concept: parsed.seed.concept || '',
-                  artistic_reference: parsed.seed.artistic_reference || '',
-                  rationale: parsed.seed.rationale || ''
-                };
-                this.log(`[V5] 🌱 Identité artistique établie: "${this.artisticIdentity.concept}" (${this.artisticIdentity.artistic_reference})`);
-              }
-              this.storeVerbatimResponse('W', parsed, this.iterationCount);
-              pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-              break; // Sortir de la boucle de retry
-            } else {
-              // Réponse invalide (manque seed concept/rationale)
-              const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
-              this.log(`[W Seed] Réponse invalide: seed=${!!parsed?.seed}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
-              if (attempt < maxRetries - 1) {
-                const delay = 2 * (attempt + 1); // 2s, 4s, 6s
-                this.log(`[W Seed] Retry dans ${delay}s... (tentative ${attempt + 1}/${maxRetries})`);
-                await new Promise(r => setTimeout(r, delay * 1000));
-                continue;
-              } else {
-                // Dernière tentative échouée
-                this.log(`[W Seed] ⚠️ Réponse invalide après ${maxRetries} tentatives (manque seed concept/rationale)`);
-                // Continuer avec parsed (qui a au moins les pixels si disponibles)
-                this.storeVerbatimResponse('W', parsed, this.iterationCount);
-                pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-              }
+        try {
+          // V5: Seed sans images (à l'aveugle)
+          // NOTE: Les retries pour erreurs 429/503 sont gérés par gemini-v5.js, pas ici
+          // pour éviter un double retry qui multiplierait les appels API
+          const raw = await window.GeminiV5Adapter.callAPI(systemText, null);
+          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+          
+          // V5: Valider que la réponse seed est complète (a au moins seed.concept ou seed.artistic_reference)
+          const isValid = parsed?.seed && (
+            parsed.seed.concept || 
+            parsed.seed.artistic_reference || 
+            parsed.seed.rationale
+          );
+          
+          if (isValid) {
+            // Réponse valide
+            // V5: Stocker l'identité artistique du seed pour persistance
+            if (parsed?.seed) {
+              this.artisticIdentity = {
+                concept: parsed.seed.concept || '',
+                artistic_reference: parsed.seed.artistic_reference || '',
+                rationale: parsed.seed.rationale || ''
+              };
+              this.log(`[V5] 🌱 Identité artistique établie: "${this.artisticIdentity.concept}" (${this.artisticIdentity.artistic_reference})`);
             }
-          } catch (error) {
-            // Erreur API (503, rate limit, etc.)
-            if (attempt < maxRetries - 1) {
-              const delay = 2 * (attempt + 1);
-              this.log(`[W Seed] Erreur API (tentative ${attempt + 1}/${maxRetries}): ${error.message}, retry dans ${delay}s...`);
-              await new Promise(r => setTimeout(r, delay * 1000));
-              continue;
-            } else {
-              // Dernière tentative échouée
-              this.log(`[W Seed] Erreur API après ${maxRetries} tentatives: ${error.message}`);
-              // V5: Stocker une identité artistique minimale en cas d'erreur API
-              if (!this.artisticIdentity) {
-                this.artisticIdentity = {
-                  concept: 'Erreur API',
-                  artistic_reference: 'API error - no artistic reference available',
-                  rationale: `Erreur: ${error.message}`
-                };
-              }
-              this.storeVerbatimResponse('W', {
-                seed: { 
-                  concept: this.artisticIdentity.concept,
-                  artistic_reference: this.artisticIdentity.artistic_reference,
-                  rationale: this.artisticIdentity.rationale
-                },
-                predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
-                pixels: []
-              }, this.iterationCount);
-              break;
-            }
+            this.storeVerbatimResponse('W', parsed, this.iterationCount);
+            pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+          } else {
+            // Réponse invalide (manque seed concept/rationale) - pas de retry, utiliser ce qu'on a
+            const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+            this.log(`[W Seed] ⚠️ Réponse invalide: seed=${!!parsed?.seed}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
+            this.storeVerbatimResponse('W', parsed, this.iterationCount);
+            pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
           }
+        } catch (error) {
+          // Erreur API (429, 503, etc.) - gemini-v5.js a déjà fait les retries nécessaires
+          this.log(`[W Seed] Erreur API après retries: ${error.message}`);
+          // V5: Stocker une identité artistique minimale en cas d'erreur API
+          if (!this.artisticIdentity) {
+            this.artisticIdentity = {
+              concept: 'Erreur API',
+              artistic_reference: 'API error - no artistic reference available',
+              rationale: `Erreur: ${error.message}`
+            };
+          }
+          this.storeVerbatimResponse('W', {
+            seed: { 
+              concept: this.artisticIdentity.concept,
+              artistic_reference: this.artisticIdentity.artistic_reference,
+              rationale: this.artisticIdentity.rationale
+            },
+            predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
+            pixels: []
+          }, this.iterationCount);
         }
         
         // Fallback seed: si aucun pixel retourné (erreur API ou réponse vide), générer un seed minimal local
@@ -931,11 +967,12 @@ class AIPlayerV5 {
           this.storeVerbatimResponse('O', oData, this.iterationCount);
           this.storeVerbatimResponse('N', nData, this.iterationCount);
           
-          this.updateOMetrics(this.Osnapshot);
+          // Mettre à jour les métriques et le ranking à partir du snapshot COMPLET
+          this.updateOMetrics(fullSnapshot);
           // V5: Mettre à jour les métriques d'erreur de prédiction
-          this.updatePredictionMetrics(this.Osnapshot);
-          // V5: Mettre à jour l'affichage du ranking
-          this.updateRankingDisplay(this.Osnapshot);
+          this.updatePredictionMetrics(fullSnapshot);
+          // V5: Mettre à jour l'affichage du ranking (utilisé pour Rank: X / N)
+          this.updateRankingDisplay(fullSnapshot);
           // V5: Mettre à jour actual_error dans l'historique des stratégies
           this.updateStrategyHistoryActualError();
         }
@@ -986,116 +1023,107 @@ class AIPlayerV5 {
         
         let parsed = null;
         let pixelsToExecute = [];
-        const maxRetries = 3;
         
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-          try {
-            const raw = await window.GeminiV5Adapter.callAPI(systemText, {
-              globalImageBase64: globalUrlBefore,
-              localImageBase64: localUrl
-            });
-            if (localUrl && attempt === 0) this.addDebugImage('W input — local 20x20', localUrl);
-            parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
-            
-            // V5: Valider que la réponse action est complète (a au moins strategy ou rationale)
-            const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
-            const isValid = parsed && (
-              parsed.strategy || 
-              parsed.rationale ||
-              (parsed.delta_complexity && (
-                parsed.delta_complexity.delta_C_w_bits !== undefined ||
-                parsed.delta_complexity.delta_C_d_bits !== undefined
-              ))
-            );
-            
-            if (isValid) {
-              // Réponse valide
-              this.storeVerbatimResponse('W', parsed, this.iterationCount);
-              pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-              break; // Sortir de la boucle de retry
-            } else if (hasPixels) {
-              // Réponse incomplète mais avec pixels : accepter avec valeurs par défaut
-              this.log(`[W Action] Réponse incomplète mais avec ${parsed.pixels.length} pixels - utilisation de valeurs par défaut`);
-              // Créer un objet complet avec valeurs par défaut
-              parsed = {
-                strategy: parsed?.strategy || 'Action with incomplete response',
-                strategy_id: parsed?.strategy_id || 'custom',
-                source_agents: parsed?.source_agents || [],
-                rationale: parsed?.rationale || 'Response from LLM was incomplete but pixels were generated',
-                delta_complexity: parsed?.delta_complexity || {
-                  delta_C_w_bits: 0,
-                  delta_C_d_bits: 0,
-                  U_after_expected: 0
-                },
-                predictions: parsed?.predictions || {
-                  individual_after_prediction: 'N/A (incomplete response)',
-                  collective_after_prediction: 'N/A (incomplete response)'
-                },
-                pixels: parsed.pixels
-              };
-              this.storeVerbatimResponse('W', parsed, this.iterationCount);
-              pixelsToExecute = parsed.pixels;
-              break; // Accepter et continuer avec valeurs par défaut
-            } else {
-              // Réponse invalide (pas de pixels non plus)
-              this.log(`[W Action] Réponse invalide: strategy=${!!parsed?.strategy}, rationale=${!!parsed?.rationale}, delta=${!!parsed?.delta_complexity}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
-              if (attempt < maxRetries - 1) {
-                const delay = 2 * (attempt + 1); // 2s, 4s, 6s
-                this.log(`[W Action] Retry dans ${delay}s... (tentative ${attempt + 1}/${maxRetries})`);
-                await new Promise(r => setTimeout(r, delay * 1000));
-                continue;
-              } else {
-                // Dernière tentative échouée - créer un objet par défaut pour éviter null
-                this.log(`[W Action] ⚠️ Réponse invalide après ${maxRetries} tentatives - création d'objet par défaut`);
-                parsed = {
-                  strategy: 'Action failed - incomplete response',
-                  strategy_id: 'custom',
-                  source_agents: [],
-                  rationale: 'LLM response was incomplete after all retries',
-                  delta_complexity: {
-                    delta_C_w_bits: 0,
-                    delta_C_d_bits: 0,
-                    U_after_expected: 0
-                  },
-                  predictions: {
-                    individual_after_prediction: 'N/A (incomplete response)',
-                    collective_after_prediction: 'N/A (incomplete response)'
-                  },
-                  pixels: Array.isArray(parsed?.pixels) ? parsed.pixels : []
-                };
-                this.storeVerbatimResponse('W', parsed, this.iterationCount);
-                pixelsToExecute = parsed.pixels;
-              }
-            }
-          } catch (error) {
-            // Erreur API (503, rate limit, etc.)
-            if (attempt < maxRetries - 1) {
-              const delay = 2 * (attempt + 1);
-              this.log(`[W Action] Erreur API (tentative ${attempt + 1}/${maxRetries}): ${error.message}, retry dans ${delay}s...`);
-              await new Promise(r => setTimeout(r, delay * 1000));
-              continue;
-            } else {
-              // Dernière tentative échouée
-              this.log(`[W Action] Erreur API après ${maxRetries} tentatives: ${error.message}`);
-              this.storeVerbatimResponse('W', {
-                strategy: 'ERROR',
-                rationale: `Erreur API: ${error.message}`,
-                predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
-                pixels: []
-              }, this.iterationCount);
-              break;
-            }
+        try {
+          // NOTE: Les retries pour erreurs 429/503 sont gérés par gemini-v5.js, pas ici
+          // pour éviter un double retry qui multiplierait les appels API
+          const raw = await window.GeminiV5Adapter.callAPI(systemText, {
+            globalImageBase64: globalUrlBefore,
+            localImageBase64: localUrl
+          });
+          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
+          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+          
+          // V5: Valider que la réponse action est complète (a au moins strategy ou rationale)
+          const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+          const isValid = parsed && (
+            parsed.strategy || 
+            parsed.rationale ||
+            (parsed.delta_complexity && (
+              parsed.delta_complexity.delta_C_w_bits !== undefined ||
+              parsed.delta_complexity.delta_C_d_bits !== undefined
+            ))
+          );
+          
+          if (isValid) {
+            // Réponse valide
+            this.storeVerbatimResponse('W', parsed, this.iterationCount);
+            pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+          } else if (hasPixels) {
+            // Réponse incomplète mais avec pixels : accepter avec valeurs par défaut
+            this.log(`[W Action] Réponse incomplète mais avec ${parsed.pixels.length} pixels - utilisation de valeurs par défaut`);
+            // Créer un objet complet avec valeurs par défaut
+            parsed = {
+              strategy: parsed?.strategy || 'Action with incomplete response',
+              strategy_id: parsed?.strategy_id || 'custom',
+              source_agents: parsed?.source_agents || [],
+              rationale: parsed?.rationale || 'Response from LLM was incomplete but pixels were generated',
+              delta_complexity: parsed?.delta_complexity || {
+                delta_C_w_bits: 0,
+                delta_C_d_bits: 0,
+                U_after_expected: 0
+              },
+              predictions: parsed?.predictions || {
+                individual_after_prediction: 'N/A (incomplete response)',
+                collective_after_prediction: 'N/A (incomplete response)'
+              },
+              pixels: parsed.pixels
+            };
+            this.storeVerbatimResponse('W', parsed, this.iterationCount);
+            pixelsToExecute = parsed.pixels;
+          } else {
+            // Réponse invalide (pas de pixels non plus) - pas de retry, utiliser valeurs par défaut
+            this.log(`[W Action] ⚠️ Réponse invalide: strategy=${!!parsed?.strategy}, rationale=${!!parsed?.rationale}, delta=${!!parsed?.delta_complexity}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
+            parsed = {
+              strategy: 'Action failed - incomplete response',
+              strategy_id: 'custom',
+              source_agents: [],
+              rationale: 'LLM response was incomplete',
+              delta_complexity: {
+                delta_C_w_bits: 0,
+                delta_C_d_bits: 0,
+                U_after_expected: 0
+              },
+              predictions: {
+                individual_after_prediction: 'N/A (incomplete response)',
+                collective_after_prediction: 'N/A (incomplete response)'
+              },
+              pixels: Array.isArray(parsed?.pixels) ? parsed.pixels : []
+            };
+            this.storeVerbatimResponse('W', parsed, this.iterationCount);
+            pixelsToExecute = parsed.pixels;
           }
+        } catch (error) {
+          // Erreur API (429, 503, etc.) - gemini-v5.js a déjà fait les retries nécessaires
+          this.log(`[W Action] Erreur API après retries: ${error.message}`);
+          // Créer un objet par défaut en cas d'erreur
+          parsed = {
+            strategy: 'ERROR',
+            strategy_id: 'custom',
+            source_agents: [],
+            rationale: `Erreur API: ${error.message}`,
+            delta_complexity: {
+              delta_C_w_bits: 0,
+              delta_C_d_bits: 0,
+              U_after_expected: 0
+            },
+            predictions: {
+              individual_after_prediction: 'N/A',
+              collective_after_prediction: 'N/A'
+            },
+            pixels: []
+          };
+          this.storeVerbatimResponse('W', parsed, this.iterationCount);
         }
-
-        // V5: S'assurer que parsed n'est jamais null après la boucle de retry
+        
+        // V5: S'assurer que parsed n'est jamais null
         if (!parsed) {
-          this.log(`[W Action] ⚠️ parsed est null après tous les retries - création d'objet par défaut`);
+          this.log(`[W Action] ⚠️ parsed est null - création d'objet par défaut`);
           parsed = {
             strategy: 'Action failed - no response',
             strategy_id: 'custom',
             source_agents: [],
-            rationale: 'LLM returned no valid response after all retries',
+            rationale: 'LLM returned no valid response',
             delta_complexity: {
               delta_C_w_bits: 0,
               delta_C_d_bits: 0,
@@ -1225,25 +1253,27 @@ class AIPlayerV5 {
 
   // === Extraction palette de couleurs locale ===
   extractLocalColorPalette() {
-    if (!this.myCellState || Object.keys(this.myCellState).length === 0) {
-      return 'No colors yet (empty grid)';
-    }
-    
-    // Extraire les couleurs uniques (sans compter le noir)
-    const colors = new Set();
-    Object.values(this.myCellState).forEach(color => {
-      if (color && color !== '#000000' && color !== '#000' && color !== 'transparent') {
-        colors.add(color.toUpperCase());
+    // Générer un tableau 20×20 avec tous les pixels au format x,y#HEX
+    // Format aligné avec l'image raster pour association immédiate
+    const grid = [];
+    for (let y = 0; y < 20; y++) {
+      const row = [];
+      for (let x = 0; x < 20; x++) {
+        const color = this.myCellState[`${x},${y}`] || '#000000';
+        // Normaliser le format de couleur (enlever # si présent, puis le rajouter)
+        const hexColor = color.startsWith('#') ? color.substring(1).toUpperCase() : color.toUpperCase();
+        row.push(`${x},${y}#${hexColor}`);
       }
-    });
-    
-    if (colors.size === 0) {
-      return 'No colors yet (only black pixels)';
+      grid.push(row.join(' '));
     }
     
-    // Retourner la liste des couleurs (max 10 pour éviter trop de tokens)
-    const colorArray = Array.from(colors).slice(0, 10);
-    return colorArray.join(', ');
+    // Retourner sous forme de tableau aligné (20 lignes, 20 colonnes)
+    let result = 'LOCAL GRID (20×20 pixels, aligned with raster image):\n';
+    result += 'Format: x,y#HEX (x=column 0-19, y=row 0-19)\n';
+    result += '━'.repeat(200) + '\n';
+    result += grid.join('\n');
+    
+    return result;
   }
   
   // === V5: Envoi données W à N ===
@@ -1374,7 +1404,11 @@ class AIPlayerV5 {
     const stdValid = (isNaN(std) || !isFinite(std)) ? 0 : std;
     
     // Ajouter les nouvelles valeurs
-    this.predictionMetrics.iterations.push(this.iterationCount);
+    // IMPORTANT : utiliser snapshot.version (global O+N) comme base X
+    // afin que toutes les courbes globales (mean / std) aient le même profil
+    // sur tous les clients, indépendamment de leur iterationCount local.
+    const version = snapshot.version || this.iterationCount;
+    this.predictionMetrics.iterations.push(version);
     this.predictionMetrics.my_error.push(this.myPredictionError || 0);
     this.predictionMetrics.mean_error.push(meanValid);
     this.predictionMetrics.std_error.push(stdValid);
@@ -1398,12 +1432,11 @@ class AIPlayerV5 {
   updateRankingDisplay(snapshot) {
     if (!snapshot || !snapshot.agent_rankings) {
       // Pas de rankings disponibles
-      if (document.getElementById('my-rank')) {
-        document.getElementById('my-rank').textContent = '-';
+      if (document.getElementById('total-agents')) {
         document.getElementById('total-agents').textContent = '-';
-        document.getElementById('my-avg-error').textContent = '-';
+      }
+      if (document.getElementById('rank-display')) {
         document.getElementById('rank-display').textContent = '-';
-        document.getElementById('top-predictors').innerHTML = '<div style="color: #888;">No rankings available yet</div>';
       }
       return;
     }
@@ -1423,55 +1456,22 @@ class AIPlayerV5 {
       document.getElementById('mean-error-display').textContent = globalMeanError;
     }
     
-    // Mettre à jour les informations personnelles
+    // Mettre à jour les informations personnelles (rang et total d'agents)
     if (myRanking) {
       const rank = myRanking.rank || 999;
-      const avgError = (myRanking.avg_error || 0).toFixed(3);
-      
-      if (document.getElementById('my-rank')) {
-        document.getElementById('my-rank').textContent = rank;
-      }
       if (document.getElementById('total-agents')) {
         document.getElementById('total-agents').textContent = Object.keys(rankings).length;
-      }
-      if (document.getElementById('my-avg-error')) {
-        document.getElementById('my-avg-error').textContent = avgError;
       }
       if (document.getElementById('rank-display')) {
         document.getElementById('rank-display').textContent = rank;
       }
     } else {
-      if (document.getElementById('my-rank')) {
-        document.getElementById('my-rank').textContent = '-';
-      }
       if (document.getElementById('total-agents')) {
         document.getElementById('total-agents').textContent = Object.keys(rankings).length || '-';
-      }
-      if (document.getElementById('my-avg-error')) {
-        document.getElementById('my-avg-error').textContent = '-';
       }
       if (document.getElementById('rank-display')) {
         document.getElementById('rank-display').textContent = '-';
       }
-    }
-    
-    // Afficher top 5
-    const sorted = Object.entries(rankings)
-      .sort((a, b) => (a[1].rank || 999) - (b[1].rank || 999))
-      .slice(0, 5);
-    
-    const topHtml = sorted.map(([id, data]) => {
-      const pos = data.position || ['?', '?'];
-      const isMe = id === myAgentId;
-      const rank = data.rank || 999;
-      const avgError = (data.avg_error || 0).toFixed(3);
-      return `<div style="${isMe ? 'color: #4AE290; font-weight: bold;' : 'color: #ccc;'}">
-        ${rank}. Agent [${pos[0]},${pos[1]}]: error=${avgError}${isMe ? ' (YOU)' : ''}
-      </div>`;
-    }).join('');
-    
-    if (document.getElementById('top-predictors')) {
-      document.getElementById('top-predictors').innerHTML = topHtml || '<div style="color: #888;">No rankings available</div>';
     }
   }
   
