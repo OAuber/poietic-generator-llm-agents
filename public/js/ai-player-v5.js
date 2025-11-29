@@ -734,12 +734,15 @@ class AIPlayerV5 {
         
         let parsed = null;
         let pixelsToExecute = [];
+        let tokens = null; // V5.1: Métriques de tokens (déclaré en dehors du try pour être accessible)
         
         try {
           // V5: Seed sans images (à l'aveugle)
           // NOTE: Les retries pour erreurs 429/503 sont gérés par gemini-v5.js, pas ici
           // pour éviter un double retry qui multiplierait les appels API
-          const raw = await window.GeminiV5Adapter.callAPI(systemText, null);
+          const apiResult = await window.GeminiV5Adapter.callAPI(systemText, null);
+          const raw = apiResult.text || apiResult; // Rétrocompatibilité
+          tokens = apiResult.tokens || null; // V5.1: Métriques de tokens
           parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
           
           // V5: Valider que la réponse seed est complète (a au moins seed.concept ou seed.artistic_reference)
@@ -867,7 +870,8 @@ class AIPlayerV5 {
             rationale: parsed.seed?.rationale || '',
             predictions: parsed.predictions || {}
           };
-          await this.sendWDataToN(seedData, this.iterationCount);
+          // V5.1: Passer les tokens si disponibles
+          await this.sendWDataToN(seedData, this.iterationCount, tokens);
         }
         
         // Store predictions pour la prochaine itération (action)
@@ -1023,14 +1027,17 @@ class AIPlayerV5 {
         
         let parsed = null;
         let pixelsToExecute = [];
+        let tokens = null; // V5.1: Métriques de tokens (déclaré en dehors du try pour être accessible)
         
         try {
           // NOTE: Les retries pour erreurs 429/503 sont gérés par gemini-v5.js, pas ici
           // pour éviter un double retry qui multiplierait les appels API
-          const raw = await window.GeminiV5Adapter.callAPI(systemText, {
+          const apiResult = await window.GeminiV5Adapter.callAPI(systemText, {
             globalImageBase64: globalUrlBefore,
             localImageBase64: localUrl
           });
+          const raw = apiResult.text || apiResult; // Rétrocompatibilité
+          tokens = apiResult.tokens || null; // V5.1: Métriques de tokens
           if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
           parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
           
@@ -1182,7 +1189,8 @@ class AIPlayerV5 {
         this.lastOVersionAtAction = this.Osnapshot?.version ?? this.lastOVersionSeen;
         
         // V5: Envoyer données W à N (rationale, predictions, strategy)
-        await this.sendWDataToN(parsed, this.iterationCount);
+        // V5.1: Passer les tokens si disponibles
+        await this.sendWDataToN(parsed, this.iterationCount, tokens);
 
         // V5: Mettre à jour l'historique des stratégies (sera complété avec actual_error au snapshot suivant)
         this.updateStrategyHistory(parsed, this.Osnapshot);
@@ -1276,8 +1284,46 @@ class AIPlayerV5 {
     return result;
   }
   
+  // === V5.1: Calcul tokens de signalement réels ===
+  calculateSignallingTokens(outputTokens, parsed) {
+    if (!outputTokens || outputTokens === 0) return 0;
+    
+    // Estimation des tokens "mécaniques" (incompressibles) :
+    // - Structure JSON de base (~50 tokens)
+    // - Noms de champs (strategy, rationale, pixels, delta_complexity, etc.) (~30 tokens)
+    // - Formatage des pixels (x,y#HEX) : ~3 tokens par pixel pour le formatage
+    // - Structure des deltas (~20 tokens)
+    
+    const baseStructureTokens = 50; // Structure JSON de base
+    const fieldNamesTokens = 30; // Noms des champs JSON
+    const deltaStructureTokens = 20; // Structure delta_complexity
+    
+    // Tokens pour le formatage des pixels (x,y#HEX)
+    // Chaque pixel nécessite ~3 tokens pour le formatage (virgule, #, guillemets)
+    const pixelCount = Array.isArray(parsed?.pixels) ? parsed.pixels.length : 0;
+    const pixelFormattingTokens = pixelCount * 3;
+    
+    // Tokens pour les valeurs numériques des deltas (très compressibles)
+    // On estime ~2 tokens par valeur numérique (formatage + nombre)
+    const deltaValueTokens = 6; // 3 valeurs (delta_C_w, delta_C_d, U_after) × 2
+    
+    // Total tokens mécaniques
+    const mechanicalTokens = baseStructureTokens + fieldNamesTokens + 
+                            deltaStructureTokens + pixelFormattingTokens + 
+                            deltaValueTokens;
+    
+    // Tokens de signalement réels = tokens totaux - tokens mécaniques
+    const signallingTokens = Math.max(0, outputTokens - mechanicalTokens);
+    
+    return {
+      total: outputTokens,
+      mechanical: mechanicalTokens,
+      signalling: signallingTokens
+    };
+  }
+  
   // === V5: Envoi données W à N ===
-  async sendWDataToN(parsed, iteration) {
+  async sendWDataToN(parsed, iteration, tokens = null) {
     const agentId = this.myUserId || 'unknown';
     const wData = {
       agent_id: agentId,
@@ -1299,10 +1345,16 @@ class AIPlayerV5 {
       console.error('[V5] Erreur envoi données W à N:', e);
     }
     
+    // V5.1: Calculer les tokens de signalement réels
+    let signallingTokens = null;
+    if (tokens && tokens.output) {
+      signallingTokens = this.calculateSignallingTokens(tokens.output, parsed);
+    }
+    
     // V5: Envoyer aussi les deltas au serveur de métriques
     if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN && parsed?.delta_complexity) {
       try {
-        this.metricsSocket.send(JSON.stringify({
+        const metricsData = {
           type: 'agent_update',
           user_id: agentId,
           position: this.myPosition,
@@ -1310,8 +1362,28 @@ class AIPlayerV5 {
           delta_C_d: parsed.delta_complexity.delta_C_d_bits || 0,
           U_after_expected: parsed.delta_complexity.U_after_expected || 0,
           prediction_error: this.myPredictionError || 0,
-          strategy: parsed?.strategy || 'N/A'
-        }));
+          strategy: parsed?.strategy || 'N/A',
+          iteration: iteration
+        };
+        
+        // V5.1: Ajouter les métriques de tokens si disponibles
+        if (tokens) {
+          metricsData.tokens = {
+            input: tokens.input || 0,
+            output: tokens.output || 0,
+            total: tokens.total || 0
+          };
+        }
+        
+        if (signallingTokens) {
+          metricsData.signalling_tokens = {
+            total: signallingTokens.total,
+            mechanical: signallingTokens.mechanical,
+            signalling: signallingTokens.signalling
+          };
+        }
+        
+        this.metricsSocket.send(JSON.stringify(metricsData));
       } catch(e) {
         console.error('[V5] Erreur envoi métriques:', e);
       }

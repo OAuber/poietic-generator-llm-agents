@@ -1,6 +1,6 @@
 export const GeminiV5Adapter = {
   name: 'Gemini V5',
-  version: '2025-01-24-v5-6',
+  version: '2025-01-27-v5-7',
   apiKey: null,
   prompts: null,
   strategies: null, // Cache pour strategies-v5.json
@@ -238,7 +238,22 @@ export const GeminiV5Adapter = {
         
         const data = await r.json();
         const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
-        return text;
+        
+        // V5.1: Extraire les métriques de tokens pour calculer le coût de signalement
+        const usageMetadata = data?.usageMetadata || {};
+        const inputTokens = usageMetadata.promptTokenCount || 0;
+        const outputTokens = usageMetadata.candidatesTokenCount || 0;
+        const totalTokens = usageMetadata.totalTokenCount || 0;
+        
+        // Retourner texte + métriques
+        return {
+          text: text,
+          tokens: {
+            input: inputTokens,
+            output: outputTokens,
+            total: totalTokens
+          }
+        };
       } catch (error) {
         lastError = error;
         // Si c'est une erreur réseau ou timeout, réessayer avec backoff
@@ -391,7 +406,15 @@ export const GeminiV5Adapter = {
     return lines.map(render).join('\n');
   },
 
-  parseJSONResponse(text) {
+  parseJSONResponse(textOrResult) {
+    // V5.1: Gérer le nouveau format avec tokens
+    let text = textOrResult;
+    if (textOrResult && typeof textOrResult === 'object' && textOrResult.text) {
+      text = textOrResult.text;
+      // Les tokens sont stockés dans textOrResult.tokens, mais on ne les utilise pas ici
+      // Ils seront extraits séparément dans ai-player-v5.js
+    }
+    
     // Try direct parse first
     try { return JSON.parse(text); } catch (_) {}
 

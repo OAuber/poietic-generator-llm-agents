@@ -3,15 +3,277 @@
 Serveur de métriques Simplicity Theory pour Poietic Generator V5 (Architecture O-N-W)
 Port 5005 - WebSocket indépendant
 Agrège les évaluations O (C_d), N (C_w, erreurs prédiction), W (actions)
+
+V5.1: Ajout SessionRecorder pour collecte complète et export de sessions
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
+import uuid
+import copy
 
-app = FastAPI(title="Poietic Metrics Server V5", version="5.0.0")
+app = FastAPI(title="Poietic Metrics Server V5", version="5.1.0")
+
+
+# ==============================================================================
+# SESSION RECORDER - Collecte complète des données de session
+# ==============================================================================
+
+class SessionRecorder:
+    """
+    Enregistre tous les événements d'une session pour export et replay.
+    
+    Collecte pour chaque itération et chaque agent:
+    - timestamp, version (itération globale)
+    - agent_id, position, type (ai/human)
+    - C_w, C_d, U (valeurs globales O+N)
+    - delta_C_w, delta_C_d, U_expected (deltas W - IA uniquement)
+    - prediction_error, mean_error, std_error
+    - strategy, strategy_id, source_agents, rationale
+    - pixels générés
+    - ranking des agents
+    """
+    
+    def __init__(self):
+        self.session_id = datetime.now().isoformat()
+        self.start_time = datetime.now()
+        self.events: List[dict] = []
+        self.agents_registry: Dict[str, dict] = {}  # {agent_id: {type, position, ...}}
+        self.current_iteration = 0
+        self.canvas_snapshots: List[dict] = []  # Snapshots canvas périodiques
+        self.last_global_metrics: dict = {}  # Dernières métriques globales C_w, C_d, U
+        self.last_rankings: dict = {}  # Dernier classement des agents
+        self.last_agent_data: dict = {}  # V5.1: Dernières données complètes par agent (pour record_iteration_event)
+        self.last_o_snapshot: dict = {}  # V5.1: Dernier snapshot O complet
+        self.last_n_snapshot: dict = {}  # V5.1: Dernier snapshot N complet
+    
+    def register_agent(self, agent_id: str, position: List[int], agent_type: str = "ai"):
+        """Enregistre ou met à jour un agent (IA ou humain)"""
+        self.agents_registry[agent_id] = {
+            "id": agent_id,
+            "position": position,
+            "type": agent_type,  # "ai" ou "human"
+            "first_seen": datetime.now().isoformat(),
+            "last_seen": datetime.now().isoformat()
+        }
+    
+    def update_global_metrics(self, C_w: float, C_d: float, U: float, 
+                               mean_error: float = 0, std_error: float = 0,
+                               version: int = 0):
+        """Met à jour les métriques globales (O+N)"""
+        self.last_global_metrics = {
+            "C_w": C_w,
+            "C_d": C_d,
+            "U": U,
+            "mean_error": mean_error,
+            "std_error": std_error,
+            "version": version
+        }
+        self.current_iteration = version
+    
+    def update_rankings(self, rankings: dict):
+        """Met à jour le classement des agents"""
+        self.last_rankings = rankings
+    
+    def record_iteration_event(self, version: int, agents_data: List[dict], 
+                                canvas_snapshot: Optional[str] = None,
+                                o_snapshot: Optional[dict] = None,
+                                n_snapshot: Optional[dict] = None):
+        """
+        Enregistre un événement d'itération complet.
+        
+        Args:
+            version: Numéro d'itération global
+            agents_data: Liste des données agents pour cette itération
+            canvas_snapshot: Base64 du canvas (optionnel, pour replay visuel)
+            o_snapshot: Snapshot O-machine complet (optionnel)
+            n_snapshot: Snapshot N-machine complet (optionnel)
+        """
+        event = {
+            "type": "iteration",
+            "version": version,
+            "timestamp": datetime.now().isoformat(),
+            "global": copy.deepcopy(self.last_global_metrics),
+            "rankings": copy.deepcopy(self.last_rankings),
+            "agents": agents_data,
+            "agents_count": len(agents_data),
+            "ai_agents_count": sum(1 for a in agents_data if a.get("type") == "ai"),
+            "human_agents_count": sum(1 for a in agents_data if a.get("type") == "human")
+        }
+        
+        if canvas_snapshot:
+            event["canvas_snapshot"] = canvas_snapshot
+        
+        # V5.1: Inclure les snapshots O et N pour les verbatim
+        if o_snapshot:
+            event["o_snapshot"] = {
+                "structures": o_snapshot.get("structures", []),
+                "formal_relations": o_snapshot.get("formal_relations", {})
+            }
+        if n_snapshot:
+            event["n_snapshot"] = {
+                "narrative": n_snapshot.get("narrative", {})
+            }
+        
+        self.events.append(event)
+        self.current_iteration = version
+    
+    def record_agent_action(self, agent_id: str, position: List[int],
+                            delta_C_w: float = 0, delta_C_d: float = 0, 
+                            U_expected: float = 0, prediction_error: float = 0,
+                            strategy: str = "", strategy_id: str = "",
+                            source_agents: List[List[int]] = None,
+                            rationale: str = "", pixels: List[str] = None,
+                            verbatim_summary: str = "", agent_type: str = "ai",
+                            tokens: dict = None, signalling_tokens: dict = None,
+                            rank: int = 999):
+        """
+        Enregistre une action d'agent individuelle.
+        Retourne les données formatées pour inclusion dans un événement d'itération.
+        """
+        # Mettre à jour le registre
+        self.register_agent(agent_id, position, agent_type)
+        self.agents_registry[agent_id]["last_seen"] = datetime.now().isoformat()
+        
+        agent_data = {
+            "id": agent_id,
+            "position": position,
+            "type": agent_type,
+            "timestamp": datetime.now().isoformat(),
+            "rank": rank  # V5.1: Rank au moment de l'action
+        }
+        
+        # Données spécifiques aux agents IA
+        if agent_type == "ai":
+            agent_data.update({
+                "delta_C_w": delta_C_w,
+                "delta_C_d": delta_C_d,
+                "U_expected": U_expected,
+                "prediction_error": prediction_error,
+                "strategy": strategy,
+                "strategy_id": strategy_id,
+                "source_agents": source_agents or [],
+                "rationale": rationale[:500] if rationale else "",  # Limiter la taille
+                "verbatim_summary": verbatim_summary[:1000] if verbatim_summary else ""
+            })
+            
+            # V5.1: Ajouter les métriques de tokens si disponibles
+            if tokens:
+                agent_data["tokens"] = tokens
+            if signalling_tokens:
+                agent_data["signalling_tokens"] = signalling_tokens
+        
+        if pixels:
+            agent_data["pixels"] = pixels
+        
+        # V5.1: Stocker les dernières données complètes de l'agent
+        self.last_agent_data[agent_id] = copy.deepcopy(agent_data)
+        
+        # V5.1: Enregistrer l'événement dans self.events pour l'export
+        self.events.append({
+            "type": "agent",
+            "timestamp": agent_data["timestamp"],
+            "data": copy.deepcopy(agent_data)
+        })
+        
+        return agent_data
+    
+    def add_canvas_snapshot(self, version: int, snapshot_base64: str):
+        """Ajoute un snapshot du canvas (pour replay visuel)"""
+        snapshot_data = {
+            "version": version,
+            "timestamp": datetime.now().isoformat(),
+            "data": snapshot_base64
+        }
+        self.canvas_snapshots.append(snapshot_data)
+        # Garder les 100 derniers snapshots
+        if len(self.canvas_snapshots) > 100:
+            self.canvas_snapshots = self.canvas_snapshots[-100:]
+        
+        # V5.1: Enregistrer aussi dans self.events pour l'export
+        self.events.append({
+            "type": "canvas_snapshot",
+            "timestamp": snapshot_data["timestamp"],
+            "data": {
+                "version": version,
+                "snapshot": snapshot_base64  # Stocker seulement la référence, pas les données complètes
+            }
+        })
+    
+    def export_session(self) -> dict:
+        """Exporte la session complète au format JSON"""
+        # Reconstruire agentMetrics à partir des événements
+        agent_metrics = {}
+        for event in self.events:
+            if event.get("type") == "agent" and event.get("data"):
+                agent_data = event["data"]
+                agent_id = agent_data.get("id")
+                if agent_id:
+                    agent_metrics[agent_id] = agent_data
+        
+        # Reconstruire globalMetrics à partir des événements d'itération
+        global_metrics = []
+        for event in self.events:
+            if event.get("type") == "iteration" and event.get("global"):
+                global_metrics.append({
+                    "version": event.get("version", 0),
+                    **event.get("global", {}),
+                    "timestamp": event.get("timestamp", "")
+                })
+        
+        return {
+            "session_id": self.session_id,
+            "metadata": {
+                "start_time": self.start_time.isoformat(),
+                "end_time": datetime.now().isoformat(),
+                "total_iterations": self.current_iteration,
+                "total_events": len(self.events),
+                "agents_registry": self.agents_registry,
+                "ai_agents_count": sum(1 for a in self.agents_registry.values() if a.get("type") == "ai"),
+                "human_agents_count": sum(1 for a in self.agents_registry.values() if a.get("type") == "human")
+            },
+            "events": self.events,
+            "globalMetrics": global_metrics,
+            "agentMetrics": agent_metrics,
+            "rankings": self.last_rankings,
+            "canvasSnapshots": self.canvas_snapshots[-20:]  # Derniers 20 snapshots pour le replay
+        }
+    
+    def clear(self):
+        """Réinitialise la session"""
+        self.session_id = datetime.now().isoformat()
+        self.start_time = datetime.now()
+        self.events = []
+        self.agents_registry = {}
+        self.current_iteration = 0
+        self.canvas_snapshots = []
+        self.last_global_metrics = {}
+        self.last_rankings = {}
+        self.last_agent_data = {}
+        self.last_o_snapshot = {}
+        self.last_n_snapshot = {}
+    
+    def get_summary(self) -> dict:
+        """Retourne un résumé de la session en cours"""
+        return {
+            "session_id": self.session_id,
+            "start_time": self.start_time.isoformat(),
+            "current_iteration": self.current_iteration,
+            "total_events": len(self.events),
+            "agents_count": len(self.agents_registry),
+            "ai_agents": sum(1 for a in self.agents_registry.values() if a.get("type") == "ai"),
+            "human_agents": sum(1 for a in self.agents_registry.values() if a.get("type") == "human"),
+            "last_global_metrics": self.last_global_metrics,
+            "last_rankings": self.last_rankings
+        }
+
+
+# Instance globale du SessionRecorder
+session_recorder = SessionRecorder()
 
 app.add_middleware(
     CORSMiddleware,
@@ -104,7 +366,7 @@ class GlobalSimplicityTrackerV5:
         if user_id in self.agent_error_history:
             del self.agent_error_history[user_id]
     
-    def calculate_agent_rankings(self, prediction_errors: dict, agent_positions: dict) -> dict:
+    def calculate_agent_rankings(self, prediction_errors: dict, agent_positions: dict, version: int = 0) -> dict:
         """
         Calcule le ranking des agents basé sur leur erreur de prédiction moyenne cumulative.
         Plus l'erreur est basse, meilleur est le rang (rank 1 = meilleur prédicteur).
@@ -112,11 +374,13 @@ class GlobalSimplicityTrackerV5:
         Args:
             prediction_errors: Dict {agent_id: {'error': float, 'explanation': str}}
             agent_positions: Dict {agent_id: [x, y]}
+            version: Numéro de version/itération pour éviter les doublons
         
         Returns:
             Dict {agent_id: {'rank': int, 'avg_error': float, 'total_iterations': int, 'position': [x,y]}}
         """
         # Pour chaque agent, mettre à jour son historique d'erreurs
+        # On stocke maintenant (version, error) pour éviter les doublons
         for agent_id, error_data in prediction_errors.items():
             if not isinstance(error_data, dict):
                 continue
@@ -124,10 +388,11 @@ class GlobalSimplicityTrackerV5:
             
             # Initialiser si nécessaire
             if agent_id not in self.agent_error_history:
-                self.agent_error_history[agent_id] = []
+                self.agent_error_history[agent_id] = {}  # Dict {version: error} au lieu de liste
             
-            # Ajouter l'erreur à l'historique cumulatif
-            self.agent_error_history[agent_id].append(error)
+            # Ajouter l'erreur seulement si pas déjà enregistrée pour cette version
+            if version not in self.agent_error_history[agent_id]:
+                self.agent_error_history[agent_id][version] = error
         
         # Calculer moyenne cumulative pour chaque agent ACTIF uniquement
         # (ne classer que les agents présents dans agent_positions)
@@ -139,13 +404,14 @@ class GlobalSimplicityTrackerV5:
             if len(error_history) == 0:
                 continue
             
-            # Moyenne cumulative sur toutes les itérations
-            avg_error = sum(error_history) / len(error_history)
+            # Moyenne cumulative sur toutes les itérations (valeurs du dict)
+            errors = list(error_history.values())
+            avg_error = sum(errors) / len(errors)
             position = agent_positions[agent_id]  # Garanti d'exister car on a vérifié ci-dessus
             
             agent_stats[agent_id] = {
                 'avg_error': avg_error,
-                'total_iterations': len(error_history),
+                'total_iterations': len(errors),
                 'position': position
             }
         
@@ -255,9 +521,64 @@ async def metrics_endpoint(websocket: WebSocket):
                 U_after_expected = msg.get('U_after_expected', 0)  # V5: U attendu après action
                 prediction_error = msg.get('prediction_error')
                 strategy = msg.get('strategy')
+                agent_type = msg.get('agent_type', 'ai')  # V5.1: Type d'agent (ai/human)
+                pixels = msg.get('pixels', [])  # V5.1: Pixels générés
+                strategy_id = msg.get('strategy_id', '')
+                source_agents = msg.get('source_agents', [])
+                rationale = msg.get('rationale', '')
+                verbatim_summary = msg.get('verbatim_summary', '')
+                iteration = msg.get('iteration', 0)
+                tokens = msg.get('tokens')  # V5.1: Métriques de tokens
+                signalling_tokens = msg.get('signalling_tokens')  # V5.1: Tokens de signalement réels
+                
+                # V5.1: Si l'agent recommence (iteration <= 1), réinitialiser son historique
+                if iteration <= 1 and user_id in tracker.agent_error_history:
+                    del tracker.agent_error_history[user_id]
+                    print(f"[MetricsV5] Agent {user_id[:8]}... reset (iteration={iteration})")
                 
                 tracker.update_agent(user_id, position, delta_C_w, delta_C_d, U_after_expected, prediction_error, strategy)
                 tracker.record_history()
+                
+                # V5.1: Calculer le rank actuel de l'agent pour l'inclure dans les données
+                # On calcule un ranking temporaire basé sur l'erreur moyenne cumulative
+                # (sans modifier agent_error_history)
+                agent_stats = {}
+                for aid, error_history in tracker.agent_error_history.items():
+                    if aid not in tracker.agents:
+                        continue
+                    if len(error_history) == 0:
+                        continue
+                    errors = list(error_history.values())
+                    avg_error = sum(errors) / len(errors)
+                    agent_stats[aid] = avg_error
+                
+                # Trier par erreur moyenne croissante
+                sorted_agents = sorted(agent_stats.items(), key=lambda x: x[1])
+                current_rank = 999
+                for rank, (aid, _) in enumerate(sorted_agents, start=1):
+                    if aid == user_id:
+                        current_rank = rank
+                        break
+                
+                # V5.1: Enregistrer dans SessionRecorder
+                agent_data = session_recorder.record_agent_action(
+                    agent_id=user_id,
+                    position=position,
+                    delta_C_w=delta_C_w,
+                    delta_C_d=delta_C_d,
+                    U_expected=U_after_expected,
+                    prediction_error=prediction_error or 0,
+                    strategy=strategy or '',
+                    strategy_id=strategy_id,
+                    source_agents=source_agents,
+                    rationale=rationale,
+                    pixels=pixels,
+                    verbatim_summary=verbatim_summary,
+                    agent_type=agent_type,
+                    tokens=tokens,
+                    signalling_tokens=signalling_tokens,
+                    rank=current_rank  # V5.1: Ajouter le rank actuel
+                )
                 
                 # Broadcast state to all connected clients
                 state = tracker.get_state_summary()
@@ -267,6 +588,11 @@ async def metrics_endpoint(websocket: WebSocket):
                         await conn.send_json({
                             'type': 'state_update',
                             'data': state
+                        })
+                        # V5.1: Broadcast aussi l'événement agent pour ai-metrics.html
+                        await conn.send_json({
+                            'type': 'session_agent_event',
+                            'data': agent_data
                         })
                     except:
                         dead_connections.append(conn)
@@ -280,13 +606,19 @@ async def metrics_endpoint(websocket: WebSocket):
                 snapshot = msg.get('snapshot', {})
                 tracker.store_o_snapshot(snapshot)
                 
+                # V5.1: Extraire et stocker les métriques globales
+                simplicity = snapshot.get('simplicity_assessment', {})
+                C_d = simplicity.get('C_d_current', {}).get('value', 0)
+                version = snapshot.get('version', 0)
+                
                 # Broadcast
                 dead_connections = []
+                o_data = tracker.o_snapshots[-1] if tracker.o_snapshots else None
                 for conn in connections:
                     try:
                         await conn.send_json({
                             'type': 'o_snapshot_update',
-                            'data': tracker.o_snapshots[-1] if tracker.o_snapshots else None
+                            'data': o_data
                         })
                     except:
                         dead_connections.append(conn)
@@ -300,13 +632,107 @@ async def metrics_endpoint(websocket: WebSocket):
                 snapshot = msg.get('snapshot', {})
                 tracker.store_n_snapshot(snapshot)
                 
+                # V5.1: Mettre à jour les métriques globales dans SessionRecorder
+                simplicity = snapshot.get('simplicity_assessment', {})
+                C_w = simplicity.get('C_w_current', {}).get('value', 0)
+                C_d = simplicity.get('C_d_current', {}).get('value', 0)
+                U = simplicity.get('U_current', {}).get('value', 0)
+                version = snapshot.get('version', 0)
+                
+                # Calculer mean/std des erreurs de prédiction
+                errors = snapshot.get('prediction_errors', {})
+                error_values = [e.get('error', 0) for e in errors.values() if isinstance(e, dict)]
+                mean_error = sum(error_values) / len(error_values) if error_values else 0.0
+                std_error = 0.0
+                if len(error_values) > 1:
+                    variance = sum([(e - mean_error) ** 2 for e in error_values]) / len(error_values)
+                    std_error = variance ** 0.5
+                
+                session_recorder.update_global_metrics(C_w, C_d, U, mean_error, std_error, version)
+                
+                # V5.1: Calculer et stocker les rankings
+                agent_positions = {aid: a.get('position', [0, 0]) for aid, a in tracker.agents.items()}
+                rankings = tracker.calculate_agent_rankings(errors, agent_positions, version)
+                session_recorder.update_rankings(rankings)
+                
+                # V5.1: Enregistrer l'événement d'itération
+                # Utiliser les dernières données complètes stockées pour chaque agent
+                agents_data = []
+                for agent_id in tracker.agents.keys():
+                    if agent_id in session_recorder.last_agent_data:
+                        # Utiliser les données complètes stockées (inclut tokens, pixels, etc.)
+                        agent_data = copy.deepcopy(session_recorder.last_agent_data[agent_id])
+                        # Mettre à jour le rank si disponible
+                        if agent_id in rankings:
+                            agent_data["rank"] = rankings[agent_id].get('rank', 999)
+                        agents_data.append(agent_data)
+                    else:
+                        # Fallback: construire à partir de tracker.agents si pas de données complètes
+                        agent_info = tracker.agents[agent_id]
+                        agent_data = {
+                            "id": agent_id,
+                            "position": agent_info.get('position', [0, 0]),
+                            "type": "ai",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        if 'delta_C_w' in agent_info:
+                            agent_data["delta_C_w"] = agent_info.get('delta_C_w', 0)
+                            agent_data["delta_C_d"] = agent_info.get('delta_C_d', 0)
+                            agent_data["U_expected"] = agent_info.get('U_after_expected', 0)
+                            agent_data["prediction_error"] = agent_info.get('prediction_error', 0)
+                            agent_data["strategy"] = agent_info.get('strategy', '')
+                        if agent_id in rankings:
+                            agent_data["rank"] = rankings[agent_id].get('rank', 999)
+                        agents_data.append(agent_data)
+                
+                # V5.1: Récupérer les derniers snapshots O et N pour l'événement
+                o_snapshot_data = None
+                n_snapshot_data = snapshot  # Le snapshot N vient d'être reçu
+                
+                # Stocker le snapshot N complet
+                session_recorder.last_n_snapshot = copy.deepcopy(snapshot)
+                
+                # Utiliser le dernier snapshot O stocké
+                if session_recorder.last_o_snapshot:
+                    o_snapshot_data = {
+                        "structures": session_recorder.last_o_snapshot.get('structures', []),
+                        "formal_relations": session_recorder.last_o_snapshot.get('formal_relations', {})
+                    }
+                
+                # Enregistrer l'événement d'itération avec les snapshots O et N
+                session_recorder.record_iteration_event(
+                    version, 
+                    agents_data,
+                    o_snapshot=o_snapshot_data,
+                    n_snapshot=n_snapshot_data
+                )
+                
                 # Broadcast
                 dead_connections = []
+                n_data = tracker.n_snapshots[-1] if tracker.n_snapshots else None
                 for conn in connections:
                     try:
                         await conn.send_json({
                             'type': 'n_snapshot_update',
-                            'data': tracker.n_snapshots[-1] if tracker.n_snapshots else None
+                            'data': n_data
+                        })
+                        # V5.1: Broadcast l'événement d'itération complet pour ai-metrics.html
+                        await conn.send_json({
+                            'type': 'session_iteration_event',
+                            'data': {
+                                'version': version,
+                                'global': session_recorder.last_global_metrics,
+                                'rankings': rankings,
+                                'agents': agents_data,  # V5.1: Inclure les données des agents
+                                'agents_count': len(agents_data),
+                                'ai_agents_count': sum(1 for a in agents_data if a.get("type") == "ai"),
+                                'human_agents_count': sum(1 for a in agents_data if a.get("type") == "human"),
+                                'o_snapshot': o_snapshot_data,  # V5.1: Inclure snapshot O
+                                'n_snapshot': {  # V5.1: Inclure snapshot N (seulement narrative)
+                                    "narrative": snapshot.get('narrative', {})
+                                },
+                                'timestamp': datetime.now().isoformat()
+                            }
                         })
                     except:
                         dead_connections.append(conn)
@@ -343,6 +769,71 @@ async def metrics_endpoint(websocket: WebSocket):
                     'type': 'state_update',
                     'data': state
                 })
+                # V5.1: Envoyer aussi le résumé de session
+                await websocket.send_json({
+                    'type': 'session_summary',
+                    'data': session_recorder.get_summary()
+                })
+            
+            elif msg_type == 'human_pixels':
+                # V5.1: Pixels d'un agent humain (pas de métriques W)
+                user_id = msg.get('user_id')
+                position = msg.get('position', [0, 0])
+                pixels = msg.get('pixels', [])
+                
+                # Enregistrer comme agent humain
+                agent_data = session_recorder.record_agent_action(
+                    agent_id=user_id,
+                    position=position,
+                    pixels=pixels,
+                    agent_type="human"
+                )
+                
+                # Broadcast l'événement
+                dead_connections = []
+                for conn in connections:
+                    try:
+                        await conn.send_json({
+                            'type': 'session_agent_event',
+                            'data': agent_data
+                        })
+                    except:
+                        dead_connections.append(conn)
+                for conn in dead_connections:
+                    if conn in connections:
+                        connections.remove(conn)
+            
+            elif msg_type == 'canvas_snapshot':
+                # V5.1: Snapshot du canvas pour replay visuel
+                version = msg.get('version', session_recorder.current_iteration)
+                snapshot_base64 = msg.get('data', '')
+                
+                if snapshot_base64:
+                    session_recorder.add_canvas_snapshot(version, snapshot_base64)
+                    
+                    # Broadcast
+                    dead_connections = []
+                    for conn in connections:
+                        try:
+                            await conn.send_json({
+                                'type': 'canvas_snapshot_update',
+                                'data': {
+                                    'version': version,
+                                    'timestamp': datetime.now().isoformat()
+                                }
+                            })
+                        except:
+                            dead_connections.append(conn)
+                    for conn in dead_connections:
+                        if conn in connections:
+                            connections.remove(conn)
+            
+            elif msg_type == 'get_session_export':
+                # V5.1: Demande d'export de session via WebSocket
+                await websocket.send_json({
+                    'type': 'session_export',
+                    'data': session_recorder.export_session()
+                })
     
     except WebSocketDisconnect:
         connections.remove(websocket)
@@ -371,13 +862,55 @@ async def get_n_history():
     """Historique snapshots N"""
     return {"n_snapshots": tracker.n_snapshots}
 
+
+# ==============================================================================
+# ENDPOINTS SESSION RECORDER
+# ==============================================================================
+
+@app.get("/api/session/export")
+async def export_session():
+    """Exporte la session complète au format JSON"""
+    return JSONResponse(
+        content=session_recorder.export_session(),
+        headers={
+            "Content-Disposition": f"attachment; filename=session_{session_recorder.session_id}.json"
+        }
+    )
+
+@app.get("/api/session/summary")
+async def get_session_summary():
+    """Retourne un résumé de la session en cours"""
+    return session_recorder.get_summary()
+
+@app.post("/api/session/clear")
+async def clear_session():
+    """Réinitialise la session courante"""
+    session_recorder.clear()
+    return {"status": "ok", "message": "Session cleared", "new_session_id": session_recorder.session_id}
+
+@app.get("/api/session/events")
+async def get_session_events(limit: int = 50, offset: int = 0):
+    """Retourne les événements de la session avec pagination"""
+    events = session_recorder.events
+    total = len(events)
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "events": events[offset:offset + limit]
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Démarrage Poietic Metrics Server V5 (O-N-W Architecture)")
+    print("🚀 Démarrage Poietic Metrics Server V5.1 (O-N-W Architecture + SessionRecorder)")
     print("   WebSocket: ws://localhost:5005/metrics")
     print("   Health: http://localhost:5005/health")
     print("   State: http://localhost:5005/state")
     print("   O History: http://localhost:5005/o-history")
     print("   N History: http://localhost:5005/n-history")
+    print("   Session Export: http://localhost:5005/api/session/export")
+    print("   Session Summary: http://localhost:5005/api/session/summary")
+    print("   Session Clear: POST http://localhost:5005/api/session/clear")
     uvicorn.run(app, host="0.0.0.0", port=5005, log_level="info", access_log=False)
 
