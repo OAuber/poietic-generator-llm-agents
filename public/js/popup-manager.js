@@ -250,6 +250,7 @@ class PopupManager {
                             <option value="U">U</option>
                             <option value="mean_error" selected>Mean Error</option>
                             <option value="std_error">Std Error</option>
+                            <option value="avg_signalling_cost">Avg Signalling Cost</option>
                         </select>
                         <span>vs</span>
                         <select id="${id}-y-axis" class="speed-select" style="flex: 1;">
@@ -258,6 +259,7 @@ class PopupManager {
                             <option value="U" selected>U</option>
                             <option value="mean_error">Mean Error</option>
                             <option value="std_error">Std Error</option>
+                            <option value="avg_signalling_cost">Avg Signalling Cost</option>
                         </select>
                     </div>
                     <div class="chart-container" style="overflow: hidden; flex: 1; min-height: 0;">
@@ -281,6 +283,7 @@ class PopupManager {
                             <option value="delta_C_w">ΔC_w</option>
                             <option value="delta_C_d">ΔC_d</option>
                             <option value="U_expected">U Expected</option>
+                            <option value="avg_signalling_cost">Avg Signalling Cost</option>
                         </select>
                     </div>
                     <div class="chart-container">
@@ -656,32 +659,170 @@ class PopupManager {
     
     updateScatterPopup(id, popup, data) {
         const metrics = data.globalMetrics || [];
+        const events = data.events || [];
         if (metrics.length < 2) return;
+        
+        // Créer un map des versions -> agents pour accès rapide
+        const versionToAgents = new Map();
+        events.forEach(e => {
+            if (e.type === 'iteration' && e.data?.agents && Array.isArray(e.data.agents)) {
+                const version = e.data.version;
+                if (version !== undefined) {
+                    versionToAgents.set(version, e.data.agents);
+                }
+            }
+        });
+        
+        // Calculer avg_signalling_cost pour chaque itération depuis les événements d'itération
+        const enrichedMetrics = metrics.map((m, index) => {
+            const version = m.version !== undefined ? m.version : index;
+            
+            // Récupérer les agents pour cette version depuis les événements d'itération
+            const agents = versionToAgents.get(version) || [];
+            
+            // Calculer la moyenne des signalling_tokens pour cette itération
+            let avgSignallingCost = 0;
+            if (agents.length > 0) {
+                const signallingTokens = agents
+                    .map(agent => {
+                        // Vérifier plusieurs chemins possibles pour signalling_tokens
+                        if (agent.signalling_tokens && typeof agent.signalling_tokens === 'object') {
+                            return agent.signalling_tokens.signalling;
+                        } else if (typeof agent.signalling_tokens === 'number') {
+                            return agent.signalling_tokens;
+                        }
+                        return null;
+                    })
+                    .filter(v => v !== null && v !== undefined && !isNaN(v));
+                
+                if (signallingTokens.length > 0) {
+                    const sum = signallingTokens.reduce((a, b) => a + b, 0);
+                    avgSignallingCost = sum / signallingTokens.length;
+                }
+            }
+            
+            return {
+                ...m,
+                avg_signalling_cost: avgSignallingCost
+            };
+        });
         
         const xAxis = document.getElementById(`${id}-x-axis`)?.value || 'mean_error';
         const yAxis = document.getElementById(`${id}-y-axis`)?.value || 'U';
         
-        this.drawScatterChart(id, metrics, xAxis, yAxis);
+        this.drawScatterChart(id, enrichedMetrics, xAxis, yAxis);
     }
     
     updateHeatmapPopup(id, popup, data) {
         const metrics = data.globalMetrics || [];
+        const events = data.events || [];
         if (metrics.length < 5) return;
         
-        this.drawCorrelationHeatmap(id, metrics);
+        // Créer un map des versions -> agents pour accès rapide
+        const versionToAgents = new Map();
+        events.forEach(e => {
+            if (e.type === 'iteration' && e.data?.agents && Array.isArray(e.data.agents)) {
+                const version = e.data.version;
+                if (version !== undefined) {
+                    versionToAgents.set(version, e.data.agents);
+                }
+            }
+        });
+        
+        // Calculer avg_signalling_cost pour chaque itération depuis les événements d'itération
+        const enrichedMetrics = metrics.map((m, index) => {
+            const version = m.version !== undefined ? m.version : index;
+            
+            // Récupérer les agents pour cette version depuis les événements d'itération
+            const agents = versionToAgents.get(version) || [];
+            
+            // Calculer la moyenne des signalling_tokens pour cette itération
+            let avgSignallingCost = 0;
+            if (agents.length > 0) {
+                const signallingTokens = agents
+                    .map(agent => {
+                        // Vérifier plusieurs chemins possibles pour signalling_tokens
+                        if (agent.signalling_tokens && typeof agent.signalling_tokens === 'object') {
+                            return agent.signalling_tokens.signalling;
+                        } else if (typeof agent.signalling_tokens === 'number') {
+                            return agent.signalling_tokens;
+                        }
+                        return null;
+                    })
+                    .filter(v => v !== null && v !== undefined && !isNaN(v));
+                
+                if (signallingTokens.length > 0) {
+                    const sum = signallingTokens.reduce((a, b) => a + b, 0);
+                    avgSignallingCost = sum / signallingTokens.length;
+                }
+            }
+            
+            return {
+                ...m,
+                avg_signalling_cost: avgSignallingCost
+            };
+        });
+        
+        this.drawCorrelationHeatmap(id, enrichedMetrics);
     }
     
     updateSpatialPopup(id, popup, data) {
         const agentMetrics = data.agentMetrics || {};
         const rankings = data.rankings || {};
+        const events = data.events || [];
         const metricKey = document.getElementById(`${id}-metric`)?.value || 'prediction_error';
         
-        // Fusionner les données d'agents avec les rankings pour avoir avg_error
+        // Calculer avg_signalling_cost pour chaque agent depuis les événements d'itération
+        // (même méthode que Scatter Plot et Correlation Heatmap)
+        const signallingHistory = {}; // agentId -> [tokens, tokens, ...]
+        
+        // Parcourir tous les événements d'itération pour collecter les signalling_tokens par agent
+        events.forEach(e => {
+            if (e.type === 'iteration' && e.data?.agents && Array.isArray(e.data.agents)) {
+                e.data.agents.forEach(agent => {
+                    if (!agent || !agent.id) return;
+                    
+                    const agentId = agent.id;
+                    if (!signallingHistory[agentId]) {
+                        signallingHistory[agentId] = [];
+                    }
+                    
+                    // Extraire signalling_tokens (même logique que Scatter Plot)
+                    let signallingTokens = null;
+                    if (agent.signalling_tokens && typeof agent.signalling_tokens === 'object') {
+                        signallingTokens = agent.signalling_tokens.signalling;
+                    } else if (typeof agent.signalling_tokens === 'number') {
+                        signallingTokens = agent.signalling_tokens;
+                    }
+                    
+                    if (signallingTokens !== null && signallingTokens !== undefined && !isNaN(signallingTokens)) {
+                        signallingHistory[agentId].push(signallingTokens);
+                    }
+                });
+            }
+        });
+        
+        // Fusionner les données d'agents avec les rankings pour avoir avg_error et avg_signalling_cost
         const enrichedAgents = {};
         for (const [agentId, agent] of Object.entries(agentMetrics)) {
+            // Calculer avg_signalling_cost depuis l'historique collecté
+            let avgSignallingCost = 0;
+            if (signallingHistory[agentId] && signallingHistory[agentId].length > 0) {
+                const sum = signallingHistory[agentId].reduce((a, b) => a + b, 0);
+                avgSignallingCost = sum / signallingHistory[agentId].length;
+            } else if (agent.signalling_tokens) {
+                // Fallback: utiliser la valeur actuelle si pas d'historique
+                if (typeof agent.signalling_tokens === 'object') {
+                    avgSignallingCost = agent.signalling_tokens.signalling || 0;
+                } else if (typeof agent.signalling_tokens === 'number') {
+                    avgSignallingCost = agent.signalling_tokens;
+                }
+            }
+            
             enrichedAgents[agentId] = {
                 ...agent,
-                avg_error: rankings[agentId]?.avg_error || 0
+                avg_error: rankings[agentId]?.avg_error || 0,
+                avg_signalling_cost: avgSignallingCost
             };
         }
         
@@ -723,51 +864,86 @@ class PopupManager {
         let verbatimEntries = [];
         const seenEntries = new Set(); // Pour éviter les doublons
         
-        // 1. Verbatim des agents W depuis les événements (seulement depuis les événements, pas depuis agentMetrics)
-        const aiEvents = (data.events || [])
-            .filter(e => e.type === 'agent' && e.data?.type === 'ai');
+        // 1. Verbatim des agents W depuis les événements d'itération (même source que les autres métriques)
+        // Utiliser un Map pour dédupliquer par agent ID + version (clé unique)
+        const wEntriesMap = new Map(); // Clé: agentId-version, Valeur: entrée
         
-        aiEvents.forEach(e => {
-            const agentData = e.data;
-            let content = agentData.verbatim_summary || agentData.rationale || agentData.strategy || '';
-            if (!content) return;
+        // Parcourir les événements d'itération pour récupérer les agents W
+        const allIterationEvents = (data.events || [])
+            .filter(e => e.type === 'iteration');
+        
+        allIterationEvents.forEach(e => {
+            const eventData = e.data || e;
+            const version = eventData.version || 0;
+            const timestamp = e.timestamp || eventData.timestamp || new Date().toISOString();
             
-            // Supprimer la ligne "ΔC_w: ..." si elle existe dans le contenu
-            content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
-            content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
-            
-            if (!content) return;
-            
-            // Créer une clé unique pour éviter les doublons (basée sur l'ID et le début du contenu)
-            const contentStart = content.split('\n')[0] || content.substring(0, 50);
-            const entryKey = `W-${agentData.id}-${contentStart}`;
-            if (seenEntries.has(entryKey)) return;
-            seenEntries.add(entryKey);
-            
-            verbatimEntries.push({
-                type: 'W',
-                id: agentData.id,
-                position: agentData.position,
-                content: content,
-                timestamp: e.timestamp || agentData.timestamp
+            // Parcourir les agents de cette itération
+            eventData.agents.forEach(agent => {
+                if (!agent || agent.type !== 'ai' || !agent.id) return;
+                
+                let content = agent.verbatim_summary || agent.rationale || agent.strategy || '';
+                if (!content) return;
+                
+                // Supprimer la ligne "ΔC_w: ..." si elle existe dans le contenu
+                content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
+                content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
+                
+                if (!content) return;
+                
+                // Clé unique: agentId + version + hash du contenu (garantit l'unicité même si même agent apparaît plusieurs fois)
+                const agentId = agent.id;
+                // Hash simple du contenu (première ligne + longueur) pour détecter les doublons
+                const contentHash = content.substring(0, 50).replace(/\s+/g, ' ').trim();
+                const entryKey = `W-${agentId}-${version}-${contentHash}`;
+                
+                // Si on a déjà une entrée pour cet agent à cette version avec ce contenu, ignorer (déjà traité)
+                // Sinon, garder la plus récente si timestamp plus récent
+                if (!wEntriesMap.has(entryKey)) {
+                    wEntriesMap.set(entryKey, {
+                        type: 'W',
+                        id: agentId,
+                        position: agent.position,
+                        strategy_id: agent.strategy_id || '',
+                        content: content,
+                        timestamp: timestamp
+                    });
+                } else {
+                    // Si entrée existe déjà, vérifier si celle-ci est plus récente
+                    const existing = wEntriesMap.get(entryKey);
+                    const existingTime = new Date(existing.timestamp).getTime();
+                    const newTime = new Date(timestamp).getTime();
+                    if (newTime > existingTime) {
+                        // Remplacer par la version plus récente
+                        wEntriesMap.set(entryKey, {
+                            type: 'W',
+                            id: agentId,
+                            position: agent.position,
+                            strategy_id: agent.strategy_id || '',
+                            content: content,
+                            timestamp: timestamp
+                        });
+                    }
+                }
             });
         });
         
-        // 2. Verbatim O et N depuis les événements d'itération
-        const iterationEvents = (data.events || [])
-            .filter(e => e.type === 'iteration');
+        // Ajouter toutes les entrées W dédupliquées
+        verbatimEntries.push(...Array.from(wEntriesMap.values()));
         
-        iterationEvents.forEach(e => {
+        // 2. Verbatim O et N depuis les événements d'itération
+        // (réutiliser allIterationEvents déjà filtré)
+        allIterationEvents.forEach(e => {
             // Les données peuvent être dans e.data (si stocké via handleIterationEvent) ou directement dans e
             const eventData = e.data || e;
             const version = eventData.version || 0;
             const timestamp = e.timestamp || eventData.timestamp || new Date().toISOString();
             
             // Verbatim O (structures)
-            if (eventData.o_snapshot) {
-                const oData = eventData.o_snapshot;
-                const structures = oData.structures || [];
-                const formalRelations = oData.formal_relations || {};
+            // Vérifier si o_snapshot existe dans eventData
+            const oSnapshot = eventData.o_snapshot;
+            if (oSnapshot) {
+                const structures = oSnapshot.structures || [];
+                const formalRelations = oSnapshot.formal_relations || {};
                 
                 let oText = '';
                 if (structures.length > 0) {
@@ -777,9 +953,18 @@ class PopupManager {
                             `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
                         oText += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
                     });
+                } else {
+                    oText = 'STRUCTURES:\n  (none detected)\n';
                 }
-                if (formalRelations.summary) {
+                
+                if (formalRelations && formalRelations.summary) {
                     oText += `\nFORMAL RELATIONS:\n${formalRelations.summary}\n`;
+                } else if (formalRelations && typeof formalRelations === 'object') {
+                    // Si formal_relations est un objet mais sans summary, essayer d'extraire les infos
+                    const relationsText = JSON.stringify(formalRelations, null, 2);
+                    if (relationsText && relationsText !== '{}') {
+                        oText += `\nFORMAL RELATIONS:\n${relationsText}\n`;
+                    }
                 }
                 
                 if (oText.trim()) {
@@ -817,11 +1002,46 @@ class PopupManager {
             }
         });
         
-        // 3. Vérifier aussi dans globalMetrics pour les dernières données O/N
-        // (si elles ne sont pas encore dans les événements)
-        const latestGlobal = data.globalMetrics && data.globalMetrics.length > 0 
-            ? data.globalMetrics[data.globalMetrics.length - 1] 
-            : null;
+        // 3. Fallback: Utiliser les snapshots O et N stockés si pas dans les événements
+        const oSnapshots = data.oSnapshots || [];
+        const nSnapshots = data.nSnapshots || [];
+        
+        // Pour chaque snapshot O, vérifier s'il est déjà dans les verbatim
+        oSnapshots.forEach(oSnap => {
+            const version = oSnap.version || oSnap.data?.version || 0;
+            const entryKey = `O-${version}`;
+            if (seenEntries.has(entryKey)) return;
+            
+            const oData = oSnap.data || oSnap;
+            const structures = oData.structures || [];
+            const formalRelations = oData.formal_relations || {};
+            
+            let oText = '';
+            if (structures.length > 0) {
+                oText = 'STRUCTURES:\n';
+                structures.forEach((st, i) => {
+                    const positions = st.agent_positions ? 
+                        `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
+                    oText += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
+                });
+            } else {
+                oText = 'STRUCTURES:\n  (none detected)\n';
+            }
+            
+            if (formalRelations && formalRelations.summary) {
+                oText += `\nFORMAL RELATIONS:\n${formalRelations.summary}\n`;
+            }
+            
+            if (oText.trim()) {
+                seenEntries.add(entryKey);
+                verbatimEntries.push({
+                    type: 'O',
+                    version: version,
+                    content: oText.trim(),
+                    timestamp: oSnap.timestamp || new Date().toISOString()
+                });
+            }
+        });
         
         // Trier par timestamp et garder les 30 derniers (augmenté pour inclure O et N)
         verbatimEntries = verbatimEntries
@@ -842,17 +1062,43 @@ class PopupManager {
             if (d.type === 'W') {
                 const posX = d.position?.[0] !== undefined ? d.position[0] : '?';
                 const posY = d.position?.[1] !== undefined ? d.position[1] : '?';
-                // Extraire seulement le texte du verbatim (première ligne = stratégie, reste = verbatim)
-                const lines = d.content.split('\n');
-                const firstLine = lines[0] || 'N/A';
-                const verbatimText = lines.slice(1).join('\n').trim() || firstLine;
+                const strategyId = d.strategy_id || '';
+                
+                // Extraire le texte du verbatim
+                const content = d.content || '';
+                const lines = content.split('\n').filter(l => l.trim()); // Filtrer les lignes vides
+                
+                // Si une seule ligne, l'afficher seulement dans le body (pas de duplication)
+                // Si plusieurs lignes, première ligne dans le header, reste dans le body
+                let headerText = '';
+                let bodyText = '';
+                
+                if (lines.length === 0) {
+                    bodyText = 'N/A';
+                } else if (lines.length === 1) {
+                    // Une seule ligne : seulement dans le body pour éviter la duplication
+                    bodyText = lines[0];
+                } else {
+                    // Plusieurs lignes : première dans le header, reste dans le body
+                    headerText = lines[0];
+                    bodyText = lines.slice(1).join('\n');
+                }
+                
+                // Construire le header avec strategy_id si disponible
+                let headerDisplay = `🤖 Agent [${posX},${posY}]`;
+                if (strategyId) {
+                    headerDisplay += ` (Strategy: ${strategyId})`;
+                }
+                if (headerText) {
+                    headerDisplay += ` - ${headerText}`;
+                }
                 
                 return `
                     <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px;">
                         <div style="color: var(--accent-purple); font-weight: 600; margin-bottom: 4px;">
-                            🤖 Agent [${posX},${posY}] - ${firstLine}
+                            ${headerDisplay}
                         </div>
-                        <div style="white-space: pre-wrap; color: var(--text-primary);">${verbatimText}</div>
+                        <div style="white-space: pre-wrap; color: var(--text-primary);">${bodyText}</div>
                     </div>
                 `;
             } else if (d.type === 'O') {
@@ -1178,7 +1424,7 @@ class PopupManager {
         
         ctx.clearRect(0, 0, w, h);
         
-        const keys = ['C_w', 'C_d', 'U', 'mean_error', 'std_error'];
+        const keys = ['C_w', 'C_d', 'U', 'mean_error', 'std_error', 'avg_signalling_cost'];
         const n = keys.length;
         const cellSize = Math.min((w - 60) / n, (h - 60) / n);
         const offsetX = 60;
