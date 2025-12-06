@@ -126,11 +126,12 @@ class SessionRecorder:
                             delta_C_w: float = 0, delta_C_d: float = 0, 
                             U_expected: float = 0, prediction_error: float = 0,
                             strategy: str = "", strategy_id: str = "",
+                            strategy_ids: List[str] = None,  # CRITICAL FIX: Support for multiple strategies
                             source_agents: List[List[int]] = None,
                             rationale: str = "", pixels: List[str] = None,
                             verbatim_summary: str = "", agent_type: str = "ai",
                             tokens: dict = None, signalling_tokens: dict = None,
-                            rank: int = 999):
+                            rank: int = 999, iteration: int = 0):  # CRITICAL FIX: Add iteration parameter
         """
         Enregistre une action d'agent individuelle.
         Retourne les données formatées pour inclusion dans un événement d'itération.
@@ -144,7 +145,8 @@ class SessionRecorder:
             "position": position,
             "type": agent_type,
             "timestamp": datetime.now().isoformat(),
-            "rank": rank  # V5.1: Rank au moment de l'action
+            "rank": rank,  # V5.1: Rank au moment de l'action
+            "iteration": iteration  # CRITICAL FIX: Store iteration for verbatim display
         }
         
         # Données spécifiques aux agents IA
@@ -156,6 +158,7 @@ class SessionRecorder:
                 "prediction_error": prediction_error,
                 "strategy": strategy,
                 "strategy_id": strategy_id,
+                "strategy_ids": strategy_ids if strategy_ids else ([strategy_id] if strategy_id else []),  # CRITICAL FIX: Support for multiple strategies
                 "source_agents": source_agents or [],
                 "rationale": rationale[:500] if rationale else "",  # Limiter la taille
                 "verbatim_summary": verbatim_summary[:1000] if verbatim_summary else ""
@@ -322,13 +325,20 @@ class GlobalSimplicityTrackerV5:
     
     def store_o_snapshot(self, snapshot: dict):
         """Store O-machine snapshot (structures, C_d, formal_relations)"""
-        self.o_snapshots.append({
+        snapshot_data = {
             'timestamp': datetime.now().isoformat(),
             'version': snapshot.get('version', 0),
             'structures_count': len(snapshot.get('structures', [])),
             'C_d': snapshot.get('simplicity_assessment', {}).get('C_d_current', {}).get('value', 0),
             'formal_relations': snapshot.get('formal_relations', {}).get('summary', '')
-        })
+        }
+        # V5: Ajouter machine_metrics si disponibles
+        if 'machine_metrics' in snapshot:
+            machine_metrics = snapshot.get('machine_metrics', {})
+            if 'C_d_machine' in machine_metrics:
+                snapshot_data['C_d_machine'] = machine_metrics['C_d_machine'].get('value', 0)
+                snapshot_data['C_d_machine_tokens'] = machine_metrics['C_d_machine'].get('tokens', 0)
+        self.o_snapshots.append(snapshot_data)
         # Garder seulement les 100 derniers snapshots
         if len(self.o_snapshots) > 100:
             self.o_snapshots = self.o_snapshots[-100:]
@@ -336,7 +346,12 @@ class GlobalSimplicityTrackerV5:
     def store_n_snapshot(self, snapshot: dict):
         """Store N-machine snapshot (narrative, C_w, prediction_errors)"""
         errors = snapshot.get('prediction_errors', {})
-        error_values = [e.get('error', 0) for e in errors.values() if isinstance(e, dict)]
+        # CRITICAL FIX: Filtrer les valeurs non numériques (ex: "N/A", None, strings)
+        error_values = [
+            e.get('error', 0) 
+            for e in errors.values() 
+            if isinstance(e, dict) and isinstance(e.get('error', 0), (int, float))
+        ]
         
         # Calcul moyenne et écart-type
         mean_error = sum(error_values) / len(error_values) if error_values else 0.0
@@ -345,7 +360,7 @@ class GlobalSimplicityTrackerV5:
             variance = sum([(e - mean_error) ** 2 for e in error_values]) / len(error_values)
             std_error = variance ** 0.5
         
-        self.n_snapshots.append({
+        snapshot_data = {
             'timestamp': datetime.now().isoformat(),
             'version': snapshot.get('version', 0),
             'C_w': snapshot.get('simplicity_assessment', {}).get('C_w_current', {}).get('value', 0),
@@ -355,7 +370,16 @@ class GlobalSimplicityTrackerV5:
             'std_prediction_error': std_error,  # V5: Écart-type (fragmentation narrative)
             'max_prediction_error': max(error_values) if error_values else 0.0,
             'min_prediction_error': min(error_values) if error_values else 0.0
-        })
+        }
+        # V5: Ajouter machine_metrics si disponibles
+        if 'machine_metrics' in snapshot:
+            machine_metrics = snapshot.get('machine_metrics', {})
+            if 'C_w_machine' in machine_metrics:
+                snapshot_data['C_w_machine'] = machine_metrics['C_w_machine'].get('value', 0)
+                snapshot_data['C_w_machine_tokens'] = machine_metrics['C_w_machine'].get('tokens', 0)
+            if 'U_machine' in machine_metrics:
+                snapshot_data['U_machine'] = machine_metrics['U_machine'].get('value', 0)
+        self.n_snapshots.append(snapshot_data)
         # Garder seulement les 100 derniers snapshots
         if len(self.n_snapshots) > 100:
             self.n_snapshots = self.n_snapshots[-100:]
@@ -386,6 +410,10 @@ class GlobalSimplicityTrackerV5:
                 continue
             error = error_data.get('error', 1.0)
             
+            # CRITICAL: Ne stocker que les valeurs numériques (ignorer "N/A", None, etc.)
+            if not isinstance(error, (int, float)):
+                continue
+            
             # Initialiser si nécessaire
             if agent_id not in self.agent_error_history:
                 self.agent_error_history[agent_id] = {}  # Dict {version: error} au lieu de liste
@@ -405,7 +433,10 @@ class GlobalSimplicityTrackerV5:
                 continue
             
             # Moyenne cumulative sur toutes les itérations (valeurs du dict)
-            errors = list(error_history.values())
+            # CRITICAL: Filtrer les valeurs non numériques ("N/A", None, etc.)
+            errors = [e for e in error_history.values() if isinstance(e, (int, float))]
+            if len(errors) == 0:
+                continue  # Ignorer les agents sans erreurs numériques
             avg_error = sum(errors) / len(errors)
             position = agent_positions[agent_id]  # Garanti d'exister car on a vérifié ci-dessus
             
@@ -441,10 +472,28 @@ class GlobalSimplicityTrackerV5:
         agent_list = list(self.agents.values())
         
         # V5: Calcul moyennes des DELTAS (pas valeurs absolues)
-        delta_cw_values = [a.get('delta_C_w', 0) for a in agent_list]
-        delta_cd_values = [a.get('delta_C_d', 0) for a in agent_list]
-        u_after_values = [a.get('U_after_expected', 0) for a in agent_list]
-        prediction_errors = [a.get('prediction_error', 0) for a in agent_list if a.get('prediction_error', 0) >= 0]
+        # CRITICAL FIX: Filtrer les valeurs non numériques pour tous les deltas
+        delta_cw_values = [
+            a.get('delta_C_w', 0) 
+            for a in agent_list 
+            if isinstance(a.get('delta_C_w', 0), (int, float))
+        ]
+        delta_cd_values = [
+            a.get('delta_C_d', 0) 
+            for a in agent_list 
+            if isinstance(a.get('delta_C_d', 0), (int, float))
+        ]
+        u_after_values = [
+            a.get('U_after_expected', 0) 
+            for a in agent_list 
+            if isinstance(a.get('U_after_expected', 0), (int, float))
+        ]
+        # CRITICAL: Filtrer les valeurs non numériques (ex: "N/A")
+        prediction_errors = [
+            a.get('prediction_error', 0) 
+            for a in agent_list 
+            if isinstance(a.get('prediction_error', 0), (int, float)) and a.get('prediction_error', 0) >= 0
+        ]
         
         # Moyennes
         avg_delta_cw = sum(delta_cw_values) / len(delta_cw_values) if delta_cw_values else 0
@@ -499,6 +548,13 @@ tracker = GlobalSimplicityTrackerV5()
 # WebSocket connections actives
 connections: List[WebSocket] = []
 
+# Paramètres de stratégie configurables (valeurs par défaut)
+strategy_params = {
+    'strategy_u_threshold': 70,
+    'strategy_rank_divisor': 2,
+    'strategy_error_threshold': 0.5
+}
+
 @app.websocket("/metrics")
 async def metrics_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -524,6 +580,7 @@ async def metrics_endpoint(websocket: WebSocket):
                 agent_type = msg.get('agent_type', 'ai')  # V5.1: Type d'agent (ai/human)
                 pixels = msg.get('pixels', [])  # V5.1: Pixels générés
                 strategy_id = msg.get('strategy_id', '')
+                strategy_ids = msg.get('strategy_ids', [])  # CRITICAL FIX: Support for multiple strategies
                 source_agents = msg.get('source_agents', [])
                 rationale = msg.get('rationale', '')
                 verbatim_summary = msg.get('verbatim_summary', '')
@@ -548,7 +605,10 @@ async def metrics_endpoint(websocket: WebSocket):
                         continue
                     if len(error_history) == 0:
                         continue
-                    errors = list(error_history.values())
+                    # CRITICAL: Filtrer les valeurs non numériques
+                    errors = [e for e in error_history.values() if isinstance(e, (int, float))]
+                    if len(errors) == 0:
+                        continue
                     avg_error = sum(errors) / len(errors)
                     agent_stats[aid] = avg_error
                 
@@ -570,6 +630,7 @@ async def metrics_endpoint(websocket: WebSocket):
                     prediction_error=prediction_error or 0,
                     strategy=strategy or '',
                     strategy_id=strategy_id,
+                    strategy_ids=strategy_ids,  # CRITICAL FIX: Pass strategy_ids
                     source_agents=source_agents,
                     rationale=rationale,
                     pixels=pixels,
@@ -577,7 +638,8 @@ async def metrics_endpoint(websocket: WebSocket):
                     agent_type=agent_type,
                     tokens=tokens,
                     signalling_tokens=signalling_tokens,
-                    rank=current_rank  # V5.1: Ajouter le rank actuel
+                    rank=current_rank,  # V5.1: Ajouter le rank actuel
+                    iteration=iteration  # CRITICAL FIX: Pass iteration
                 )
                 
                 # Broadcast state to all connected clients
@@ -606,6 +668,9 @@ async def metrics_endpoint(websocket: WebSocket):
                 snapshot = msg.get('snapshot', {})
                 tracker.store_o_snapshot(snapshot)
                 
+                # V5.1: Stocker le snapshot O complet pour l'événement d'itération
+                session_recorder.last_o_snapshot = copy.deepcopy(snapshot)
+                
                 # V5.1: Extraire et stocker les métriques globales
                 simplicity = snapshot.get('simplicity_assessment', {})
                 C_d = simplicity.get('C_d_current', {}).get('value', 0)
@@ -613,7 +678,16 @@ async def metrics_endpoint(websocket: WebSocket):
                 
                 # Broadcast
                 dead_connections = []
-                o_data = tracker.o_snapshots[-1] if tracker.o_snapshots else None
+                # V5.1: Envoyer le snapshot O complet (pas seulement les métadonnées)
+                o_data = {
+                    'version': version,
+                    'structures': snapshot.get('structures', []),
+                    'formal_relations': snapshot.get('formal_relations', {}),
+                    'simplicity_assessment': snapshot.get('simplicity_assessment', {})
+                }
+                # V5: Ajouter machine_metrics si disponibles
+                if 'machine_metrics' in snapshot:
+                    o_data['machine_metrics'] = snapshot.get('machine_metrics', {})
                 for conn in connections:
                     try:
                         await conn.send_json({
@@ -641,7 +715,12 @@ async def metrics_endpoint(websocket: WebSocket):
                 
                 # Calculer mean/std des erreurs de prédiction
                 errors = snapshot.get('prediction_errors', {})
-                error_values = [e.get('error', 0) for e in errors.values() if isinstance(e, dict)]
+                # CRITICAL FIX: Filtrer les valeurs non numériques (ex: "N/A", None, strings)
+                error_values = [
+                    e.get('error', 0) 
+                    for e in errors.values() 
+                    if isinstance(e, dict) and isinstance(e.get('error', 0), (int, float))
+                ]
                 mean_error = sum(error_values) / len(error_values) if error_values else 0.0
                 std_error = 0.0
                 if len(error_values) > 1:
@@ -709,7 +788,22 @@ async def metrics_endpoint(websocket: WebSocket):
                 
                 # Broadcast
                 dead_connections = []
-                n_data = tracker.n_snapshots[-1] if tracker.n_snapshots else None
+                # CRITICAL FIX: Envoyer le snapshot complet (combiné O+N) au lieu de tracker.n_snapshots[-1]
+                # tracker.n_snapshots[-1] ne contient pas structures ni formal_relations
+                # Le snapshot reçu contient toutes les données nécessaires (structures, formal_relations, narrative, prediction_errors, etc.)
+                n_data = {
+                    'version': snapshot.get('version', 0),
+                    'structures': snapshot.get('structures', []),
+                    'formal_relations': snapshot.get('formal_relations', {}),
+                    'narrative': snapshot.get('narrative', {}),
+                    'prediction_errors': snapshot.get('prediction_errors', {}),
+                    'simplicity_assessment': snapshot.get('simplicity_assessment', {}),
+                    'agent_rankings': snapshot.get('agent_rankings', {}),
+                    'timestamp': snapshot.get('timestamp', '')
+                }
+                # V5: Ajouter machine_metrics au snapshot N si disponibles
+                if 'machine_metrics' in snapshot:
+                    n_data['machine_metrics'] = snapshot.get('machine_metrics', {})
                 for conn in connections:
                     try:
                         await conn.send_json({
@@ -717,6 +811,13 @@ async def metrics_endpoint(websocket: WebSocket):
                             'data': n_data
                         })
                         # V5.1: Broadcast l'événement d'itération complet pour ai-metrics.html
+                        n_snapshot_data = {
+                            "narrative": snapshot.get('narrative', {})
+                        }
+                        # V5: Ajouter machine_metrics au n_snapshot si disponibles
+                        if 'machine_metrics' in snapshot:
+                            n_snapshot_data['machine_metrics'] = snapshot.get('machine_metrics', {})
+                        
                         await conn.send_json({
                             'type': 'session_iteration_event',
                             'data': {
@@ -728,9 +829,7 @@ async def metrics_endpoint(websocket: WebSocket):
                                 'ai_agents_count': sum(1 for a in agents_data if a.get("type") == "ai"),
                                 'human_agents_count': sum(1 for a in agents_data if a.get("type") == "human"),
                                 'o_snapshot': o_snapshot_data,  # V5.1: Inclure snapshot O
-                                'n_snapshot': {  # V5.1: Inclure snapshot N (seulement narrative)
-                                    "narrative": snapshot.get('narrative', {})
-                                },
+                                'n_snapshot': n_snapshot_data,  # V5.1: Inclure snapshot N (narrative + machine_metrics)
                                 'timestamp': datetime.now().isoformat()
                             }
                         })
@@ -774,6 +873,37 @@ async def metrics_endpoint(websocket: WebSocket):
                     'type': 'session_summary',
                     'data': session_recorder.get_summary()
                 })
+                # Envoyer les paramètres de stratégie actuels
+                await websocket.send_json({
+                    'type': 'strategy_params_update',
+                    'params': strategy_params
+                })
+            
+            elif msg_type == 'set_strategy_params':
+                # Mise à jour des paramètres de stratégie
+                params = msg.get('params', {})
+                if 'strategy_u_threshold' in params:
+                    strategy_params['strategy_u_threshold'] = float(params['strategy_u_threshold'])
+                if 'strategy_rank_divisor' in params:
+                    strategy_params['strategy_rank_divisor'] = float(params['strategy_rank_divisor'])
+                if 'strategy_error_threshold' in params:
+                    strategy_params['strategy_error_threshold'] = float(params['strategy_error_threshold'])
+                
+                print(f"[MetricsV5] Strategy params updated: {strategy_params}")
+                
+                # Diffuser à tous les clients
+                dead_connections = []
+                for conn in connections:
+                    try:
+                        await conn.send_json({
+                            'type': 'strategy_params_update',
+                            'params': strategy_params
+                        })
+                    except:
+                        dead_connections.append(conn)
+                for conn in dead_connections:
+                    if conn in connections:
+                        connections.remove(conn)
             
             elif msg_type == 'human_pixels':
                 # V5.1: Pixels d'un agent humain (pas de métriques W)

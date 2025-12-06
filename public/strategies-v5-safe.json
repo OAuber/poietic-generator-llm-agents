@@ -1,0 +1,97 @@
+{
+  "note": "SAFE STRATEGIES: For agents below thresholds (U < threshold OR rank > total/divisor OR avg_error > threshold). Focus on reliable ranking improvement with low error strategies (error <= 0.1, difficulty=easy).",
+  "strategies": [
+    {
+      "id": "form_copy_reproduction",
+      "name": "Exact form reproduction (translation or mirror)",
+      "category": "form",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "EASIEST STRATEGY: Copy a neighbor's form exactly (translate or mirror). Simple: identify neighbor's form, reproduce it pixel-by-pixel. IMPACT ON U: +2 bits C_w (copying is easy) and -8 bits C_d (two identical forms described as 'two X' instead of 'X and Y'), delta_U = +10 bits. PREDICTION ERROR: Perfect (0.0) - guaranteed C_d reduction makes U impact 100% predictable. BEST FOR RANKING: Lowest error (0.0) + easy difficulty = guaranteed ranking improvement. ALIGNMENT: This inherently aligns with O/N pareidolias since you reinforce an existing form.",
+      "predicted_error": 0.0,
+      "delta_C_w_bits": 2,
+      "delta_C_d_bits": -8,
+      "difficulty": "easy"
+    },
+    {
+      "id": "bg_immediate_share",
+      "name": "Background sharing with immediate neighbor",
+      "category": "background",
+      "neighbor_type": "immediate",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "EASY STRATEGY: Copy immediate neighbor's background color exactly. Simple: identify neighbor's dominant background color, fill your grid with same color. IMPACT ON U: +4 bits C_w (coordination) and -5 bits C_d (macro-structure easier to describe), delta_U = +9 bits. PREDICTION ERROR: Low (0.1) - highly predictable. BEST FOR RANKING: Very low error (0.1) + easy difficulty = reliable ranking improvement. CRITICAL: Use UNIFIED color, not checkerboard. ALIGNMENT: Supports O's macro-structure pareidolias.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 4,
+      "delta_C_d_bits": -5,
+      "difficulty": "easy"
+    },
+    {
+      "id": "bg_immediate_extend",
+      "name": "Background extension with nuances",
+      "category": "background",
+      "neighbor_type": "immediate",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "EASY STRATEGY: Extend immediate neighbor's background with smooth gradients. Simple: identify neighbor's background color, create smooth gradient variations (darker/lighter shades). IMPACT ON U: +6 bits C_w (coordination + gradients) and -5 bits C_d (macro-structure easier to describe), delta_U = +11 bits. PREDICTION ERROR: Low (0.1). BEST FOR RANKING: Very low error (0.1) + easy difficulty = reliable ranking improvement. CRITICAL: Smooth gradients, not checkerboards. Vary source neighbors across iterations. ALIGNMENT: Enhances O's macro-structure pareidolias.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 6,
+      "delta_C_d_bits": -5,
+      "difficulty": "easy"
+    },
+    {
+      "id": "disappear",
+      "name": "Disappear (merge into neighbors' unified background)",
+      "category": "background",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": null,
+      "description": "Sacrifice your form by merging into the UNIFIED BACKGROUND COLOR of your neighbors. CRITICAL: Analyze neighbors' backgrounds and adopt their dominant/shared color - do NOT default to black unless neighbors already use black as their unified background. The goal is seamless integration, not creating a dark hole. IMPACT ON U: +1 bit C_w (minimal coordination) and -5 bits C_d (unified background easier to describe, increased salience of remaining forms), delta_U = +6 bits. PREDICTION ERROR: Low (0.1) - highly predictable impact. ALIGN with O/N pareidolias: if O describes a macro-structure, disappearing into its background reinforces the pareidolia.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 1,
+      "delta_C_d_bits": -5,
+      "difficulty": "easy"
+    },
+    {
+        "id": "form_immediate_imitate",
+        "name": "Form imitation with immediate neighbor",
+        "category": "form",
+        "neighbor_type": "immediate",
+        "min_sources": 1,
+        "max_sources": 1,
+        "description": "Imitate, mirror, or rotate neighbor's form. IMPACT ON U: +7 bits C_w (coordination + form) and -4 bits C_d (coupled forms easier to describe), delta_U = +11 bits. PREDICTION ERROR: Moderate (0.2) - depends on whether O recognizes the coupling. Requires shared background.",
+        "predicted_error": 0.2,
+        "delta_C_w_bits": 7,
+        "delta_C_d_bits": -4,
+        "difficulty": "medium"
+      },
+      {
+        "id": "form_immediate_bridge",
+        "name": "Form bridge with immediate neighbor",
+        "category": "form",
+        "neighbor_type": "immediate",
+        "min_sources": 1,
+        "max_sources": 1,
+        "description": "Create meaningful bridge (head→ear, head→neck, head→hat). IMPACT ON U: +8 bits C_w (coordination + structure) and -5 bits C_d (bridged forms as unified structure), delta_U = +13 bits. PREDICTION ERROR: Moderate (0.2) - depends on whether O recognizes the bridge as meaningful. Requires shared background.",
+        "predicted_error": 0.2,
+        "delta_C_w_bits": 8,
+        "delta_C_d_bits": -5,
+        "difficulty": "hard"
+      },
+    {
+      "id": "pareidolia_alignment",
+      "name": "Align with TRUE O/N pareidolias (relations/metaphors only)",
+      "category": "recognition",
+      "neighbor_type": "any",
+      "min_sources": 0,
+      "max_sources": null,
+      "description": "ALIGNMENT STRATEGY: ONLY align if O describes RELATIONS between structures (macro-structure 3+ agents, formal_relations with metaphors) AND N narrates these relations with metaphors. If O describes isolated forms (1-2 agents) with no relations and N just cites them → this is NOT a pareidolia, DO NOT use this strategy (use local strategies instead). TRUE pareidolia example: O sees 'fused aurora connecting [0,0] and [1,0]', N narrates 'luminous energy flow' → align by fusing borders. Simple description example: O sees 'geometric pattern at [0,0]', N cites it → NOT a pareidolia, aligning = local reinforcement = high error. IMPACT ON U: +9 bits C_w (global coordination through TRUE pareidolia) and -7 bits C_d (reinforced macro-structure easier to describe), delta_U = +16 bits IF true pareidolia. PREDICTION ERROR: Low (0.12) if TRUE pareidolia with relations, HIGH (0.6-1.0) if simple description (local reinforcement).",
+      "predicted_error": 0.12,
+      "delta_C_w_bits": 9,
+      "delta_C_d_bits": -7,
+      "difficulty": "medium"
+    }
+  ]
+}
+

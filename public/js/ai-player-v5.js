@@ -10,6 +10,9 @@ class AIPlayerV5 {
     this.pendingPixelTimeouts = [];
     this.myCellState = {};
     this.otherUsers = {};
+    this.heartbeatInterval = null;
+    this.snapshotPollingInterval = null; // V5.2: Polling périodique des snapshots O
+    this.wHeartbeatInterval = null; // V5.2: Heartbeat W pour signaler activité
 
     this.lastObservation = null; // from O+N snapshot
     this.prevPredictions = null; // from W memory
@@ -85,7 +88,7 @@ class AIPlayerV5 {
       this.elements.journal.textContent += args.join(' ') + '\n';
       this.elements.journal.scrollTop = this.elements.journal.scrollHeight;
     }
-    console.log('[V4]', ...args);
+    console.log('[V5]', ...args);
   }
 
   escapeHtml(text) {
@@ -154,7 +157,7 @@ class AIPlayerV5 {
         `\nSTRUCTURES (${structs.length})\n`;
       structs.forEach((st, i) => {
         const positions = st.agent_positions ? `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
-        content += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
+        content += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions})\n`;
       });
       if (structs.length === 0) content += `  (none detected)\n`;
       content += `\nFORMAL RELATIONS\n${formal_relations.summary || 'N/A'}\n`;
@@ -186,7 +189,9 @@ class AIPlayerV5 {
             // C'est cet agent
             position = `[${this.myPosition[0]},${this.myPosition[1]}]`;
           }
-          content += `  • Agent ${position}: error=${(err.error || 0).toFixed(2)} — ${err.explanation || 'N/A'}\n`;
+          // CRITICAL FIX: Vérifier que err.error est un nombre avant d'appeler toFixed()
+          const errorValue = typeof err.error === 'number' ? err.error : (typeof err.error === 'string' && !isNaN(parseFloat(err.error))) ? parseFloat(err.error) : 0;
+          content += `  • Agent ${position}: error=${errorValue.toFixed(2)} — ${err.explanation || 'N/A'}\n`;
         });
       }
       // Replace complexity terms in all N content (narrative, explanations)
@@ -212,7 +217,9 @@ class AIPlayerV5 {
       } else {
         // Action format
         const strategy = data?.strategy || 'N/A';
-        const strategy_id = data?.strategy_id || 'N/A';
+        // CRITICAL FIX: Support for multiple strategies (strategy_ids array) or single strategy (strategy_id)
+        const strategy_ids = data?.strategy_ids || (data?.strategy_id ? [data.strategy_id] : ['N/A']);
+        const strategy_id = strategy_ids.length === 1 ? strategy_ids[0] : strategy_ids.join(' + ');
         const source_agents = data?.source_agents || [];
         const rationale = data?.rationale || '';
         const preds = data?.predictions || {};
@@ -221,11 +228,14 @@ class AIPlayerV5 {
         const sourceAgentsStr = source_agents.length > 0 
           ? source_agents.map(pos => `[${pos[0]},${pos[1]}]`).join(', ')
           : 'none';
+        const strategyIdsStr = strategy_ids.length > 1 
+          ? strategy_ids.join(', ') 
+          : strategy_ids[0];
         content =
           `W-MACHINE (Action/Generation)\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
           `\nSTRATEGY\n${strategy}\n` +
-          `Strategy ID: ${strategy_id}\n` +
+          `Strategy ID(s): ${strategyIdsStr}${strategy_ids.length > 1 ? ' (combination)' : ''}\n` +
           `Source Agents: ${sourceAgentsStr}\n` +
           `\nRATIONALE\n${rationale || 'N/A'}\n` +
           `\nDELTA COMPLEXITY\n` +
@@ -365,6 +375,9 @@ class AIPlayerV5 {
         this.isRunning = false;
         this.elements.btnStart.textContent = '▶ Start';
         this.cancelPendingPixels();
+        this.stopHeartbeat();
+        this.stopSnapshotPolling(); // V5.2: Arrêter polling des snapshots
+        this.stopWHeartbeat(); // V5.2: Arrêter heartbeat W
         try { this.socket?.close(); } catch(_) {}
       }
     });
@@ -420,16 +433,45 @@ class AIPlayerV5 {
       const url = `${this.O_API_BASE}/o/latest${agentId ? '?agent_id=' + encodeURIComponent(agentId) : ''}`;
       const res = await fetch(url);
       if (res.ok) {
-        this.Osnapshot = await res.json();
+        const snapshot = await res.json();
+        
+        // CRITICAL FIX: Ne pas remplacer un snapshot plus récent par un plus ancien
+        // (peut arriver si le serveur retourne un snapshot O seul version 0 après un snapshot combiné version 1)
+        // MAIS: Accepter tous les snapshots plus récents même si on a sauté des versions
+        const currentVersion = this.Osnapshot?.version || -1;
+        if (!this.Osnapshot || 
+            this.Osnapshot._pending || 
+            snapshot.version > currentVersion ||
+            (snapshot.version === this.Osnapshot.version && !snapshot._pending && this.Osnapshot._pending)) {
+          const versionGap = snapshot.version > currentVersion ? (snapshot.version - currentVersion) : 0;
+          if (versionGap > 1) {
+            console.warn(`[V5] ⚠️  Gap de versions détecté (fetchOSnapshot): client passe de version ${currentVersion} à ${snapshot.version} (gap: ${versionGap} versions sautées)`);
+          }
+          this.Osnapshot = snapshot;
+          // Mettre à jour lastOVersionSeen pour éviter de bloquer sur une ancienne version
+          if (snapshot.version > this.lastOVersionSeen) {
+            this.lastOVersionSeen = snapshot.version;
+          }
+        } else if (snapshot.version < this.Osnapshot.version) {
+          // Snapshot plus ancien ignoré
+          console.log(`[V5] fetchOSnapshot: snapshot version ${snapshot.version} ignoré (version ${this.Osnapshot.version} déjà présente)`);
+          return this.Osnapshot; // Retourner le snapshot actuel
+        }
         
         // V5: Extraire erreur de prédiction personnelle (de N)
         if (this.Osnapshot.prediction_errors && agentId && this.Osnapshot.prediction_errors[agentId]) {
-          this.myPredictionError = this.Osnapshot.prediction_errors[agentId].error || 0;
+          const errorVal = this.Osnapshot.prediction_errors[agentId].error;
+          // CRITICAL FIX: Vérifier que error est un nombre avant de l'assigner
+          this.myPredictionError = typeof errorVal === 'number' ? errorVal : (typeof errorVal === 'string' && !isNaN(parseFloat(errorVal))) ? parseFloat(errorVal) : 0;
         }
         
         return this.Osnapshot;
+      } else {
+        console.warn(`[V5] fetchOSnapshot: réponse HTTP ${res.status} pour ${url}`);
       }
-    } catch (_) {}
+    } catch (e) {
+      console.warn(`[V5] fetchOSnapshot: erreur récupération snapshot:`, e);
+    }
     return null;
   }
 
@@ -496,6 +538,20 @@ class AIPlayerV5 {
     }
 
     // 2) Fallback: régénérer via PositionCanvasGenerator
+    // CRITICAL: S'assurer que l'agent lui-même est inclus dans otherUsers avec ses pixels
+    if (this.otherUsers && this.myUserId && this.myPosition) {
+      if (!this.otherUsers[this.myUserId]) {
+        this.otherUsers[this.myUserId] = {
+          pixels: {},
+          position: this.myPosition
+        };
+      }
+      // Copier myCellState dans otherUsers pour inclure nos propres pixels
+      this.otherUsers[this.myUserId].pixels = { ...this.myCellState };
+      this.otherUsers[this.myUserId].position = this.myPosition;
+      console.log(`[V5] 📷 Inclus ${Object.keys(this.myCellState || {}).length} pixels de l'agent [${this.myPosition[0]},${this.myPosition[1]}] dans otherUsers`);
+    }
+    
     console.log(`[V5] 📷 Fallback: génération image via PositionCanvasGenerator (${Object.keys(this.otherUsers || {}).length} agents)`);
     try {
       let gen = window.PositionCanvasGenerator;
@@ -575,6 +631,8 @@ class AIPlayerV5 {
         this.log('✅ Connecté au Poietic Generator (V4)');
         if (this.elements.statusBadge) this.elements.statusBadge.textContent = 'Connected';
         this.startHeartbeat();
+        this.startSnapshotPolling(); // V5.2: Démarrer polling des snapshots
+        this.startWHeartbeat(); // V5.2: Démarrer heartbeat W
       };
 
       this.socket.onmessage = (event) => {
@@ -624,10 +682,20 @@ class AIPlayerV5 {
         } else if (message.type === 'cell_update') {
           const uid = message.user_id;
           if (uid) {
-            if (!this.otherUsers[uid]) this.otherUsers[uid] = { pixels: {}, position: [0,0] };
+            if (!this.otherUsers[uid]) {
+              this.otherUsers[uid] = { pixels: {}, position: [0,0] };
+            }
             const key = `${message.sub_x},${message.sub_y}`;
             this.otherUsers[uid].pixels[key] = message.color;
-            if (uid === this.myUserId) this.myCellState[key] = message.color;
+            if (uid === this.myUserId) {
+              this.myCellState[key] = message.color;
+            }
+            // CRITICAL FIX: Logger pour diagnostiquer les pixels reçus
+            if (Object.keys(this.otherUsers[uid].pixels).length % 50 === 0) {
+              console.log(`[V5] 📥 Reçu ${Object.keys(this.otherUsers[uid].pixels).length} pixels de l'agent ${uid.substring(0, 8)}...`);
+            }
+          } else {
+            console.warn(`[V5] ⚠️  cell_update reçu sans user_id:`, message);
           }
         } else if (message.type === 'new_user') {
           const uid = message.user_id;
@@ -640,12 +708,16 @@ class AIPlayerV5 {
       this.socket.onerror = (err) => {
         clearInterval(watchdog);
         this.stopHeartbeat();
+        this.stopSnapshotPolling(); // V5.2: Arrêter polling des snapshots
+        this.stopWHeartbeat(); // V5.2: Arrêter heartbeat W
         reject(err);
       };
 
       this.socket.onclose = () => {
         clearInterval(watchdog);
         this.stopHeartbeat();
+        this.stopSnapshotPolling(); // V5.2: Arrêter polling des snapshots
+        this.stopWHeartbeat(); // V5.2: Arrêter heartbeat W
         if (this.elements.statusBadge) this.elements.statusBadge.textContent = 'Disconnected';
       };
     });
@@ -660,6 +732,107 @@ class AIPlayerV5 {
     }, 5000);
   }
 
+  // V5.2: Heartbeat W pour signaler que l'agent est toujours actif même en attente
+  startWHeartbeat() {
+    this.stopWHeartbeat();
+    this.wHeartbeatInterval = setInterval(async () => {
+      if (!this.isRunning || this.isPaused || !this.myUserId) return;
+      
+      // Envoyer un heartbeat W même si l'agent n'a pas encore terminé son action
+      // Cela permet de mettre à jour le timestamp et éviter la suppression prématurée
+      try {
+        const heartbeatData = {
+          agent_id: this.myUserId,
+          position: this.myPosition,
+          iteration: this.iterationCount,
+          strategy: 'Heartbeat - agent still active',
+          rationale: 'Waiting for snapshot or generating action...',
+          predictions: {},
+          pixels: [],
+          timestamp: new Date().toISOString(),
+          is_heartbeat: true  // Flag pour distinguer heartbeat de vraies données
+        };
+        
+        const response = await fetch(`${this.O_API_BASE}/n/w-data`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(heartbeatData)
+        });
+        if (!response.ok) {
+          console.warn(`[V5] ⚠️  Heartbeat W échoué: HTTP ${response.status} pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+        }
+      } catch (e) {
+        // Logger les erreurs de heartbeat pour diagnostiquer les problèmes réseau
+        console.warn(`[V5] ⚠️  Erreur heartbeat W (agent [${this.myPosition[0]},${this.myPosition[1]}], iter=${this.iterationCount}):`, e.message || e);
+        // CRITICAL: Si le heartbeat échoue, l'agent peut être supprimé prématurément
+        // Ne pas spammer mais logger pour diagnostiquer
+      }
+    }, 30000); // Heartbeat toutes les 30s
+  }
+
+  stopWHeartbeat() {
+    if (this.wHeartbeatInterval) {
+      clearInterval(this.wHeartbeatInterval);
+      this.wHeartbeatInterval = null;
+    }
+  }
+
+  // V5.2: Polling périodique des snapshots O pour ne pas manquer les mises à jour
+  startSnapshotPolling() {
+    this.stopSnapshotPolling();
+    this.snapshotPollingInterval = setInterval(async () => {
+      if (!this.isRunning || this.isPaused) return;
+      
+      // Polling seulement si on est en mode action (itération > 0)
+      // En mode seed, on n'a pas besoin de polling
+      if (this.iterationCount > 0) {
+        try {
+          const snapshotBefore = this.Osnapshot?.version;
+          const lastSeenBefore = this.lastOVersionSeen;
+          await this.fetchOSnapshot();
+          
+          // CRITICAL FIX: Mettre à jour lastOVersionSeen si nouveau snapshot détecté
+          if (this.Osnapshot?.version !== undefined) {
+            if (this.Osnapshot.version > this.lastOVersionSeen) {
+              const versionGap = this.Osnapshot.version - this.lastOVersionSeen;
+              this.lastOVersionSeen = this.Osnapshot.version;
+              if (versionGap > 1) {
+                console.log(`[V5] [Polling] ⚠️  Gap de versions: ${lastSeenBefore} → ${this.Osnapshot.version} (gap: ${versionGap})`);
+              } else {
+                this.log(`[Polling] Snapshot version ${this.Osnapshot.version} détecté (précédent: ${snapshotBefore || 'none'})`);
+              }
+            } else if (this.Osnapshot.version !== snapshotBefore) {
+              // Snapshot différent mais pas plus récent (peut arriver si snapshot O seul remplace snapshot combiné)
+              this.log(`[Polling] Snapshot version ${this.Osnapshot.version} reçu (précédent: ${snapshotBefore || 'none'}, lastSeen: ${this.lastOVersionSeen})`);
+            }
+            
+            // CRITICAL FIX: Si l'agent est en retard (lastOVersionSeen > lastOVersionAtAction), 
+            // forcer une action plus rapide en réduisant les timeouts
+            if (this.lastOVersionSeen > this.lastOVersionAtAction) {
+              const delay = this.lastOVersionSeen - this.lastOVersionAtAction;
+              if (delay > 2) {
+                console.log(`[V5] [Polling] ⚠️  Agent en retard: ${delay} itérations (lastSeen: ${this.lastOVersionSeen}, lastAction: ${this.lastOVersionAtAction})`);
+              }
+            }
+          } else if (!this.Osnapshot) {
+            // Pas de snapshot reçu - peut indiquer un problème
+            this.log(`[Polling] ⚠️  Aucun snapshot reçu (itération ${this.iterationCount}, lastSeen: ${this.lastOVersionSeen})`);
+          }
+        } catch (e) {
+          // Logger les erreurs de polling pour diagnostiquer
+          console.warn(`[V5] [Polling] Erreur récupération snapshot:`, e);
+        }
+      }
+    }, 2000); // Polling toutes les 2s
+  }
+
+  stopSnapshotPolling() {
+    if (this.snapshotPollingInterval) {
+      clearInterval(this.snapshotPollingInterval);
+      this.snapshotPollingInterval = null;
+    }
+  }
+
   stopHeartbeat() {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
@@ -671,15 +844,19 @@ class AIPlayerV5 {
     // Délai aléatoire au démarrage pour éviter les pics simultanés avec plusieurs clients
     // (surtout important pour le seed qui se déclenche immédiatement)
     if (this.iterationCount === 0) {
-      // Délai aléatoire plus long pour éviter que tous les agents démarrent simultanément
-      // et causent des erreurs 429 (rate limit)
-      const randomDelay = 5000 + Math.random() * 10000; // 5-15s aléatoire
+      // V5.2: Réduire délai pour permettre parallélisme (comme V4)
+      // Les retries dans gemini-v5.js gèrent déjà les rate limits 429/503
+      const randomDelay = Math.random() * 3000; // 0-3s aléatoire (comme V4)
       this.log(`[Seed] Délai initial avant seed: ${Math.round(randomDelay/1000)}s`);
       await new Promise(r => setTimeout(r, randomDelay));
     }
     
     while (this.isRunning) {
       if (this.isPaused) { await new Promise(r => setTimeout(r, 500)); continue; }
+
+      // Variable pour suivre les pixels envoyés cette itération (accessible dans toutes les branches)
+      let pixelsSent = 0;
+      let pixelsToExecute = [];
 
       // Determine mode pour agent S→W (Seed → W-machine)
       // Itération 0 : seed (S) - génération initiale, pas besoin de snapshot O
@@ -736,62 +913,69 @@ class AIPlayerV5 {
         let pixelsToExecute = [];
         let tokens = null; // V5.1: Métriques de tokens (déclaré en dehors du try pour être accessible)
         
-        try {
-          // V5: Seed sans images (à l'aveugle)
+          try {
+            // V5: Seed sans images (à l'aveugle)
           // NOTE: Les retries pour erreurs 429/503 sont gérés par gemini-v5.js, pas ici
           // pour éviter un double retry qui multiplierait les appels API
           const apiResult = await window.GeminiV5Adapter.callAPI(systemText, null);
           const raw = apiResult.text || apiResult; // Rétrocompatibilité
           tokens = apiResult.tokens || null; // V5.1: Métriques de tokens
-          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+          const finishReason = apiResult.finishReason || 'UNKNOWN';
           
-          // V5: Valider que la réponse seed est complète (a au moins seed.concept ou seed.artistic_reference)
-          const isValid = parsed?.seed && (
-            parsed.seed.concept || 
-            parsed.seed.artistic_reference || 
-            parsed.seed.rationale
-          );
-          
-          if (isValid) {
-            // Réponse valide
-            // V5: Stocker l'identité artistique du seed pour persistance
-            if (parsed?.seed) {
-              this.artisticIdentity = {
-                concept: parsed.seed.concept || '',
-                artistic_reference: parsed.seed.artistic_reference || '',
-                rationale: parsed.seed.rationale || ''
-              };
-              this.log(`[V5] 🌱 Identité artistique établie: "${this.artisticIdentity.concept}" (${this.artisticIdentity.artistic_reference})`);
-            }
-            this.storeVerbatimResponse('W', parsed, this.iterationCount);
-            pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-          } else {
-            // Réponse invalide (manque seed concept/rationale) - pas de retry, utiliser ce qu'on a
-            const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
-            this.log(`[W Seed] ⚠️ Réponse invalide: seed=${!!parsed?.seed}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
-            this.storeVerbatimResponse('W', parsed, this.iterationCount);
-            pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+          // CRITICAL: Logger si réponse incomplète
+          if (finishReason === 'MAX_TOKENS') {
+            this.log(`[W Seed] ⚠️ Réponse TRONQUÉE par Gemini (MAX_TOKENS atteint) - ${tokens?.output || 0} tokens`);
           }
-        } catch (error) {
+          
+            parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+            
+            // V5: Valider que la réponse seed est complète (a au moins seed.concept ou seed.artistic_reference)
+            const isValid = parsed?.seed && (
+              parsed.seed.concept || 
+              parsed.seed.artistic_reference || 
+              parsed.seed.rationale
+            );
+            
+            if (isValid) {
+              // Réponse valide
+              // V5: Stocker l'identité artistique du seed pour persistance
+              if (parsed?.seed) {
+                this.artisticIdentity = {
+                  concept: parsed.seed.concept || '',
+                  artistic_reference: parsed.seed.artistic_reference || '',
+                  rationale: parsed.seed.rationale || ''
+                };
+                this.log(`[V5] 🌱 Identité artistique établie: "${this.artisticIdentity.concept}" (${this.artisticIdentity.artistic_reference})`);
+              }
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+            } else {
+            // Réponse invalide (manque seed concept/rationale) - pas de retry, utiliser ce qu'on a
+              const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+            this.log(`[W Seed] ⚠️ Réponse invalide: seed=${!!parsed?.seed}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
+                this.storeVerbatimResponse('W', parsed, this.iterationCount);
+                pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+            }
+          } catch (error) {
           // Erreur API (429, 503, etc.) - gemini-v5.js a déjà fait les retries nécessaires
           this.log(`[W Seed] Erreur API après retries: ${error.message}`);
-          // V5: Stocker une identité artistique minimale en cas d'erreur API
-          if (!this.artisticIdentity) {
-            this.artisticIdentity = {
-              concept: 'Erreur API',
-              artistic_reference: 'API error - no artistic reference available',
-              rationale: `Erreur: ${error.message}`
-            };
-          }
-          this.storeVerbatimResponse('W', {
-            seed: { 
-              concept: this.artisticIdentity.concept,
-              artistic_reference: this.artisticIdentity.artistic_reference,
-              rationale: this.artisticIdentity.rationale
-            },
-            predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
-            pixels: []
-          }, this.iterationCount);
+              // V5: Stocker une identité artistique minimale en cas d'erreur API
+              if (!this.artisticIdentity) {
+                this.artisticIdentity = {
+                  concept: 'Erreur API',
+                  artistic_reference: 'API error - no artistic reference available',
+                  rationale: `Erreur: ${error.message}`
+                };
+              }
+              this.storeVerbatimResponse('W', {
+                seed: { 
+                  concept: this.artisticIdentity.concept,
+                  artistic_reference: this.artisticIdentity.artistic_reference,
+                  rationale: this.artisticIdentity.rationale
+                },
+                predictions: { individual_after_prediction: 'N/A', collective_after_prediction: 'N/A' },
+                pixels: []
+              }, this.iterationCount);
         }
         
         // Fallback seed: si aucun pixel retourné (erreur API ou réponse vide), générer un seed minimal local
@@ -836,8 +1020,16 @@ class AIPlayerV5 {
         }
         
         // Execute pixels
-        await this.executePixels(pixelsToExecute);
-        await new Promise(r => setTimeout(r, 2000));
+        pixelsSent = await this.executePixels(pixelsToExecute);
+        // CRITICAL: Vérifier si des pixels ont été envoyés
+        if (pixelsSent === 0 && pixelsToExecute.length > 0) {
+          this.log(`❌ ERREUR CRITIQUE (seed): Aucun pixel envoyé malgré ${pixelsToExecute.length} pixels générés - l'agent peut être bloqué`);
+        }
+        // CRITICAL: Attendre suffisamment pour le rendu (seeds = 400 pixels)
+        const pixelCount = pixelsToExecute.length;
+        const renderDelay = pixelCount >= 300 ? 4000 : pixelCount >= 100 ? 3000 : 2000;
+        console.log(`[V5] ⏳ Attente ${renderDelay}ms pour rendu seed de ${pixelCount} pixels...`);
+        await new Promise(r => setTimeout(r, renderDelay));
         
         // Capturer et envoyer l'image globale à O
         const globalUrlAfter = await this.captureGlobalSnapshot('W seed — global canvas (after)');
@@ -879,52 +1071,154 @@ class AIPlayerV5 {
         
       } else {
         // Mode action (W) : récupérer snapshot O et attendre nouveau snapshot POSTÉRIEUR à la dernière action
+        // CRITICAL FIX: Forcer fetchOSnapshot() même si on vient de le faire pour récupérer les snapshots manqués
         await this.fetchOSnapshot();
         
-        // Vérifier si un nouveau snapshot O est disponible POSTÉRIEUR à la dernière action
+        // CRITICAL FIX: Si on est en retard (lastOVersionSeen < currentOVersion), forcer une nouvelle récupération
+        // pour s'assurer qu'on a le dernier snapshot disponible
         const currentOVersion = this.Osnapshot?.version ?? -1;
+        if (this.lastOVersionSeen >= 0 && currentOVersion > this.lastOVersionSeen + 1) {
+          // Gap détecté : on a sauté des versions, forcer une nouvelle récupération pour être sûr d'avoir le dernier
+          console.log(`[V5] 🔄 Gap détecté (lastSeen: ${this.lastOVersionSeen}, current: ${currentOVersion}), nouvelle récupération snapshot...`);
+          await this.fetchOSnapshot();
+          // Mettre à jour currentOVersion après la nouvelle récupération
+          const newCurrentOVersion = this.Osnapshot?.version ?? -1;
+          if (newCurrentOVersion > currentOVersion) {
+            console.log(`[V5] ✅ Snapshot plus récent récupéré: version ${newCurrentOVersion} (précédent: ${currentOVersion})`);
+          }
+        }
+        
+        // Vérifier si un nouveau snapshot O est disponible POSTÉRIEUR à la dernière action
+        const finalCurrentOVersion = this.Osnapshot?.version ?? -1;
         
         // Exception : pour la première action (itération 1), accepter le snapshot disponible
         // MAIS seulement s'il est valide (non vide, non pending)
         const isFirstAction = this.iterationCount === 1;
         
         // CRITIQUE : Vérifier que le snapshot est valide (non vide, non pending)
+        // EXCEPTION : Pour la première action, accepter même si _pending si on a des structures
+        const hasStructures = this.Osnapshot?.structures && 
+          Array.isArray(this.Osnapshot.structures) && 
+          this.Osnapshot.structures.length > 0;
+        const hasValidDescription = this.Osnapshot?.simplicity_assessment?.C_d_current?.description && 
+          this.Osnapshot.simplicity_assessment.C_d_current.description !== 'N/A' &&
+          this.Osnapshot.simplicity_assessment.C_d_current.description !== 'Waiting for first analysis...' &&
+          this.Osnapshot.simplicity_assessment.C_d_current.description !== 'No analysis yet - waiting for first O+N analysis...';
+        
         const isSnapshotValid = this.Osnapshot && 
-          !this.Osnapshot._pending &&
-          this.Osnapshot.structures &&
-          Array.isArray(this.Osnapshot.structures) &&
-          (this.Osnapshot.structures.length > 0 || 
-           (this.Osnapshot.simplicity_assessment?.C_d_current?.description && 
-            this.Osnapshot.simplicity_assessment.C_d_current.description !== 'N/A' &&
-            this.Osnapshot.simplicity_assessment.C_d_current.description !== 'Waiting for first analysis...'));
+          (!this.Osnapshot._pending || (isFirstAction && hasStructures)) &&  // Accepter pending pour première action si structures présentes
+          (hasStructures || hasValidDescription);
         
         if (!isSnapshotValid) {
           // Snapshot invalide (vide, pending, ou N/A) - attendre un snapshot valide
-          this.log(`Snapshot invalide (pending=${this.Osnapshot?._pending}, structures=${this.Osnapshot?.structures?.length || 0}, description=${this.Osnapshot?.simplicity_assessment?.C_d_current?.description?.substring(0, 30) || 'N/A'}) - attente snapshot valide...`);
-          await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
-          continue; // Passer à l'itération suivante sans appeler Gemini
+          // CRITICAL FIX: Timeout pour éviter blocage infini si aucun snapshot valide n'arrive
+          this._waitAttempts = (this._waitAttempts || 0) + 1;
+          const maxWaitAttempts = 30; // 30 tentatives × 2s = 60s max d'attente
+          
+          if (this._waitAttempts >= maxWaitAttempts) {
+            this.log(`⚠️  Timeout attente snapshot valide (${maxWaitAttempts} tentatives = 60s) - FORÇAGE action avec snapshot disponible pour éviter blocage`);
+            // Forcer l'action même si snapshot invalide pour éviter blocage infini
+            // L'agent doit continuer à générer des pixels même sans snapshot parfait
+            // Réinitialiser le compteur pour éviter spam de logs
+            this._waitAttempts = 0;
+            // Continuer avec le snapshot disponible (même invalide) pour éviter blocage total
+          } else {
+            this.log(`Snapshot invalide (pending=${this.Osnapshot?._pending}, structures=${this.Osnapshot?.structures?.length || 0}, description=${this.Osnapshot?.simplicity_assessment?.C_d_current?.description?.substring(0, 30) || 'N/A'}, tentatives: ${this._waitAttempts}/${maxWaitAttempts}) - attente snapshot valide...`);
+            await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
+            continue; // Passer à l'itération suivante sans appeler Gemini
+          }
         }
         
-        // CRITIQUE : Vérifier que le snapshot est POSTÉRIEUR à la dernière action
-        // (pas juste à la dernière version vue, mais à la version disponible lors de la dernière action)
-        // IMPORTANT : Ne JAMAIS exécuter une action W si le snapshot n'a pas changé depuis la dernière action
-        if (!isFirstAction && currentOVersion <= this.lastOVersionAtAction) {
-          // Pas de nouveau snapshot O postérieur à la dernière action, skip cette itération W
-          this.log(`Pas de nouveau snapshot O postérieur à dernière action (version ${currentOVersion} <= ${this.lastOVersionAtAction}), attente nouveau snapshot...`);
-          await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
-          // Ne pas incrémenter iterationCount pour rester en mode 'action' et réessayer
-          continue; // Passer à l'itération suivante sans appeler Gemini
+        // CRITICAL FIX: Ignorer les snapshots plus anciens que le dernier utilisé
+        // (peut arriver si un snapshot O seul version 0 arrive après un snapshot combiné version 1)
+        // MAIS: Si on est en retard (currentOVersion > lastOVersionAtAction), accepter immédiatement
+        if (!isFirstAction && finalCurrentOVersion < this.lastOVersionAtAction) {
+          this._waitOldSnapshotAttempts = (this._waitOldSnapshotAttempts || 0) + 1;
+          // CRITICAL FIX: Réduire le timeout si on détecte qu'on est en retard (autres agents ont déjà reçu des snapshots plus récents)
+          // Si lastOVersionSeen > lastOVersionAtAction, cela signifie qu'on a reçu un snapshot plus récent mais qu'on n'a pas encore agi
+          const isBehind = this.lastOVersionSeen > this.lastOVersionAtAction;
+          const maxWaitOldSnapshotAttempts = isBehind ? 3 : 15; // 3 tentatives (6s) si en retard, 15 (30s) sinon
+          
+          if (this._waitOldSnapshotAttempts >= maxWaitOldSnapshotAttempts) {
+            this.log(`⚠️  Timeout attente snapshot plus récent (${maxWaitOldSnapshotAttempts} tentatives = ${maxWaitOldSnapshotAttempts * 2}s) - FORÇAGE action avec snapshot disponible (version ${finalCurrentOVersion}) pour éviter blocage`);
+            // Forcer l'action avec le snapshot disponible pour éviter blocage infini
+            this._waitOldSnapshotAttempts = 0;
+            // Continuer avec le snapshot disponible
+          } else {
+            // CRITICAL FIX: Si on est en retard, forcer une nouvelle récupération au lieu d'attendre passivement
+            if (isBehind && this._waitOldSnapshotAttempts % 2 === 0) {
+              // Toutes les 2 tentatives, forcer une nouvelle récupération pour récupérer les snapshots manqués
+              console.log(`[V5] 🔄 Agent en retard (lastSeen: ${this.lastOVersionSeen} > lastAction: ${this.lastOVersionAtAction}), récupération snapshot...`);
+              await this.fetchOSnapshot();
+              const newVersion = this.Osnapshot?.version ?? -1;
+              if (newVersion > finalCurrentOVersion) {
+                console.log(`[V5] ✅ Snapshot plus récent récupéré: version ${newVersion}`);
+                // Sortir de la boucle d'attente et réessayer avec le nouveau snapshot
+                continue;
+              }
+            }
+            this.log(`Snapshot version ${finalCurrentOVersion} plus ancien que dernière action (${this.lastOVersionAtAction}), ignoré - attente snapshot plus récent (tentatives: ${this._waitOldSnapshotAttempts}/${maxWaitOldSnapshotAttempts}${isBehind ? ', agent en retard' : ''})...`);
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+        } else {
+          // Snapshot valide ou première action : réinitialiser compteur
+          this._waitOldSnapshotAttempts = 0;
         }
+        
+        // CRITIQUE : Permettre plusieurs agents d'agir en parallèle avec le même snapshot
+        // Ne bloquer QUE si on a déjà agi avec CE snapshot exact (éviter actions en double)
+        // V5.2: Correction pour restaurer comportement parallèle de V4
+        // CRITICAL FIX: Si on est en retard (lastOVersionSeen > lastOVersionAtAction), permettre l'action même avec le même snapshot
+        // car cela signifie qu'on a reçu un snapshot plus récent mais qu'on n'a pas encore agi
+        const isBehind = this.lastOVersionSeen > this.lastOVersionAtAction;
+        if (!isFirstAction && finalCurrentOVersion === this.lastOVersionAtAction && !isBehind) {
+          this._waitSameSnapshotAttempts = (this._waitSameSnapshotAttempts || 0) + 1;
+          // CRITICAL FIX: Réduire le timeout si on détecte qu'on est en retard
+          const maxWaitSameSnapshotAttempts = isBehind ? 3 : 15; // 3 tentatives (6s) si en retard, 15 (30s) sinon
+          
+          if (this._waitSameSnapshotAttempts >= maxWaitSameSnapshotAttempts) {
+            this.log(`⚠️  Timeout attente snapshot suivant (${maxWaitSameSnapshotAttempts} tentatives = ${maxWaitSameSnapshotAttempts * 2}s) - FORÇAGE action avec snapshot actuel (version ${finalCurrentOVersion}) pour éviter blocage`);
+            // Forcer l'action même si déjà agi avec ce snapshot pour éviter blocage infini
+            // (peut arriver si le serveur ne génère pas de nouveau snapshot)
+            this._waitSameSnapshotAttempts = 0;
+            // Continuer avec le snapshot actuel
+          } else {
+            // CRITICAL FIX: Si on est en retard, forcer une nouvelle récupération au lieu d'attendre passivement
+            if (isBehind && this._waitSameSnapshotAttempts % 2 === 0) {
+              console.log(`[V5] 🔄 Agent en retard (lastSeen: ${this.lastOVersionSeen} > lastAction: ${this.lastOVersionAtAction}), récupération snapshot...`);
+              await this.fetchOSnapshot();
+              const newVersion = this.Osnapshot?.version ?? -1;
+              if (newVersion > finalCurrentOVersion) {
+                console.log(`[V5] ✅ Snapshot plus récent récupéré: version ${newVersion}`);
+                // Sortir de la boucle d'attente et réessayer avec le nouveau snapshot
+                continue;
+              }
+            }
+            this.log(`Déjà agi avec snapshot version ${finalCurrentOVersion}, attente snapshot suivant (tentatives: ${this._waitSameSnapshotAttempts}/${maxWaitSameSnapshotAttempts}${isBehind ? ', agent en retard' : ''})...`);
+            await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
+            continue; // Passer à l'itération suivante sans appeler Gemini
+          }
+        } else {
+          // Nouveau snapshot ou première action ou agent en retard : réinitialiser compteur
+          this._waitSameSnapshotAttempts = 0;
+        }
+        // Si finalCurrentOVersion > lastOVersionAtAction OU si c'est la première action → agir (parallèle autorisé)
         
         // Nouveau snapshot détecté OU première action : reset le compteur d'attente
-        this._waitAttempts = 0;
+        this._waitAttempts = 0; // CRITICAL FIX: Réinitialiser compteur d'attente quand snapshot valide reçu
         // Mettre à jour la version vue
         if (isFirstAction) {
-          this.log(`Première action (itération 1) : snapshot valide détecté (version ${currentOVersion}, ${this.Osnapshot.structures.length} structures)`);
+          this.log(`Première action (itération 1) : snapshot valide détecté (version ${finalCurrentOVersion}, ${this.Osnapshot.structures.length} structures)`);
         } else {
-          this.log(`Nouveau snapshot O détecté (version ${currentOVersion} > ${this.lastOVersionAtAction}), action autorisée`);
+          const versionGap = finalCurrentOVersion - this.lastOVersionAtAction;
+          if (versionGap > 1) {
+            this.log(`⚠️  Agent en retard: nouveau snapshot O détecté (version ${finalCurrentOVersion} > ${this.lastOVersionAtAction}, gap: ${versionGap} versions), action autorisée`);
+          } else {
+            this.log(`Nouveau snapshot O détecté (version ${finalCurrentOVersion} > ${this.lastOVersionAtAction}), action autorisée`);
+          }
         }
-        this.lastOVersionSeen = currentOVersion;
+        this.lastOVersionSeen = finalCurrentOVersion;
         
         // V5: Afficher le snapshot O+N dans Verbatim (séparé O et N)
         // IMPORTANT: Toujours récupérer snapshot complet (sans agent_id) pour avoir toutes les erreurs de prédiction
@@ -1029,86 +1323,104 @@ class AIPlayerV5 {
         let pixelsToExecute = [];
         let tokens = null; // V5.1: Métriques de tokens (déclaré en dehors du try pour être accessible)
         
-        try {
+          try {
           // NOTE: Les retries pour erreurs 429/503 sont gérés par gemini-v5.js, pas ici
           // pour éviter un double retry qui multiplierait les appels API
           const apiResult = await window.GeminiV5Adapter.callAPI(systemText, {
-            globalImageBase64: globalUrlBefore,
-            localImageBase64: localUrl
-          });
+              globalImageBase64: globalUrlBefore,
+              localImageBase64: localUrl
+            });
           const raw = apiResult.text || apiResult; // Rétrocompatibilité
           tokens = apiResult.tokens || null; // V5.1: Métriques de tokens
-          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
-          parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+          const finishReason = apiResult.finishReason || 'UNKNOWN';
           
-          // V5: Valider que la réponse action est complète (a au moins strategy ou rationale)
-          const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
-          const isValid = parsed && (
-            parsed.strategy || 
-            parsed.rationale ||
-            (parsed.delta_complexity && (
-              parsed.delta_complexity.delta_C_w_bits !== undefined ||
-              parsed.delta_complexity.delta_C_d_bits !== undefined
-            ))
-          );
-          
-          if (isValid) {
-            // Réponse valide
-            this.storeVerbatimResponse('W', parsed, this.iterationCount);
-            pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
-          } else if (hasPixels) {
-            // Réponse incomplète mais avec pixels : accepter avec valeurs par défaut
-            this.log(`[W Action] Réponse incomplète mais avec ${parsed.pixels.length} pixels - utilisation de valeurs par défaut`);
-            // Créer un objet complet avec valeurs par défaut
-            parsed = {
-              strategy: parsed?.strategy || 'Action with incomplete response',
-              strategy_id: parsed?.strategy_id || 'custom',
-              source_agents: parsed?.source_agents || [],
-              rationale: parsed?.rationale || 'Response from LLM was incomplete but pixels were generated',
-              delta_complexity: parsed?.delta_complexity || {
-                delta_C_w_bits: 0,
-                delta_C_d_bits: 0,
-                U_after_expected: 0
-              },
-              predictions: parsed?.predictions || {
-                individual_after_prediction: 'N/A (incomplete response)',
-                collective_after_prediction: 'N/A (incomplete response)'
-              },
-              pixels: parsed.pixels
-            };
-            this.storeVerbatimResponse('W', parsed, this.iterationCount);
-            pixelsToExecute = parsed.pixels;
-          } else {
-            // Réponse invalide (pas de pixels non plus) - pas de retry, utiliser valeurs par défaut
-            this.log(`[W Action] ⚠️ Réponse invalide: strategy=${!!parsed?.strategy}, rationale=${!!parsed?.rationale}, delta=${!!parsed?.delta_complexity}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
-            parsed = {
-              strategy: 'Action failed - incomplete response',
-              strategy_id: 'custom',
-              source_agents: [],
-              rationale: 'LLM response was incomplete',
-              delta_complexity: {
-                delta_C_w_bits: 0,
-                delta_C_d_bits: 0,
-                U_after_expected: 0
-              },
-              predictions: {
-                individual_after_prediction: 'N/A (incomplete response)',
-                collective_after_prediction: 'N/A (incomplete response)'
-              },
-              pixels: Array.isArray(parsed?.pixels) ? parsed.pixels : []
-            };
-            this.storeVerbatimResponse('W', parsed, this.iterationCount);
-            pixelsToExecute = parsed.pixels;
+          // CRITICAL: Logger si réponse incomplète
+          if (finishReason === 'MAX_TOKENS') {
+            this.log(`[W Action] ⚠️ Réponse TRONQUÉE par Gemini (MAX_TOKENS atteint) - ${tokens?.output || 0} tokens`);
+          } else if (finishReason === 'SAFETY') {
+            this.log(`[W Action] ⚠️ Réponse BLOQUÉE par Gemini (SAFETY) - contenu filtré`);
           }
-        } catch (error) {
+          
+          if (localUrl) this.addDebugImage('W input — local 20x20', localUrl);
+            parsed = window.GeminiV5Adapter.parseJSONResponse(raw);
+            
+            // V5: Valider que la réponse action est complète (a au moins strategy ou rationale)
+            const hasPixels = Array.isArray(parsed?.pixels) && parsed.pixels.length > 0;
+            const isValid = parsed && (
+              parsed.strategy || 
+              parsed.rationale ||
+              (parsed.delta_complexity && (
+                parsed.delta_complexity.delta_C_w_bits !== undefined ||
+                parsed.delta_complexity.delta_C_d_bits !== undefined
+              ))
+            );
+            
+            if (isValid) {
+              // Réponse valide
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = Array.isArray(parsed?.pixels) ? parsed.pixels : [];
+            } else if (hasPixels) {
+              // Réponse incomplète mais avec pixels : accepter avec valeurs par défaut
+              this.log(`[W Action] Réponse incomplète mais avec ${parsed.pixels.length} pixels - utilisation de valeurs par défaut`);
+              // Créer un objet complet avec valeurs par défaut
+              parsed = {
+                strategy: parsed?.strategy || 'Action with incomplete response',
+                strategy_id: parsed?.strategy_id || 'custom',
+                strategy_ids: parsed?.strategy_ids || (parsed?.strategy_id ? [parsed.strategy_id] : ['custom']),
+                source_agents: parsed?.source_agents || [],
+                rationale: parsed?.rationale || 'Response from LLM was incomplete but pixels were generated',
+                delta_complexity: parsed?.delta_complexity || {
+                  delta_C_w_bits: 0,
+                  delta_C_d_bits: 0,
+                  U_after_expected: 0
+                },
+                predictions: parsed?.predictions || {
+                  individual_after_prediction: 'N/A (incomplete response)',
+                  collective_after_prediction: 'N/A (incomplete response)'
+                },
+                pixels: parsed.pixels
+              };
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = parsed.pixels;
+            } else {
+              // Réponse invalide (pas de pixels non plus) - générer des pixels de fallback
+              this.log(`[W Action] ⚠️ Réponse invalide: strategy=${!!parsed?.strategy}, rationale=${!!parsed?.rationale}, delta=${!!parsed?.delta_complexity}, pixels=${hasPixels ? parsed.pixels.length : 0}, keys=${parsed ? Object.keys(parsed).join(',') : 'null'}`);
+              
+              // CRITICAL FIX: Générer des pixels de fallback pour éviter le blocage du système
+              // Si on ne dessine rien, le serveur O attend indéfiniment une image récente
+              const fallbackPixels = this.generateFallbackPixels();
+              this.log(`[W Action] 🔄 Génération de ${fallbackPixels.length} pixels de fallback pour maintenir le flux`);
+              
+              parsed = {
+                strategy: 'Fallback - maintaining visual presence',
+                strategy_id: 'custom',
+                strategy_ids: ['custom'],
+                source_agents: [],
+                rationale: 'LLM response was incomplete - using fallback pixels to maintain system flow',
+                delta_complexity: {
+                  delta_C_w_bits: 1,
+                  delta_C_d_bits: 0,
+                  U_after_expected: this.Osnapshot?.U || 0
+                },
+                predictions: {
+                  individual_after_prediction: 'Maintaining current form with minor variation',
+                  collective_after_prediction: 'Minimal impact on global U - fallback action'
+                },
+                pixels: fallbackPixels
+              };
+              this.storeVerbatimResponse('W', parsed, this.iterationCount);
+              pixelsToExecute = parsed.pixels;
+            }
+          } catch (error) {
           // Erreur API (429, 503, etc.) - gemini-v5.js a déjà fait les retries nécessaires
           this.log(`[W Action] Erreur API après retries: ${error.message}`);
           // Créer un objet par défaut en cas d'erreur
           parsed = {
-            strategy: 'ERROR',
+                strategy: 'ERROR',
             strategy_id: 'custom',
+            strategy_ids: ['custom'],
             source_agents: [],
-            rationale: `Erreur API: ${error.message}`,
+                rationale: `Erreur API: ${error.message}`,
             delta_complexity: {
               delta_C_w_bits: 0,
               delta_C_d_bits: 0,
@@ -1118,17 +1430,18 @@ class AIPlayerV5 {
               individual_after_prediction: 'N/A',
               collective_after_prediction: 'N/A'
             },
-            pixels: []
+                pixels: []
           };
           this.storeVerbatimResponse('W', parsed, this.iterationCount);
         }
-        
+
         // V5: S'assurer que parsed n'est jamais null
         if (!parsed) {
           this.log(`[W Action] ⚠️ parsed est null - création d'objet par défaut`);
           parsed = {
             strategy: 'Action failed - no response',
             strategy_id: 'custom',
+            strategy_ids: ['custom'],
             source_agents: [],
             rationale: 'LLM returned no valid response',
             delta_complexity: {
@@ -1157,13 +1470,23 @@ class AIPlayerV5 {
         };
 
         // Execute pixels (la promesse se résout quand tous les pixels sont envoyés)
-        await this.executePixels(pixelsToExecute);
+        pixelsSent = await this.executePixels(pixelsToExecute);
+        
+        // CRITICAL: Vérifier si des pixels ont été envoyés
+        if (pixelsSent === 0 && pixelsToExecute.length > 0) {
+          this.log(`❌ ERREUR CRITIQUE: Aucun pixel envoyé malgré ${pixelsToExecute.length} pixels générés - l'agent peut être bloqué`);
+          // Ne pas incrémenter iterationCount pour réessayer à la prochaine itération
+          // Mais continuer la boucle pour éviter blocage total
+        }
         
         // IMPORTANT: Attendre suffisamment pour que le canvas du viewer soit complètement mis à jour
         // avec tous les nouveaux pixels (rendu + propagation WebSocket vers autres clients)
-        // Ce délai doit être cohérent avec le délai de stabilisation côté O (3s)
-        // On attend 2s après l'envoi de tous les pixels pour laisser le temps au rendu complet
-        await new Promise(r => setTimeout(r, 2000)); // 2s pour laisser le temps au rendu complet
+        // CRITICAL: Pour les seeds (400 pixels), les batches prennent ~80ms, mais le rendu peut prendre plus
+        // Augmenter le délai pour les grandes quantités de pixels
+        const pixelCount = pixelsToExecute.length;
+        const renderDelay = pixelCount >= 300 ? 4000 : pixelCount >= 100 ? 3000 : 2000; // 4s pour seeds, 3s pour moyennes, 2s pour petites
+        console.log(`[V5] ⏳ Attente ${renderDelay}ms pour rendu complet de ${pixelCount} pixels...`);
+        await new Promise(r => setTimeout(r, renderDelay));
         
         // Maintenant capturer l'image globale APRÈS l'exécution des pixels et l'envoyer à O
         const globalUrlAfter = await this.captureGlobalSnapshot('W action — global canvas (after)');
@@ -1190,7 +1513,13 @@ class AIPlayerV5 {
         
         // V5: Envoyer données W à N (rationale, predictions, strategy)
         // V5.1: Passer les tokens si disponibles
-        await this.sendWDataToN(parsed, this.iterationCount, tokens);
+        // CRITICAL FIX: Gérer les erreurs pour éviter que l'agent se fige
+        try {
+          await this.sendWDataToN(parsed, this.iterationCount, tokens);
+        } catch (e) {
+          console.error(`[V5] ⚠️  Erreur envoi données W à N (itération ${this.iterationCount}):`, e);
+          // Continuer même en cas d'erreur pour éviter que l'agent se fige
+        }
 
         // V5: Mettre à jour l'historique des stratégies (sera complété avec actual_error au snapshot suivant)
         this.updateStrategyHistory(parsed, this.Osnapshot);
@@ -1206,10 +1535,57 @@ class AIPlayerV5 {
         this.log(`W deltas: ΔC_w=${deltas.delta_C_w_bits || 0}, ΔC_d=${deltas.delta_C_d_bits || 0}, U'=${UAfter}`);
       }
 
+      // CRITICAL: Vérifier si l'agent est bloqué (pas de pixels générés depuis trop longtemps)
+      // Si l'agent n'a pas généré de pixels depuis 3 itérations, forcer une action de fallback
+      if (pixelsSent === 0 && pixelsToExecute.length > 0) {
+        this._consecutiveNoPixels = (this._consecutiveNoPixels || 0) + 1;
+        if (this._consecutiveNoPixels >= 3) {
+          this.log(`⚠️  Agent bloqué: ${this._consecutiveNoPixels} itérations sans pixels envoyés - génération pixels de fallback pour débloquer`);
+          // Générer des pixels de fallback pour maintenir le flux
+          const fallbackPixels = this.generateFallbackPixels();
+          await this.executePixels(fallbackPixels);
+          this._consecutiveNoPixels = 0; // Réinitialiser après fallback
+        }
+      } else if (pixelsSent > 0) {
+        // Pixels envoyés avec succès : réinitialiser compteur
+        this._consecutiveNoPixels = 0;
+      }
+      
       this.iterationCount++;
       const waitMs = Math.max(0, (parseInt(this.elements.interval.value)||0) * 1000);
       await new Promise(r => setTimeout(r, waitMs));
     }
+  }
+
+  // === Génération de pixels de fallback en cas de réponse vide ===
+  generateFallbackPixels() {
+    // Générer quelques pixels basiques pour maintenir le flux du système
+    // Utilise les couleurs existantes du canvas local pour une variation subtile
+    const pixels = [];
+    const existingColors = Object.values(this.myCellState || {}).filter(c => c && c !== '#000000');
+    
+    if (existingColors.length > 0) {
+      // Modifier légèrement quelques pixels existants (variation subtile)
+      const numPixels = Math.min(5, Math.max(1, Math.floor(existingColors.length / 10)));
+      for (let i = 0; i < numPixels; i++) {
+        const x = Math.floor(Math.random() * 20);
+        const y = Math.floor(Math.random() * 20);
+        // Prendre une couleur existante au hasard
+        const color = existingColors[Math.floor(Math.random() * existingColors.length)];
+        pixels.push(`${x},${y}${color.startsWith('#') ? color : '#' + color}`);
+      }
+    } else {
+      // Pas de couleurs existantes, générer quelques pixels dans les tons neutres
+      const neutralColors = ['#333333', '#444444', '#555555', '#666666'];
+      for (let i = 0; i < 3; i++) {
+        const x = Math.floor(Math.random() * 20);
+        const y = Math.floor(Math.random() * 20);
+        const color = neutralColors[Math.floor(Math.random() * neutralColors.length)];
+        pixels.push(`${x},${y}${color}`);
+      }
+    }
+    
+    return pixels;
   }
 
   // === Extraction des couleurs des voisins ===
@@ -1325,13 +1701,19 @@ class AIPlayerV5 {
   // === V5: Envoi données W à N ===
   async sendWDataToN(parsed, iteration, tokens = null) {
     const agentId = this.myUserId || 'unknown';
+    // CRITICAL FIX: Support for multiple strategies (strategy_ids array) or single strategy (strategy_id)
+    const strategy_ids = parsed?.strategy_ids || (parsed?.strategy_id ? [parsed.strategy_id] : []);
+    const strategy_id = strategy_ids.length > 1 ? strategy_ids.join('+') : (strategy_ids[0] || '');
     const wData = {
       agent_id: agentId,
       position: this.myPosition,
       iteration: iteration,
       strategy: parsed?.strategy || 'N/A',
+      strategy_id: strategy_id,  // Pour compatibilité (string unique ou combinaison)
+      strategy_ids: strategy_ids,  // CRITICAL FIX: Array of strategy IDs
       rationale: parsed?.rationale || '',
       predictions: parsed?.predictions || {},
+      pixels: parsed?.pixels || [],  // V5: Inclure pixels pour calcul C_w_machine
       timestamp: new Date().toISOString()
     };
     
@@ -1354,6 +1736,9 @@ class AIPlayerV5 {
     // V5: Envoyer aussi les deltas au serveur de métriques
     if (this.metricsSocket && this.metricsSocket.readyState === WebSocket.OPEN && parsed?.delta_complexity) {
       try {
+        // CRITICAL FIX: Support for multiple strategies (strategy_ids array) or single strategy (strategy_id)
+        const strategy_ids = parsed?.strategy_ids || (parsed?.strategy_id ? [parsed.strategy_id] : []);
+        const strategy_id = strategy_ids.length > 1 ? strategy_ids.join('+') : (strategy_ids[0] || '');
         const metricsData = {
           type: 'agent_update',
           user_id: agentId,
@@ -1363,6 +1748,8 @@ class AIPlayerV5 {
           U_after_expected: parsed.delta_complexity.U_after_expected || 0,
           prediction_error: this.myPredictionError || 0,
           strategy: parsed?.strategy || 'N/A',
+          strategy_id: strategy_id,  // CRITICAL FIX: Send strategy_id
+          strategy_ids: strategy_ids,  // CRITICAL FIX: Send strategy_ids array
           iteration: iteration
         };
         
@@ -1412,8 +1799,70 @@ class AIPlayerV5 {
             // Mettre à jour l'affichage avec les métriques agrégées
             this.updateMetricsDisplay(msg.data);
           } else if (msg.type === 'o_snapshot_update' || msg.type === 'n_snapshot_update') {
-            // Snapshots O/N mis à jour (pour info)
-            console.log(`[V5] ${msg.type}:`, msg.data);
+            // Snapshots O/N mis à jour - STOCKER dans this.Osnapshot pour utilisation immédiate
+            if (msg.data && msg.data.version !== undefined) {
+              // Construire un snapshot complet à partir des données reçues
+              const snapshotData = {
+                ...msg.data,
+                _pending: false  // Les snapshots reçus via WebSocket sont toujours valides
+              };
+              // CRITICAL FIX: Ne pas remplacer un snapshot plus récent par un plus ancien
+              // (peut arriver si un snapshot O seul version 0 arrive après un snapshot combiné version 1)
+              // CRITICAL: Les snapshots N (combinés) sont toujours préférés aux snapshots O seuls
+              const currentVersion = this.Osnapshot?.version || -1;
+              const isNCombined = msg.type === 'n_snapshot_update';
+              const isOAlone = msg.type === 'o_snapshot_update';
+              const hasStructures = snapshotData.structures && Array.isArray(snapshotData.structures) && snapshotData.structures.length > 0;
+              const hasPredictionErrors = snapshotData.prediction_errors && Object.keys(snapshotData.prediction_errors).length > 0;
+              
+              // CRITICAL FIX: Accepter TOUS les snapshots plus récents, même si on a sauté des versions
+              // Si un client est en retard (ex: version 2) et reçoit version 5, il doit l'accepter
+              // Ne pas bloquer sur une version ancienne
+              const shouldUpdate = !this.Osnapshot || 
+                                  this.Osnapshot._pending || 
+                                  (snapshotData.version > currentVersion) ||
+                                  (snapshotData.version === currentVersion && isNCombined && (hasStructures || hasPredictionErrors)) || // N snapshot combiné remplace O snapshot seul même version
+                                  (snapshotData.version === currentVersion && isOAlone && !hasPredictionErrors && this.Osnapshot.prediction_errors); // O snapshot seul ne remplace pas N combiné
+              
+              if (shouldUpdate) {
+                const oldVersion = this.Osnapshot?.version || 'none';
+                const versionGap = snapshotData.version > currentVersion ? (snapshotData.version - currentVersion) : 0;
+                if (versionGap > 1) {
+                  console.warn(`[V5] ⚠️  Gap de versions détecté: client passe de version ${oldVersion} à ${snapshotData.version} (gap: ${versionGap} versions sautées)`);
+                }
+                this.Osnapshot = snapshotData;
+                // CRITICAL: Marquer comme non-pending si snapshot a des structures ou prediction_errors
+                if (hasStructures || hasPredictionErrors) {
+                  this.Osnapshot._pending = false;
+                }
+                // CRITICAL FIX: Mettre à jour lastOVersionSeen pour éviter de bloquer sur une ancienne version
+                // Cela permet aux agents en retard de rattraper rapidement
+                const oldLastSeen = this.lastOVersionSeen;
+                if (snapshotData.version > this.lastOVersionSeen) {
+                  this.lastOVersionSeen = snapshotData.version;
+                  if (versionGap > 1) {
+                    console.log(`[V5] ✅ lastOVersionSeen mis à jour: ${oldLastSeen} → ${this.lastOVersionSeen} (gap: ${versionGap})`);
+                  }
+                }
+                
+                // CRITICAL FIX: Si l'agent est en attente d'un snapshot et qu'on vient de recevoir un snapshot valide,
+                // cela peut débloquer l'agent. On ne force pas directement une action ici car mainLoop() gère cela,
+                // mais on s'assure que lastOVersionSeen est à jour pour que mainLoop() puisse agir.
+                if (this.isRunning && !this.isPaused && this.iterationCount > 0) {
+                  // Vérifier si l'agent était bloqué en attente d'un snapshot
+                  const wasWaiting = this.Osnapshot?._pending || (this.lastOVersionSeen > (this.lastOVersionAtAction || 0));
+                  if (wasWaiting && !this.Osnapshot._pending && (hasStructures || hasPredictionErrors)) {
+                    console.log(`[V5] ✅ Snapshot valide reçu via WebSocket (version ${snapshotData.version}), agent peut agir`);
+                  }
+                }
+                
+                console.log(`[V5] ${msg.type}: snapshot version ${snapshotData.version} stocké (remplace version ${oldVersion}, structures=${hasStructures}, errors=${hasPredictionErrors})`);
+              } else {
+                console.log(`[V5] ${msg.type}: snapshot version ${snapshotData.version} ignoré (version ${currentVersion} déjà présente)`);
+              }
+            } else {
+              console.log(`[V5] ${msg.type}:`, msg.data);
+            }
           }
         } catch(e) {
           console.error('[V5] Erreur parsing métriques:', e);
@@ -1422,11 +1871,26 @@ class AIPlayerV5 {
       
       this.metricsSocket.onerror = (error) => {
         console.warn('[V5] Erreur WebSocket métriques:', error);
+        // CRITICAL FIX: Ne pas reconnecter immédiatement sur erreur (onclose sera appelé)
       };
       
-      this.metricsSocket.onclose = () => {
-        console.log('[V5] Déconnecté du serveur de métriques, reconnexion dans 5s...');
-        setTimeout(() => this.connectMetricsServer(), 5000);
+      this.metricsSocket.onclose = (event) => {
+        const wasOpen = this.metricsSocket && this.metricsSocket.readyState === WebSocket.CLOSED;
+        console.log(`[V5] Déconnecté du serveur de métriques (code: ${event.code}, reason: ${event.reason || 'N/A'})`);
+        this.metricsSocket = null; // CRITICAL FIX: Réinitialiser la référence
+        
+        // CRITICAL FIX: Reconnexion seulement si l'agent est actif et pas de reconnexion en cours
+        if (this.isRunning && !this.isPaused) {
+          // Reconnexion plus rapide si fermeture inattendue (pas code 1000 = normal closure)
+          const reconnectDelay = event.code === 1000 ? 5000 : 3000;
+          console.log(`[V5] 🔄 Reconnexion WebSocket métriques dans ${reconnectDelay/1000}s...`);
+          setTimeout(() => {
+            // Vérifier qu'on n'est pas déjà reconnecté
+            if (!this.metricsSocket || this.metricsSocket.readyState !== WebSocket.OPEN) {
+              this.connectMetricsServer();
+            }
+          }, reconnectDelay);
+        }
       };
     } catch(e) {
       console.error('[V5] Erreur connexion métriques:', e);
@@ -1553,10 +2017,12 @@ class AIPlayerV5 {
       return 'No previous strategies used.';
     }
     
-    let text = 'STRATEGY HISTORY:\n';
-    this.strategyHistory.forEach(entry => {
-      const coords = entry.source_agents.map(pos => `[${pos[0]}, ${pos[1]}]`).join(', ');
-      text += `- It. ${entry.iteration}: "${entry.strategy_name}", ${coords}, (predicted error: ${entry.predicted_error.toFixed(2)}, actual error: ${entry.actual_error.toFixed(2)})\n`;
+    // CRITICAL: Limiter aux 3 dernières stratégies pour réduire tokens
+    const recent = this.strategyHistory.slice(-3);
+    let text = 'STRATEGY HISTORY (last 3):\n';
+    recent.forEach(entry => {
+      const coords = entry.source_agents.length > 0 ? entry.source_agents.map(pos => `[${pos[0]},${pos[1]}]`).join(',') : 'none';
+      text += `  It.${entry.iteration}: "${entry.strategy_name.substring(0, 30)}" ${coords} (pred:${entry.predicted_error.toFixed(2)}, actual:${entry.actual_error.toFixed(2)})\n`;
     });
     
     return text;
@@ -1568,10 +2034,15 @@ class AIPlayerV5 {
     const strategyName = parsed?.strategy_name || parsed?.strategy || 'Unknown strategy';
     const sourceAgents = parsed?.source_agents || [];
     
+    // CRITICAL FIX: Support for multiple strategies (strategy_ids array) or single strategy (strategy_id)
+    const strategy_ids = parsed?.strategy_ids || (parsed?.strategy_id ? [parsed.strategy_id] : ['custom']);
+    const strategyId = strategy_ids.length > 1 ? strategy_ids.join('+') : strategy_ids[0];
+    
     // Extraire actual_error depuis le snapshot O+N actuel (sera mis à jour au prochain snapshot)
     const actualError = this.myPredictionError || 0;
     
     // Extraire predicted_error depuis parsed (si disponible) ou utiliser valeur par défaut
+    // Pour les combinaisons, utiliser le maximum des erreurs prédites
     const predictedError = parsed?.predicted_error || 0.2; // Valeur par défaut si non fournie
     
     // Extraire delta_C_w et delta_C_d depuis parsed
@@ -1584,9 +2055,11 @@ class AIPlayerV5 {
     if (existingIndex >= 0) {
       // Mettre à jour l'entrée existante (actual_error peut être mis à jour)
       this.strategyHistory[existingIndex] = {
+        ...this.strategyHistory[existingIndex],
         iteration: this.iterationCount,
         strategy_name: strategyName,
-        strategy_id: parsed?.strategy_id || null,
+        strategy_ids: strategy_ids, // CRITICAL FIX: Stocker le tableau complet des stratégies
+        strategy_id: strategyId, // Pour compatibilité (string unique ou combinaison)
         source_agents: sourceAgents, // Tableau de coordonnées [X,Y]
         predicted_error: predictedError,
         actual_error: actualError, // Peut être mis à jour si snapshot suivant disponible
@@ -1598,7 +2071,8 @@ class AIPlayerV5 {
       this.strategyHistory.push({
         iteration: this.iterationCount,
         strategy_name: strategyName,
-        strategy_id: parsed?.strategy_id || null,
+        strategy_ids: strategy_ids, // CRITICAL FIX: Stocker le tableau complet des stratégies
+        strategy_id: strategyId, // Pour compatibilité (string unique ou combinaison)
         source_agents: sourceAgents, // Tableau de coordonnées [X,Y]
         predicted_error: predictedError,
         actual_error: actualError,
@@ -1764,9 +2238,8 @@ class AIPlayerV5 {
     }
     
     // CRITICAL: Attendre que le WebSocket soit prêt avant d'envoyer les pixels
-    // Le premier agent (agent [0,0]) peut essayer d'envoyer avant que le WebSocket soit ouvert
-    const maxWaitTime = 10000; // 10 secondes max d'attente
-    const checkInterval = 100; // Vérifier toutes les 100ms
+    const maxWaitTime = 10000;
+    const checkInterval = 100;
     let waited = 0;
     while ((!this.socket || this.socket.readyState !== WebSocket.OPEN) && waited < maxWaitTime) {
       await new Promise(r => setTimeout(r, checkInterval));
@@ -1794,64 +2267,108 @@ class AIPlayerV5 {
       px.y = Math.max(0, Math.min(19, px.y));
     }
 
-    const delayPerPixel = Math.max(30, Math.floor(10000 / Math.max(1, pixels.length)));
-    this.cancelPendingPixels();
+    if (pixels.length === 0) {
+      return Promise.resolve(0);
+    }
+
+    // CRITICAL FIX: Envoyer les pixels par petits batches avec délai
+    // Envoyer 400 pixels d'un coup peut saturer le WebSocket/serveur
+    // Solution: batches de 50 pixels avec 10ms de délai entre chaque batch
     
-    // Retourner une promesse qui se résout quand tous les pixels sont envoyés
-    return new Promise((resolve) => {
-      if (pixels.length === 0) {
-        resolve(0);
-        return;
-      }
-      
-      let sentCount = 0;
-      let actuallySentCount = 0; // Compteur des pixels réellement envoyés
-      const totalPixels = pixels.length;
-      
-      for (let i=0;i<pixels.length;i++) {
-        const timeoutId = setTimeout(() => {
+    this.cancelPendingPixels();
+    let actuallySentCount = 0;
+    const totalPixels = pixels.length;
+    const BATCH_SIZE = 50;  // Envoyer 50 pixels par batch
+    const BATCH_DELAY = 10; // 10ms entre chaque batch
+    
+    console.log(`[V5] 📤 Envoi batch de ${totalPixels} pixels (${Math.ceil(totalPixels / BATCH_SIZE)} batches) pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+    
+    // Fonction pour envoyer un batch de pixels
+    const sendBatch = async (startIndex) => {
+      const endIndex = Math.min(startIndex + BATCH_SIZE, totalPixels);
+      let batchSentCount = 0;
+      for (let i = startIndex; i < endIndex; i++) {
+        // CRITICAL FIX: Vérifier WebSocket avant chaque pixel et réessayer si fermé
+        let retries = 0;
+        const maxRetries = 3;
+        let sent = false;
+        
+        while (!sent && retries < maxRetries) {
           if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             try {
-              this.socket.send(JSON.stringify({
+              // CRITICAL FIX: Inclure user_id dans le message cell_update pour que les autres clients puissent l'afficher
+              const cellUpdateMessage = {
                 type: 'cell_update',
                 sub_x: pixels[i].x,
                 sub_y: pixels[i].y,
                 color: pixels[i].color
-              }));
-              // Mettre à jour l'état local pour capture
+              };
+              // Ajouter user_id si disponible (nécessaire pour que les autres clients affichent les pixels)
+              if (this.myUserId) {
+                cellUpdateMessage.user_id = this.myUserId;
+              }
+              this.socket.send(JSON.stringify(cellUpdateMessage));
               const key = `${pixels[i].x},${pixels[i].y}`;
               this.myCellState[key] = pixels[i].color;
+              // CRITICAL: Mettre à jour otherUsers immédiatement pour que captureGlobalSnapshot puisse les voir
+              if (this.myUserId) {
+                if (!this.otherUsers[this.myUserId]) {
+                  this.otherUsers[this.myUserId] = { pixels: {}, position: this.myPosition };
+                }
+                this.otherUsers[this.myUserId].pixels[key] = pixels[i].color;
+                this.otherUsers[this.myUserId].position = this.myPosition;
+              }
               actuallySentCount++;
+              batchSentCount++;
+              sent = true;
             } catch (e) {
-              console.error(`[V5] ⚠️  Erreur envoi pixel ${i+1}/${totalPixels} pour agent [${this.myPosition[0]},${this.myPosition[1]}]:`, e);
+              console.error(`[V5] ⚠️  Erreur envoi pixel ${i+1}/${totalPixels} (tentative ${retries+1}/${maxRetries}):`, e);
+              retries++;
+              if (retries < maxRetries) {
+                await new Promise(r => setTimeout(r, 100)); // Attendre 100ms avant réessai
+              }
             }
-            sentCount++;
           } else {
-            // WebSocket fermé pendant l'envoi - compter quand même pour éviter blocage
-            console.warn(`[V5] ⚠️  WebSocket fermé pendant envoi pixel ${i+1}/${totalPixels} pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
-            sentCount++;
-          }
-          
-          // Quand tous les pixels sont envoyés, résoudre la promesse
-          if (sentCount === totalPixels) {
-            if (actuallySentCount < totalPixels) {
-              console.warn(`[V5] ⚠️  Seulement ${actuallySentCount}/${totalPixels} pixels envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+            // WebSocket fermé, attendre et réessayer
+            if (retries < maxRetries) {
+              console.warn(`[V5] ⚠️  WebSocket fermé pendant envoi pixel ${i+1}/${totalPixels} (tentative ${retries+1}/${maxRetries}), attente reconnexion...`);
+              await new Promise(r => setTimeout(r, 500)); // Attendre 500ms pour reconnexion
+              retries++;
+            } else {
+              console.error(`[V5] ❌ Impossible d'envoyer pixel ${i+1}/${totalPixels} après ${maxRetries} tentatives - WebSocket fermé`);
+              break; // Abandonner ce pixel après maxRetries tentatives
             }
-            resolve(actuallySentCount);
           }
-        }, i*delayPerPixel);
-        this.pendingPixelTimeouts.push(timeoutId);
-      }
-      
-      // Timeout de sécurité : résoudre même si tous les pixels ne sont pas envoyés
-      const maxTime = (pixels.length * delayPerPixel) + 2000; // +2s de marge
-      setTimeout(() => {
-        if (sentCount < totalPixels) {
-          console.warn(`[V5] ⚠️  Timeout executePixels: ${sentCount}/${totalPixels} pixels comptés, ${actuallySentCount} réellement envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
-          resolve(actuallySentCount);
         }
-      }, maxTime);
-    });
+      }
+      return batchSentCount; // Retourner le nombre de pixels envoyés dans ce batch
+    };
+    
+    // V5.2: Envoyer tous les batches SANS délai pour éviter throttling navigateur en arrière-plan
+    // Le délai créait des problèmes quand l'onglet était en arrière-plan (throttling setTimeout)
+    // Envoyer immédiatement tous les batches - le WebSocket peut gérer le flux
+    for (let batchStart = 0; batchStart < totalPixels; batchStart += BATCH_SIZE) {
+      const batchSent = await sendBatch(batchStart);
+      if (batchSent === 0 && actuallySentCount < totalPixels) {
+        // Aucun pixel envoyé dans ce batch et il reste des pixels - WebSocket probablement fermé
+        console.warn(`[V5] ⚠️  Batch ${Math.floor(batchStart / BATCH_SIZE) + 1} : aucun pixel envoyé, WebSocket probablement fermé`);
+        // Continuer quand même pour essayer les batches suivants (peut se reconnecter)
+      }
+      // Pas de délai - envoi immédiat pour éviter throttling navigateur
+    }
+    
+    if (actuallySentCount === 0) {
+      // CRITICAL: Aucun pixel envoyé - log d'erreur visible et alerte
+      console.error(`[V5] ❌ AUCUN pixel envoyé pour agent [${this.myPosition[0]},${this.myPosition[1]}] (${totalPixels} pixels prévus) - WebSocket probablement fermé ou erreur réseau`);
+      this.log(`❌ ERREUR: Aucun pixel envoyé (${totalPixels} prévus) - WebSocket fermé ou erreur réseau`);
+    } else if (actuallySentCount < totalPixels) {
+      console.warn(`[V5] ⚠️  Seulement ${actuallySentCount}/${totalPixels} pixels envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+      this.log(`⚠️  Seulement ${actuallySentCount}/${totalPixels} pixels envoyés`);
+    } else {
+      console.log(`[V5] ✅ ${actuallySentCount} pixels envoyés pour agent [${this.myPosition[0]},${this.myPosition[1]}]`);
+    }
+    
+    return Promise.resolve(actuallySentCount);
   }
 }
 

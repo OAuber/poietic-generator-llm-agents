@@ -12,7 +12,9 @@ class AIMetricsDashboard {
             globalMetrics: [],
             agentMetrics: {},
             rankings: {},
-            canvasSnapshots: []
+            canvasSnapshots: [],
+            oSnapshots: [],
+            nSnapshots: []
         };
         this.popupManager = null;
         this.replayEngine = null;
@@ -86,6 +88,11 @@ class AIMetricsDashboard {
                 menu.classList.remove('show');
             });
         });
+        
+        // Strategy parameters button
+        document.getElementById('btn-apply-strategy-params').addEventListener('click', () => {
+            this.applyStrategyParams();
+        });
     }
     
     // =========================================================================
@@ -108,8 +115,16 @@ class AIMetricsDashboard {
                 this.isConnected = true;
                 this.updateConnectionStatus(true);
                 
-                // Request current state
+                // Request current state (inclut les paramètres de stratégie)
                 this.socket.send(JSON.stringify({ type: 'get_state' }));
+                
+                // Charger les paramètres depuis localStorage au démarrage
+                const uThreshold = localStorage.getItem('strategy_u_threshold') || '70';
+                const rankDivisor = localStorage.getItem('strategy_rank_divisor') || '2';
+                const errorThreshold = localStorage.getItem('strategy_error_threshold') || '0.5';
+                document.getElementById('strategy-u-threshold').value = uThreshold;
+                document.getElementById('strategy-rank-divisor').value = rankDivisor;
+                document.getElementById('strategy-error-threshold').value = errorThreshold;
                 
                 this.showToast('Connected to metrics server', 'success');
             };
@@ -172,6 +187,9 @@ class AIMetricsDashboard {
         switch (msg.type) {
             case 'state_update':
                 this.handleStateUpdate(msg.data);
+                break;
+            case 'strategy_params_update':
+                this.handleStrategyParamsUpdate(msg.params);
                 break;
                 
             case 'session_summary':
@@ -277,11 +295,23 @@ class AIMetricsDashboard {
         if (!data) return;
         
         // Stocker les métriques globales
-        this.sessionData.globalMetrics.push({
+        const globalMetric = {
             version: data.version,
             ...data.global,
             timestamp: data.timestamp
-        });
+        };
+        
+        // V5: Ajouter les métriques machine si disponibles dans n_snapshot
+        if (data.n_snapshot?.machine_metrics) {
+            const mm = data.n_snapshot.machine_metrics;
+            globalMetric.C_w_machine = mm.C_w_machine?.value;
+            globalMetric.C_d_machine = mm.C_d_machine?.value;
+            globalMetric.U_machine = mm.U_machine?.value;
+            globalMetric.C_w_machine_tokens = mm.C_w_machine?.tokens;
+            globalMetric.C_d_machine_tokens = mm.C_d_machine?.tokens;
+        }
+        
+        this.sessionData.globalMetrics.push(globalMetric);
         
         // Limiter à 500 entrées
         if (this.sessionData.globalMetrics.length > 500) {
@@ -342,11 +372,37 @@ class AIMetricsDashboard {
     }
     
     handleOSnapshot(data) {
-        // Les données O sont intégrées dans les métriques globales via n_snapshot
+        // V5.1: Stocker le snapshot O pour les verbatim
+        if (data) {
+            const version = data.version || 0;
+            this.sessionData.oSnapshots.push({
+                version: version,
+                timestamp: new Date().toISOString(),
+                data: {
+                    structures: data.structures || [],
+                    formal_relations: data.formal_relations || {}
+                }
+            });
+            // Garder seulement les 100 derniers
+            if (this.sessionData.oSnapshots.length > 100) {
+                this.sessionData.oSnapshots = this.sessionData.oSnapshots.slice(-100);
+            }
+        }
     }
     
     handleNSnapshot(data) {
-        // Les données N sont intégrées via session_iteration_event
+        // V5.1: Stocker le snapshot N pour les verbatim
+        if (data && data.version !== undefined) {
+            this.sessionData.nSnapshots.push({
+                version: data.version,
+                timestamp: new Date().toISOString(),
+                data: data
+            });
+            // Garder seulement les 100 derniers
+            if (this.sessionData.nSnapshots.length > 100) {
+                this.sessionData.nSnapshots = this.sessionData.nSnapshots.slice(-100);
+            }
+        }
     }
     
     handleCanvasSnapshot(data) {
@@ -442,7 +498,9 @@ class AIMetricsDashboard {
                 globalMetrics: data.globalMetrics || [],
                 agentMetrics: data.agentMetrics || {},
                 rankings: data.rankings || {},
-                canvasSnapshots: data.canvasSnapshots || data.canvas_snapshots || []
+                canvasSnapshots: data.canvasSnapshots || data.canvas_snapshots || [],
+                oSnapshots: data.oSnapshots || [],
+                nSnapshots: data.nSnapshots || []
             };
             
             // Si format d'export serveur, convertir
@@ -504,7 +562,9 @@ class AIMetricsDashboard {
             globalMetrics: [],
             agentMetrics: {},
             rankings: {},
-            canvasSnapshots: []
+            canvasSnapshots: [],
+            oSnapshots: [],
+            nSnapshots: []
         };
         
         // Demander au serveur de clear si connecté
@@ -556,6 +616,52 @@ class AIMetricsDashboard {
     // =========================================================================
     // Utilities
     // =========================================================================
+    
+    handleStrategyParamsUpdate(params) {
+        // Mettre à jour les champs de saisie
+        if (params.strategy_u_threshold !== undefined) {
+            document.getElementById('strategy-u-threshold').value = params.strategy_u_threshold;
+            localStorage.setItem('strategy_u_threshold', params.strategy_u_threshold);
+        }
+        if (params.strategy_rank_divisor !== undefined) {
+            document.getElementById('strategy-rank-divisor').value = params.strategy_rank_divisor;
+            localStorage.setItem('strategy_rank_divisor', params.strategy_rank_divisor);
+        }
+        if (params.strategy_error_threshold !== undefined) {
+            document.getElementById('strategy-error-threshold').value = params.strategy_error_threshold;
+            localStorage.setItem('strategy_error_threshold', params.strategy_error_threshold);
+        }
+    }
+    
+    applyStrategyParams() {
+        const uThreshold = parseFloat(document.getElementById('strategy-u-threshold').value);
+        const rankDivisor = parseFloat(document.getElementById('strategy-rank-divisor').value);
+        const errorThreshold = parseFloat(document.getElementById('strategy-error-threshold').value);
+        
+        if (isNaN(uThreshold) || isNaN(rankDivisor) || isNaN(errorThreshold)) {
+            this.showToast('Invalid parameter values', 'error');
+            return;
+        }
+        
+        // Toujours stocker localement pour utilisation immédiate
+        localStorage.setItem('strategy_u_threshold', uThreshold);
+        localStorage.setItem('strategy_rank_divisor', rankDivisor);
+        localStorage.setItem('strategy_error_threshold', errorThreshold);
+        
+        if (this.isConnected && this.socket) {
+            this.socket.send(JSON.stringify({
+                type: 'set_strategy_params',
+                params: {
+                    strategy_u_threshold: uThreshold,
+                    strategy_rank_divisor: rankDivisor,
+                    strategy_error_threshold: errorThreshold
+                }
+            }));
+            this.showToast(`Strategy params updated: U<${uThreshold}, rank>total/${rankDivisor}, err>${errorThreshold}`, 'success');
+        } else {
+            this.showToast(`Strategy params saved locally: U<${uThreshold}, rank>total/${rankDivisor}, err>${errorThreshold}`, 'success');
+        }
+    }
     
     showToast(message, type = 'info') {
         const container = document.getElementById('toast-container');

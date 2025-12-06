@@ -577,6 +577,13 @@
                         <div class="desc">C_w, C_d, U over time</div>
                     </div>
                 </div>
+                <div class="add-popup-menu-item" data-type="machine">
+                    <span class="icon">🤖</span>
+                    <div>
+                        <div class="label">Machine Metrics</div>
+                        <div class="desc">C_w_machine, C_d_machine, U_machine (token-based)</div>
+                    </div>
+                </div>
                 <div class="add-popup-menu-item" data-type="prediction">
                     <span class="icon">🎯</span>
                     <div>
@@ -622,8 +629,15 @@
                 <div class="add-popup-menu-item" data-type="verbatim">
                     <span class="icon">💬</span>
                     <div>
-                        <div class="label">Verbatim Stream</div>
-                        <div class="desc">AI agent responses (AI only)</div>
+                        <div class="label">Verbatim Stream (W machines)</div>
+                        <div class="desc">W machine responses with strategies and iterations</div>
+                    </div>
+                </div>
+                <div class="add-popup-menu-item" data-type="verbatim-on">
+                    <span class="icon">📝</span>
+                    <div>
+                        <div class="label">Verbatim Stream (O N machines)</div>
+                        <div class="desc">O and N machine responses</div>
                     </div>
                 </div>
                 <div class="add-popup-menu-item" data-type="viewer">
@@ -647,6 +661,25 @@
             Session: <span id="session-id">-</span> | 
             Iteration: <span id="iteration-count">0</span> | 
             Agents: <span id="agents-count">0</span> (AI: <span id="ai-count">0</span>, Human: <span id="human-count">0</span>)
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-section" style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 11px; color: var(--text-secondary);">Strategy Params:</label>
+            <input type="number" id="strategy-u-threshold" value="70" min="0" max="200" step="5" 
+                   style="width: 60px; padding: 4px 6px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 11px;"
+                   title="U threshold: Consider easy strategies if U < this value">
+            <span style="font-size: 11px; color: var(--text-secondary);">U</span>
+            <input type="number" id="strategy-rank-divisor" value="2" min="1" max="10" step="1" 
+                   style="width: 50px; padding: 4px 6px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 11px;"
+                   title="Rank divisor: Consider easy strategies if rank > total_agents / this value">
+            <span style="font-size: 11px; color: var(--text-secondary);">rank</span>
+            <input type="number" id="strategy-error-threshold" value="0.5" min="0" max="1" step="0.1" 
+                   style="width: 60px; padding: 4px 6px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 11px;"
+                   title="Error threshold: Consider easy strategies if avg_error > this value">
+            <span style="font-size: 11px; color: var(--text-secondary);">err</span>
+            <button class="btn" id="btn-apply-strategy-params" style="padding: 4px 10px; font-size: 11px;">
+                Apply
+            </button>
         </div>
     </div>
 

@@ -92,6 +92,12 @@ class PopupManager {
                 defaultWidth: 450,
                 defaultHeight: 280
             },
+            machine: {
+                title: 'Machine Metrics',
+                icon: '🤖',
+                defaultWidth: 450,
+                defaultHeight: 280
+            },
             prediction: {
                 title: 'Prediction Errors',
                 icon: '🎯',
@@ -129,8 +135,14 @@ class PopupManager {
                 defaultHeight: 420
             },
             verbatim: {
-                title: 'Verbatim Stream',
+                title: 'Verbatim Stream (W machines)',
                 icon: '💬',
+                defaultWidth: 400,
+                defaultHeight: 350
+            },
+            'verbatim-on': {
+                title: 'Verbatim Stream (O N machines)',
+                icon: '📝',
                 defaultWidth: 400,
                 defaultHeight: 350
             },
@@ -184,6 +196,43 @@ class PopupManager {
                         <div class="legend-item">
                             <div class="legend-color" style="background: #4AE290;"></div>
                             <span>U</span>
+                        </div>
+                    </div>
+                `;
+                
+            case 'machine':
+                return `
+                    <div class="metrics-row">
+                        <div class="metric-box">
+                            <div class="metric-label">C_w_machine</div>
+                            <div class="metric-value" id="${id}-cw-machine">0</div>
+                            <div class="metric-subtitle" id="${id}-cw-tokens" style="font-size: 10px; color: var(--text-secondary);">0 tokens</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">C_d_machine</div>
+                            <div class="metric-value" id="${id}-cd-machine">0</div>
+                            <div class="metric-subtitle" id="${id}-cd-tokens" style="font-size: 10px; color: var(--text-secondary);">0 tokens</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">U_machine</div>
+                            <div class="metric-value" id="${id}-u-machine">0</div>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="overflow: hidden; flex: 1; min-height: 0;">
+                        <canvas id="${id}-chart"></canvas>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #8B5CF6;"></div>
+                            <span>C_w_machine</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #F59E0B;"></div>
+                            <span>C_d_machine</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #10B981;"></div>
+                            <span>U_machine</span>
                         </div>
                     </div>
                 `;
@@ -314,7 +363,15 @@ class PopupManager {
                 return `
                     <div id="${id}-stream" style="height: 100%; overflow-y: auto; font-family: monospace; font-size: 11px; line-height: 1.4;">
                         <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
-                            Waiting for AI agent responses...
+                            Waiting for W machine responses...
+                        </div>
+                    </div>
+                `;
+            case 'verbatim-on':
+                return `
+                    <div id="${id}-stream" style="height: 100%; overflow-y: auto; font-family: monospace; font-size: 11px; line-height: 1.4;">
+                        <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
+                            Waiting for O and N machine responses...
                         </div>
                     </div>
                 `;
@@ -356,6 +413,7 @@ class PopupManager {
         // Initialiser selon le type
         switch (type) {
             case 'simplicity':
+            case 'machine':
             case 'prediction':
                 instance.chart = null;
                 instance.history = [];
@@ -527,6 +585,9 @@ class PopupManager {
             case 'simplicity':
                 this.updateSimplicityPopup(id, popup, data);
                 break;
+            case 'machine':
+                this.updateMachinePopup(id, popup, data);
+                break;
             case 'prediction':
                 this.updatePredictionPopup(id, popup, data);
                 break;
@@ -546,7 +607,10 @@ class PopupManager {
                 this.updateCanvasPopup(id, popup, data);
                 break;
             case 'verbatim':
-                this.updateVerbatimPopup(id, popup, data);
+                this.updateVerbatimWPopup(id, popup, data);
+                break;
+            case 'verbatim-on':
+                this.updateVerbatimONPopup(id, popup, data);
                 break;
             case 'signalling':
                 this.updateSignallingPopup(id, popup, data);
@@ -575,6 +639,70 @@ class PopupManager {
         
         // Dessiner le graphique
         this.drawLineChart(id, metrics, ['C_w', 'C_d', 'U'], ['#4A90E2', '#E24A4A', '#4AE290']);
+    }
+    
+    updateMachinePopup(id, popup, data) {
+        // Extraire les métriques machine depuis les événements d'itération
+        const events = data.events || [];
+        const machineMetrics = [];
+        
+        // Parcourir les événements d'itération pour extraire machine_metrics
+        events.forEach(event => {
+            if (event.type === 'iteration' && event.data?.n_snapshot?.machine_metrics) {
+                const mm = event.data.n_snapshot.machine_metrics;
+                machineMetrics.push({
+                    version: event.data.version || machineMetrics.length,
+                    C_w_machine: mm.C_w_machine?.value || 0,
+                    C_d_machine: mm.C_d_machine?.value || 0,
+                    U_machine: mm.U_machine?.value || 0,
+                    C_w_machine_tokens: mm.C_w_machine?.tokens || 0,
+                    C_d_machine_tokens: mm.C_d_machine?.tokens || 0,
+                    timestamp: event.timestamp
+                });
+            }
+        });
+        
+        // Si pas de données dans les événements, essayer globalMetrics
+        if (machineMetrics.length === 0) {
+            const metrics = data.globalMetrics || [];
+            metrics.forEach((m, idx) => {
+                if (m.C_w_machine !== undefined || m.C_d_machine !== undefined) {
+                    machineMetrics.push({
+                        version: m.version || idx,
+                        C_w_machine: m.C_w_machine || 0,
+                        C_d_machine: m.C_d_machine || 0,
+                        U_machine: m.U_machine || 0,
+                        C_w_machine_tokens: m.C_w_machine_tokens || 0,
+                        C_d_machine_tokens: m.C_d_machine_tokens || 0,
+                        timestamp: m.timestamp
+                    });
+                }
+            });
+        }
+        
+        if (machineMetrics.length === 0) return;
+        
+        const latest = machineMetrics[machineMetrics.length - 1];
+        
+        // Mettre à jour les valeurs
+        const cwMachineEl = document.getElementById(`${id}-cw-machine`);
+        const cdMachineEl = document.getElementById(`${id}-cd-machine`);
+        const uMachineEl = document.getElementById(`${id}-u-machine`);
+        const cwTokensEl = document.getElementById(`${id}-cw-tokens`);
+        const cdTokensEl = document.getElementById(`${id}-cd-tokens`);
+        
+        if (cwMachineEl) cwMachineEl.textContent = Math.round(latest.C_w_machine || 0);
+        if (cdMachineEl) cdMachineEl.textContent = Math.round(latest.C_d_machine || 0);
+        if (uMachineEl) {
+            const u = Math.round(latest.U_machine || 0);
+            uMachineEl.textContent = u;
+            uMachineEl.className = `metric-value ${u >= 0 ? 'positive' : 'negative'}`;
+        }
+        if (cwTokensEl) cwTokensEl.textContent = `${latest.C_w_machine_tokens || 0} tokens`;
+        if (cdTokensEl) cdTokensEl.textContent = `${latest.C_d_machine_tokens || 0} tokens`;
+        
+        // Dessiner le graphique
+        this.drawLineChart(id, machineMetrics, ['C_w_machine', 'C_d_machine', 'U_machine'], ['#8B5CF6', '#F59E0B', '#10B981']);
     }
     
     updatePredictionPopup(id, popup, data) {
@@ -856,19 +984,19 @@ class PopupManager {
         }
     }
     
-    updateVerbatimPopup(id, popup, data) {
+    // CRITICAL FIX: Popup pour W machines uniquement (avec stratégies et itération)
+    updateVerbatimWPopup(id, popup, data) {
         const stream = document.getElementById(`${id}-stream`);
         if (!stream) return;
         
-        // Collecter tous les verbatim (W, O, N)
+        // Collecter uniquement les verbatim W
         let verbatimEntries = [];
-        const seenEntries = new Set(); // Pour éviter les doublons
         
-        // 1. Verbatim des agents W depuis les événements d'itération (même source que les autres métriques)
-        // Utiliser un Map pour dédupliquer par agent ID + version (clé unique)
-        const wEntriesMap = new Map(); // Clé: agentId-version, Valeur: entrée
+        // CRITICAL FIX: Utiliser un Map pour dédupliquer par agentId-iteration (pas version)
+        // car un agent peut avoir plusieurs actions dans la même version globale
+        const wEntriesMap = new Map(); // Clé: agentId-iteration, Valeur: entrée
         
-        // Parcourir les événements d'itération pour récupérer les agents W
+        // 1. Verbatim des agents W depuis les événements d'itération
         const allIterationEvents = (data.events || [])
             .filter(e => e.type === 'iteration');
         
@@ -878,68 +1006,170 @@ class PopupManager {
             const timestamp = e.timestamp || eventData.timestamp || new Date().toISOString();
             
             // Parcourir les agents de cette itération
-            eventData.agents.forEach(agent => {
-                if (!agent || agent.type !== 'ai' || !agent.id) return;
-                
-                let content = agent.verbatim_summary || agent.rationale || agent.strategy || '';
-                if (!content) return;
-                
-                // Supprimer la ligne "ΔC_w: ..." si elle existe dans le contenu
-                content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
-                content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
-                
-                if (!content) return;
-                
-                // Clé unique: agentId + version + hash du contenu (garantit l'unicité même si même agent apparaît plusieurs fois)
-                const agentId = agent.id;
-                // Hash simple du contenu (première ligne + longueur) pour détecter les doublons
-                const contentHash = content.substring(0, 50).replace(/\s+/g, ' ').trim();
-                const entryKey = `W-${agentId}-${version}-${contentHash}`;
-                
-                // Si on a déjà une entrée pour cet agent à cette version avec ce contenu, ignorer (déjà traité)
-                // Sinon, garder la plus récente si timestamp plus récent
-                if (!wEntriesMap.has(entryKey)) {
-                    wEntriesMap.set(entryKey, {
-                        type: 'W',
-                        id: agentId,
-                        position: agent.position,
-                        strategy_id: agent.strategy_id || '',
-                        content: content,
-                        timestamp: timestamp
-                    });
-                } else {
-                    // Si entrée existe déjà, vérifier si celle-ci est plus récente
+            if (eventData.agents && Array.isArray(eventData.agents)) {
+                eventData.agents.forEach(agent => {
+                    if (!agent || agent.type !== 'ai' || !agent.id) return;
+                    
+                    let content = agent.verbatim_summary || agent.rationale || agent.strategy || '';
+                    if (!content) return;
+                    
+                    // Supprimer la ligne "ΔC_w: ..." si elle existe dans le contenu
+                    content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
+                    content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
+                    
+                    if (!content) return;
+                    
+                    // CRITICAL FIX: Utiliser agent.iteration comme clé principale (plus précis que version globale)
+                    const agentId = agent.id;
+                    const agentIteration = agent.iteration !== undefined ? agent.iteration : version;
+                    const entryKey = `W-${agentId}-${agentIteration}`;
+                    
+                    // CRITICAL FIX: Stocker aussi strategy_ids si disponible (pour combinaisons)
+                    const strategy_ids = agent.strategy_ids || (agent.strategy_id ? [agent.strategy_id] : []);
+                    const strategy_id = strategy_ids.length > 1 ? strategy_ids.join(' + ') : (strategy_ids[0] || '');
+                    
+                    // Toujours mettre à jour si nouvelle entrée ou timestamp plus récent
                     const existing = wEntriesMap.get(entryKey);
-                    const existingTime = new Date(existing.timestamp).getTime();
+                    const existingTime = existing ? new Date(existing.timestamp).getTime() : 0;
                     const newTime = new Date(timestamp).getTime();
-                    if (newTime > existingTime) {
-                        // Remplacer par la version plus récente
+                    
+                    if (!existing || newTime > existingTime) {
                         wEntriesMap.set(entryKey, {
                             type: 'W',
                             id: agentId,
                             position: agent.position,
-                            strategy_id: agent.strategy_id || '',
+                            strategy_id: strategy_id,
+                            strategy_ids: strategy_ids,
+                            iteration: agentIteration,
+                            version: version,
                             content: content,
                             timestamp: timestamp
                         });
                     }
+                });
+            }
+        });
+        
+        // 2. CRITICAL FIX: Compléter avec les dernières données depuis agentMetrics (pour agents qui n'ont pas envoyé de données récentes)
+        // Cela permet de récupérer les dernières données même si elles ne sont pas dans les événements d'itération
+        const agentMetrics = data.agentMetrics || {};
+        Object.values(agentMetrics).forEach(agent => {
+            if (!agent || agent.type !== 'ai' || !agent.id) return;
+            
+            // Vérifier si on a déjà une entrée pour cet agent à cette itération
+            const agentIteration = agent.iteration !== undefined ? agent.iteration : (agent.version || 0);
+            const entryKey = `W-${agent.id}-${agentIteration}`;
+            
+            // Si pas d'entrée ou si les données de agentMetrics sont plus récentes
+            const existing = wEntriesMap.get(entryKey);
+            if (!existing || (agent.timestamp && new Date(agent.timestamp) > new Date(existing.timestamp))) {
+                let content = agent.verbatim_summary || agent.rationale || agent.strategy || '';
+                if (content) {
+                    // Supprimer la ligne "ΔC_w: ..." si elle existe
+                    content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
+                    content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
+                    
+                    if (content) {
+                        const strategy_ids = agent.strategy_ids || (agent.strategy_id ? [agent.strategy_id] : []);
+                        const strategy_id = strategy_ids.length > 1 ? strategy_ids.join(' + ') : (strategy_ids[0] || '');
+                        
+                        wEntriesMap.set(entryKey, {
+                            type: 'W',
+                            id: agent.id,
+                            position: agent.position,
+                            strategy_id: strategy_id,
+                            strategy_ids: strategy_ids,
+                            iteration: agentIteration,
+                            version: agent.version || 0,
+                            content: content,
+                            timestamp: agent.timestamp || new Date().toISOString()
+                        });
+                    }
                 }
-            });
+            }
         });
         
         // Ajouter toutes les entrées W dédupliquées
         verbatimEntries.push(...Array.from(wEntriesMap.values()));
         
-        // 2. Verbatim O et N depuis les événements d'itération
-        // (réutiliser allIterationEvents déjà filtré)
+        // Trier par timestamp et garder les 30 derniers
+        verbatimEntries = verbatimEntries
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 30)
+            .reverse();
+        
+        if (verbatimEntries.length === 0) {
+            stream.innerHTML = `
+                <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
+                    Waiting for W machine responses...
+                </div>
+            `;
+            return;
+        }
+        
+        stream.innerHTML = verbatimEntries.map(d => {
+            const posX = d.position?.[0] !== undefined ? d.position[0] : '?';
+            const posY = d.position?.[1] !== undefined ? d.position[1] : '?';
+            const strategyId = d.strategy_id || '';
+            const iteration = d.iteration !== undefined ? d.iteration : d.version || 'N/A';
+            
+            // Extraire le texte du verbatim
+            const content = d.content || '';
+            const lines = content.split('\n').filter(l => l.trim());
+            
+            let headerText = '';
+            let bodyText = '';
+            
+            if (lines.length === 0) {
+                bodyText = 'N/A';
+            } else if (lines.length === 1) {
+                bodyText = lines[0];
+            } else {
+                headerText = lines[0];
+                bodyText = lines.slice(1).join('\n');
+            }
+            
+            // Construire le header avec stratégies et itération
+            let headerDisplay = `🤖 Agent [${posX},${posY}] - Iteration ${iteration}`;
+            if (strategyId) {
+                headerDisplay += ` - Strategy: ${strategyId}`;
+            }
+            if (headerText) {
+                headerDisplay += ` - ${headerText}`;
+            }
+            
+            return `
+                <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px;">
+                    <div style="color: var(--accent-purple); font-weight: 600; margin-bottom: 4px;">
+                        ${headerDisplay}
+                    </div>
+                    <div style="white-space: pre-wrap; color: var(--text-primary);">${bodyText}</div>
+                </div>
+            `;
+        }).join('');
+        
+        stream.scrollTop = stream.scrollHeight;
+    }
+    
+    // CRITICAL FIX: Nouveau popup pour O et N machines uniquement
+    updateVerbatimONPopup(id, popup, data) {
+        const stream = document.getElementById(`${id}-stream`);
+        if (!stream) return;
+        
+        // Collecter uniquement les verbatim O et N
+        let verbatimEntries = [];
+        const seenEntries = new Set();
+        
+        // Parcourir les événements d'itération pour récupérer O et N
+        const allIterationEvents = (data.events || [])
+            .filter(e => e.type === 'iteration');
+        
         allIterationEvents.forEach(e => {
-            // Les données peuvent être dans e.data (si stocké via handleIterationEvent) ou directement dans e
             const eventData = e.data || e;
             const version = eventData.version || 0;
             const timestamp = e.timestamp || eventData.timestamp || new Date().toISOString();
             
             // Verbatim O (structures)
-            // Vérifier si o_snapshot existe dans eventData
             const oSnapshot = eventData.o_snapshot;
             if (oSnapshot) {
                 const structures = oSnapshot.structures || [];
@@ -951,7 +1181,7 @@ class PopupManager {
                     structures.forEach((st, i) => {
                         const positions = st.agent_positions ? 
                             `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
-                        oText += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
+                        oText += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions})\n`;
                     });
                 } else {
                     oText = 'STRUCTURES:\n  (none detected)\n';
@@ -960,7 +1190,6 @@ class PopupManager {
                 if (formalRelations && formalRelations.summary) {
                     oText += `\nFORMAL RELATIONS:\n${formalRelations.summary}\n`;
                 } else if (formalRelations && typeof formalRelations === 'object') {
-                    // Si formal_relations est un objet mais sans summary, essayer d'extraire les infos
                     const relationsText = JSON.stringify(formalRelations, null, 2);
                     if (relationsText && relationsText !== '{}') {
                         oText += `\nFORMAL RELATIONS:\n${relationsText}\n`;
@@ -1002,11 +1231,10 @@ class PopupManager {
             }
         });
         
-        // 3. Fallback: Utiliser les snapshots O et N stockés si pas dans les événements
+        // Fallback: Utiliser les snapshots O et N stockés si pas dans les événements
         const oSnapshots = data.oSnapshots || [];
         const nSnapshots = data.nSnapshots || [];
         
-        // Pour chaque snapshot O, vérifier s'il est déjà dans les verbatim
         oSnapshots.forEach(oSnap => {
             const version = oSnap.version || oSnap.data?.version || 0;
             const entryKey = `O-${version}`;
@@ -1022,7 +1250,7 @@ class PopupManager {
                 structures.forEach((st, i) => {
                     const positions = st.agent_positions ? 
                         `[${st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ')}]` : 'N/A';
-                    oText += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions}, salience: ${st.salience})\n`;
+                    oText += `  ${i+1}. ${st.type} (${st.size_agents} agents at ${positions})\n`;
                 });
             } else {
                 oText = 'STRUCTURES:\n  (none detected)\n';
@@ -1043,7 +1271,7 @@ class PopupManager {
             }
         });
         
-        // Trier par timestamp et garder les 30 derniers (augmenté pour inclure O et N)
+        // Trier par timestamp et garder les 30 derniers
         verbatimEntries = verbatimEntries
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             .slice(0, 30)
@@ -1052,56 +1280,14 @@ class PopupManager {
         if (verbatimEntries.length === 0) {
             stream.innerHTML = `
                 <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
-                    Waiting for AI agent responses...
+                    Waiting for O and N machine responses...
                 </div>
             `;
             return;
         }
         
         stream.innerHTML = verbatimEntries.map(d => {
-            if (d.type === 'W') {
-                const posX = d.position?.[0] !== undefined ? d.position[0] : '?';
-                const posY = d.position?.[1] !== undefined ? d.position[1] : '?';
-                const strategyId = d.strategy_id || '';
-                
-                // Extraire le texte du verbatim
-                const content = d.content || '';
-                const lines = content.split('\n').filter(l => l.trim()); // Filtrer les lignes vides
-                
-                // Si une seule ligne, l'afficher seulement dans le body (pas de duplication)
-                // Si plusieurs lignes, première ligne dans le header, reste dans le body
-                let headerText = '';
-                let bodyText = '';
-                
-                if (lines.length === 0) {
-                    bodyText = 'N/A';
-                } else if (lines.length === 1) {
-                    // Une seule ligne : seulement dans le body pour éviter la duplication
-                    bodyText = lines[0];
-                } else {
-                    // Plusieurs lignes : première dans le header, reste dans le body
-                    headerText = lines[0];
-                    bodyText = lines.slice(1).join('\n');
-                }
-                
-                // Construire le header avec strategy_id si disponible
-                let headerDisplay = `🤖 Agent [${posX},${posY}]`;
-                if (strategyId) {
-                    headerDisplay += ` (Strategy: ${strategyId})`;
-                }
-                if (headerText) {
-                    headerDisplay += ` - ${headerText}`;
-                }
-                
-                return `
-                    <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px;">
-                        <div style="color: var(--accent-purple); font-weight: 600; margin-bottom: 4px;">
-                            ${headerDisplay}
-                        </div>
-                        <div style="white-space: pre-wrap; color: var(--text-primary);">${bodyText}</div>
-                    </div>
-                `;
-            } else if (d.type === 'O') {
+            if (d.type === 'O') {
                 return `
                     <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--accent-blue);">
                         <div style="color: var(--accent-blue); font-weight: 600; margin-bottom: 4px;">
