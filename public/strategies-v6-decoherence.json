@@ -1,0 +1,61 @@
+{
+  "note": "FRAGMENTATION REGIME STRATEGIES: Use when φ (Formal Resonance) < 0.4 OR U < threshold OR rank is poor OR avg_error is high. These are safe gestures with predictable outcomes. Focus on building formal resonance through simple operations.",
+  "strategies": [
+    {
+      "id": "amplitude_clone",
+      "name": "Fragment cloning (exact reproduction)",
+      "category": "fragmentation_safe",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "SAFEST GESTURE: Clone a neighbor's fragment exactly (translate or mirror). Creative interpretation: Copy recognized form → identical forms resonate constructively → C_d reduction. IMPACT ON U: +2 bits C_w and -8 bits C_d, delta_U = +10 bits. IMPACT ON φ (Formal Resonance): +0.15. PREDICTION ERROR: Perfect (0.0).",
+      "predicted_error": 0.0,
+      "delta_C_w_bits": 2,
+      "delta_C_d_bits": -8,
+      "delta_phi_coherence": 0.15,
+      "difficulty": "easy"
+    },
+    {
+      "id": "phase_lock_neighbor",
+      "name": "Synchronize with immediate neighbor",
+      "category": "fragmentation_safe",
+      "neighbor_type": "immediate",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "SAFE GESTURE: Adopt immediate neighbor's background color = synchronize with neighbor agent. IMPACT ON U: +4 bits C_w and -5 bits C_d, delta_U = +9 bits. IMPACT ON φ (Formal Resonance): +0.20. CRITICAL: Use UNIFIED color, not checkerboard.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 4,
+      "delta_C_d_bits": -5,
+      "delta_phi_coherence": 0.20,
+      "difficulty": "easy"
+    },
+    {
+      "id": "phase_gradient_extend",
+      "name": "Tonal gradient extension",
+      "category": "fragmentation_safe",
+      "neighbor_type": "immediate",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "SAFE GESTURE: Extend neighbor's tonalité with smooth gradients. IMPACT ON U: +6 bits C_w and -5 bits C_d, delta_U = +11 bits. IMPACT ON φ (Formal Resonance): +0.18. CRITICAL: Smooth gradients, not checkerboards.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 6,
+      "delta_C_d_bits": -5,
+      "delta_phi_coherence": 0.18,
+      "difficulty": "easy"
+    },
+    {
+      "id": "ground_state_merge",
+      "name": "Background merge (disappear)",
+      "category": "fragmentation_safe",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": null,
+      "description": "Sacrifice your form by merging into neighbors' UNIFIED BACKGROUND. CRITICAL: Adopt neighbors' dominant/shared color - do NOT default to black. IMPACT ON U: +1 bit C_w and -5 bits C_d, delta_U = +6 bits. IMPACT ON φ (Formal Resonance): +0.10.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 1,
+      "delta_C_d_bits": -5,
+      "delta_phi_coherence": 0.10,
+      "difficulty": "easy"
+    }
+  ]
+}
