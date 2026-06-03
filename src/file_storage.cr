@@ -3,6 +3,7 @@ require "baked_file_system"
 class FileStorage
   extend BakedFileSystem
 
+  # Bake cache-bust: 2026-06-04 (player background option)
   bake_folder "#{__DIR__}/../public"
 
   # Méthode de débogage pour lister tous les fichiers inclus

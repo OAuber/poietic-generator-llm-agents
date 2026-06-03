@@ -23,6 +23,7 @@ class PoieticPlayer {
             currentPage: 1,           // Page courante
             itemsPerPage: 20,         // Nombre d'éléments par page
             allSubCellStates: new Map(),
+            backgroundMode: 'random', // 'random' (pseudo-aleatoire) | 'black' (fond noir)
             // Nouveaux états pour les filtres
             filters: {
                 year: null,
@@ -57,6 +58,7 @@ class PoieticPlayer {
             replayExportToolsLeft: document.getElementById('replay-export-tools'),
             replayPlaybackControlsRight: document.getElementById('replay-playback-controls'),
             speedBtns: Array.from(document.querySelectorAll('.speed-btn')),
+            bgModeRadios: Array.from(document.querySelectorAll('input[name="bg-mode"]')),
             // Nouveaux éléments pour les filtres
             filterYear: document.getElementById('filter-year'),
             filterMonth: document.getElementById('filter-month'),
@@ -116,34 +118,44 @@ class PoieticPlayer {
         const cell = document.createElement('div');
         cell.className = 'user-cell';
         const initialColorsPalette = this.state.userColors.get(userId);
-        if (!initialColorsPalette) {
-            //console.warn(`No initial colors palette found for user ${userId} in createUserCell - applying fallback`);
-            for (let y = 0; y < 20; y++) {
-                for (let x = 0; x < 20; x++) {
-                    const subCell = document.createElement('div');
-                    subCell.className = 'sub-cell';
-                    subCell.dataset.x = x.toString();
-                    subCell.dataset.y = y.toString();
-                    subCell.style.backgroundColor = '#1a1a1a'; // Fallback un peu visible
-                    cell.appendChild(subCell);
-                }
-            }
-        } else {
-            for (let y = 0; y < 20; y++) {
-                for (let x = 0; x < 20; x++) {
-                    const subCell = document.createElement('div');
-                    subCell.className = 'sub-cell';
-                    subCell.dataset.x = x.toString();
-                    subCell.dataset.y = y.toString();
-                    subCell.style.backgroundColor = initialColorsPalette[y * 20 + x] || '#FFFFFF';
-                    cell.appendChild(subCell);
-                }
+        const blackBg = this.state.backgroundMode === 'black';
+        for (let y = 0; y < 20; y++) {
+            for (let x = 0; x < 20; x++) {
+                const subCell = document.createElement('div');
+                subCell.className = 'sub-cell';
+                subCell.dataset.x = x.toString();
+                subCell.dataset.y = y.toString();
+                // Couleur de fond initiale (palette pseudo-aleatoire) toujours memorisee
+                // pour permettre la bascule noir <-> pseudo-aleatoire sans reconstruire.
+                const initColor = initialColorsPalette
+                    ? (initialColorsPalette[y * 20 + x] || '#FFFFFF')
+                    : '#1a1a1a';
+                subCell.dataset.initialColor = initColor;
+                subCell.style.backgroundColor = blackBg ? '#000000' : initColor;
+                cell.appendChild(subCell);
             }
         }
-        
+
         this.grid.appendChild(cell);
         this.state.cells.set(userId, cell);
         return cell;
+    }
+
+    // Bascule du fond pendant le rejeu : repeint uniquement les sous-cellules
+    // non dessinees (les pixels reellement dessines sont preserves).
+    setBackgroundMode(mode) {
+        this.state.backgroundMode = (mode === 'black') ? 'black' : 'random';
+        const blackBg = this.state.backgroundMode === 'black';
+        if (this.grid) {
+            this.grid.querySelectorAll('.sub-cell').forEach(subCell => {
+                if (subCell.dataset.drawn === '1') return; // garder les pixels dessines
+                const initColor = subCell.dataset.initialColor || '#1a1a1a';
+                subCell.style.backgroundColor = blackBg ? '#000000' : initColor;
+            });
+        }
+        if (this.elements.bgModeRadios) {
+            this.elements.bgModeRadios.forEach(r => { r.checked = (r.value === this.state.backgroundMode); });
+        }
     }
 
     updateGridSize() {
@@ -296,6 +308,15 @@ class PoieticPlayer {
             });
             // Initialisation de l'état visuel
             this.updateSpeedBtnUI();
+        }
+
+        // Gestion du fond (noir / pseudo-aleatoire) dans le panneau droit
+        if (this.elements.bgModeRadios && this.elements.bgModeRadios.length > 0) {
+            this.elements.bgModeRadios.forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (radio.checked) this.setBackgroundMode(radio.value);
+                });
+            });
         }
     }
 
@@ -820,7 +841,10 @@ class PoieticPlayer {
         const cell = this.state.cells.get(userId);
         if (cell) {
             const subCell = cell.querySelector(`[data-x="${x}"][data-y="${y}"]`);
-            if (subCell) subCell.style.backgroundColor = color;
+            if (subCell) {
+                subCell.style.backgroundColor = color;
+                subCell.dataset.drawn = '1'; // pixel dessine -> non affecte par la bascule de fond
+            }
         }
 
         if (!this.state.allSubCellStates.has(userId)) {

@@ -28,8 +28,12 @@ class PoieticRecorder
     # Créer le dossier de la base de données si nécessaire
     Dir.mkdir_p(File.dirname(db_path))
     
-    # Configuration de la base de données avec WAL
-    db_url = "sqlite3:#{db_path}?timeout=5000&mode=wal&journal_mode=wal"
+    # Configuration de la base de données avec WAL.
+    # NB: le shard sqlite3 attend `busy_timeout` (et non `timeout`) ; sans lui,
+    # le PRAGMA journal_mode=wal echoue immediatement (SQLITE_BUSY) quand un autre
+    # process (serveur API) ecrit deja -> DB::ConnectionRefused. `busy_timeout`
+    # fait patienter au lieu d'echouer.
+    db_url = "sqlite3:#{db_path}?busy_timeout=5000&journal_mode=wal"
     @db = DB.open(db_url)
     @db.exec("PRAGMA foreign_keys = ON")
     
@@ -619,6 +623,10 @@ class PoieticRecorder
       env.response.headers["Access-Control-Allow-Origin"] = "*"
       env.response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
       env.response.headers["Access-Control-Allow-Headers"] = "*"
+      # Eviter que le navigateur garde d'anciennes versions de player.html / JS / CSS
+      env.response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+      env.response.headers["Pragma"] = "no-cache"
+      env.response.headers["Expires"] = "0"
     end
 
     # Routes pour le player
@@ -654,6 +662,16 @@ class PoieticRecorder
     get "/" do |env|
       file = FileStorage.get("player.html")
       file.gets_to_end
+    end
+
+    # Alias pour acceder au player en local via http://localhost:3002/player/
+    # (en production, Caddy retire le prefixe /player et proxifie vers 3002/).
+    ["/player", "/player/"].each do |player_path|
+      get player_path do |env|
+        env.response.headers["Content-Type"] = "text/html"
+        file = FileStorage.get("player.html")
+        file.gets_to_end
+      end
     end
 
     # Routes pour les CSS

@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Poietic Generator Player</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M12 2L2 7v10c0 5.55 3.84 9.74 9 11 5.16-1.26 9-5.45 9-11V7l-10-5z'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="/css/player-style.css?v=<%= Time.utc.to_unix %>">
-    <link rel="stylesheet" href="/css/share-dialog.css?v=<%= Time.utc.to_unix %>">
-    <script type="module" src="/js/poietic-player.js?v=<%= Time.utc.to_unix %>"></script>
-    <script type="module" src="/js/poietic-player-share.js?v=<%= Time.utc.to_unix %>"></script>
+    <link rel="stylesheet" href="/css/player-style.css?v=v6bg1">
+    <link rel="stylesheet" href="/css/share-dialog.css?v=v6bg1">
+    <script type="module" src="/js/poietic-player.js?v=v6bg1"></script>
+    <script type="module" src="/js/poietic-player-share.js?v=v6bg1"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 </head>
 <body>
@@ -150,6 +150,15 @@
                         <button class="speed-btn" data-speed="5">x5</button>
                         <button class="speed-btn" data-speed="10">x10</button>
             </div>
+                </div>
+                <div class="background-option-row" style="display:flex; align-items:center; gap:12px; margin-top:10px; flex-wrap:wrap; font-size:0.8rem; color:#ccc;">
+                    <span>Background:</span>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="radio" name="bg-mode" value="random" checked> Pseudo-random
+                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="radio" name="bg-mode" value="black"> Black
+                    </label>
                 </div>
             </div>
         </div>
