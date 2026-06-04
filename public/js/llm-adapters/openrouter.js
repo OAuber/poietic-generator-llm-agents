@@ -1,30 +1,33 @@
-// OpenRouter Provider (V6) - provider unique, config-driven.
+// OpenRouter Provider (V4or) - provider unique, config-driven.
 // Mime l'interface de GeminiV4Adapter (loadPromptFile, buildSystemPrompt,
 // parseJSONResponse) mais route TOUT via le proxy serveur :8006 (cle serveur),
 // au format OpenAI vision (content[] text + image_url). Le modele est un parametre.
 
 export const OpenRouterProvider = {
   name: 'OpenRouter',
-  version: '2026-06-03-v6b',
+  version: '2026-06-04-v4or',
 
-  // Modeles de vision proposes par defaut (modifiables dans l'UI)
+  // Modeles de VISION proposes par defaut (modifiables dans l'UI).
+  // NB: utiliser des slugs multimodaux valides. Qwen3.7-max est text-only ->
+  // remplace par la serie Qwen3-VL (vision).
   models: [
     { id: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash (cheap, rapide)' },
     { id: 'anthropic/claude-opus-4.8', label: 'Claude Opus 4.8 (frontier)' },
     { id: 'openai/gpt-5.5', label: 'GPT-5.5 (frontier)' },
-    { id: 'qwen/qwen3.7-max', label: 'Qwen3.7 Max' },
+    { id: 'qwen/qwen3-vl-235b-a22b-instruct', label: 'Qwen3-VL 235B (vision)' },
+    { id: 'qwen/qwen3-vl-8b-instruct', label: 'Qwen3-VL 8B (vision, cheap)' },
   ],
 
-  // Base du serveur proxy V6 (port 8006), derivee de l'origine courante
+  // Base du serveur proxy V4or (port 8006), derivee de l'origine courante
   apiBase() {
     return window.location.origin.replace(/:\d+$/, ':8006');
   },
 
   async loadPromptFile(kind) {
     const map = {
-      seed: 'prompts/v6-seed.json',
-      observation: 'prompts/v6-observation.json',
-      action: 'prompts/v6-action.json',
+      seed: 'prompts/v4or-seed.json',
+      observation: 'prompts/v4or-observation.json',
+      action: 'prompts/v4or-action.json',
     };
     const file = map[kind];
     if (!file) throw new Error('Unknown prompt kind: ' + kind);
@@ -95,7 +98,7 @@ export const OpenRouterProvider = {
     } catch (e) {
       clearTimeout(timeoutId);
       if (e.name === 'AbortError') throw new Error('Timeout: OpenRouter n\'a pas repondu (240s)');
-      throw new Error(`Impossible de contacter le serveur V6 (${this.apiBase()}): ${e.message}`);
+      throw new Error(`Impossible de contacter le serveur V4or (${this.apiBase()}): ${e.message}`);
     }
     clearTimeout(timeoutId);
 
@@ -106,7 +109,10 @@ export const OpenRouterProvider = {
       throw new Error(`Budget depasse: ${data?.message || 'plafond de session atteint'}`);
     }
     if (!response.ok) {
-      throw new Error(`Erreur API ${response.status}: ${data?.error || response.statusText}`);
+      // OpenRouter renvoie { error: { message, code } } ; extraire le message lisible
+      let errMsg = (data && data.error && (data.error.message || data.error)) || data?.message || response.statusText;
+      if (typeof errMsg !== 'string') errMsg = JSON.stringify(errMsg);
+      throw new Error(`Erreur API ${response.status}: ${errMsg}`);
     }
 
     // Exposer le cout de session (pour le panneau cout)

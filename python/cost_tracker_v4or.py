@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compteur de cout centralise pour la V6 (OpenRouter).
+"""Compteur de cout centralise pour la V4or (OpenRouter).
 
 Agrege l'usage (tokens) et le cout (USD) de tous les appels LLM par
 session / agent / modele. Alimente par le champ `usage` renvoye par
@@ -166,5 +166,5 @@ class CostTracker:
                 self._data.pop(session_id, None)
 
 
-# Instance globale partagee par le serveur V6
+# Instance globale partagee par le serveur V4or
 cost_tracker = CostTracker()

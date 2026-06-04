@@ -133,7 +133,11 @@ l'export** des métriques — découplé de la boucle temps réel O-N-W (qui peu
   **courbes C_w / C_d / U**, le **graphe des erreurs de prédiction** (moyenne et écart-type) et
   le **classement des agents**, avec export de session.
 
-## V6 — OpenRouter (banc multi-modèles, provider-agnostique)
+## V4or — OpenRouter (variante de V4, banc multi-modèles)
+
+> **Note de nommage.** Cette version est une **variante de V4** (« V4 OpenRouter »), pas un
+> successeur de V5. Le nom **« V6 » est réservé** à une version **« quantique »** développée hors
+> de ce dépôt (voir « Lignée et état »).
 
 **Philosophie.** **Ouvrir à tous les modèles** et **gouverner le coût**. On remplace le « zoo »
 d'adaptateurs par modèle par **un seul fournisseur unifié** ([OpenRouter](https://openrouter.ai/)),
@@ -142,17 +146,19 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 **reproductible et économe**.
 
 **Caractéristiques.**
-- Serveur `python/poietic_ai_server_v6.py` (**port 8006**) ; **clé côté serveur**
+- Serveur `python/poietic_ai_server_v4or.py` (**port 8006**) ; **clé côté serveur**
   (`OPENROUTER_API_KEY`), jamais exposée au navigateur.
 - **Provider unique** `openrouter.js` (format OpenAI vision) ; **1 onglet = 1 modèle**
   (`?model=…`), multi-modèles en parallèle.
-- **Compteur de coût centralisé** (`cost_tracker_v6.py`) par session/agent/modèle, basé sur
+- **Compteur de coût centralisé** (`cost_tracker_v4or.py`) par session/agent/modèle, basé sur
   `usage.cost` ; endpoints `/api/usage` et `/api/usage/openrouter` (consommation officielle) ;
   **kill-switch budget** `MAX_SESSION_USD` (HTTP 402).
 - Reprise de la **boucle O-W distillée de V4** (contrat léger, robuste) ; **coutures pour N**
-  (flag `ENABLE_N`, `/v6/w-data`, `run_analysis_pipeline()`) → évolution prévue vers la triade.
+  (flag `ENABLE_N`, `/v4or/w-data`, `run_analysis_pipeline()`) → évolution prévue vers la triade.
 - Maîtrise des coûts intégrée : bridage du **raisonnement**, plafonds `max_tokens`, format delta,
-  cadence O modérée. `start-v6.sh`, `.env.example`.
+  cadence O modérée. `start-v4or.sh`, `.env.example`.
+- Fichiers : `public/js/v4or/ai-player-v4or.js`, `public/ai-player-v4or.html`,
+  `public/prompts/v4or-*.json`, `public/js/llm-adapters/openrouter.js`.
 
 ---
 
@@ -163,8 +169,9 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 | **V2** | Agent vision autonome | observe = agit | LLaVA 7B, Gemini 1.5 | ST côté client (local+global) | — (client) |
 | **V3** | Perception réelle (capture canvas) | observe = agit | LLaVA local, Gemini | ST côté client | — (client) |
 | **V4** | Séparer mesure / action | **O** + **W** | Gemini multimodal | C_w/C_d/U par O (image) | `v4` (8004) |
+| **V4or** | Variante de V4, banc multi-modèles, coût maîtrisé | O + W (N en couture) | **Tous via OpenRouter** | C_d (O) + **coût/qualité** | `v4or` (8006) |
 | **V5** | Triade fidèle + feedback | **O** + **N** + **W** | Gemini | C_d (O) + C_w & erreurs (N) | `v5` (8005) + métriques (5005) |
-| **V6** | Banc multi-modèles, coût maîtrisé | O + W (N en couture) | **Tous via OpenRouter** | C_d (O) + **coût/qualité** | `v6` (8006) |
+| **V6** | _Réservé_ : version « quantique » (hors dépôt, à intégrer) | — | — | — | — |
 
 ---
 
@@ -180,13 +187,15 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 ## Lignée et état
 
 - **V2 → V3 → V4 → V5** : raffinement progressif (agent unique → séparation O/W → triade O-N-W).
-- **V6** : repart de la robustesse de **V4** comme socle provider-agnostique, sans recopier le
-  passé ; **V3/V4/V5 restent intacts** (versions côte à côte).
-- **Prochaine étape (vers « C »)** : réactiver la **machine N** sur le socle V6 (les coutures
+- **V4or** : repart de la robustesse de **V4** comme socle provider-agnostique (variante de V4),
+  sans recopier le passé ; **V3/V4/V5 restent intacts** (versions côte à côte).
+- **À venir (autre machine)** : une **V5 évoluée** et une **V6 « quantique »** ont été développées
+  hors de ce dépôt (non encore committées) et seront **fusionnées ici** ultérieurement. Le nom
+  « V6 » est donc **réservé** à cette version quantique.
+- **Prochaine étape (vers « C »)** : réactiver la **machine N** sur le socle V4or (les coutures
   existent) pour retrouver erreurs de prédiction et classements, mais multi-modèles.
-- **Piste exploratoire (non committée)** : une **métrique « quantique »** de l'émergence a été
-  expérimentée hors de ce dépôt ; elle n'est pas encore présente dans le code. À formaliser et
-  intégrer ultérieurement (idéalement branchée sur le serveur de métriques 5005 / `ai-metrics.html`).
+- **Métrique « quantique »** : expérimentée hors dépôt, destinée à la future **V6** ; à formaliser
+  et brancher (idéalement sur le serveur de métriques 5005 / `ai-metrics.html`).
 
 ---
 

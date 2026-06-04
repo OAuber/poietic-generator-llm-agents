@@ -3,8 +3,8 @@
 Le **Poietic Generator** (Olivier Auber, 1986) est une application de **dessin collaboratif en
 temps réel** : chaque participant contrôle une cellule de 20×20 pixels sur une grille partagée,
 et l'œuvre émerge de l'interaction de tous. Ce dépôt contient le **serveur** (Crystal) + **client**
-(JavaScript), ainsi que plusieurs générations d'**agents LLM dotés de vision** (V2 → V6) qui
-dessinent aux côtés des humains.
+(JavaScript), ainsi que plusieurs générations d'**agents LLM dotés de vision** (V2 → V5, plus la
+variante **V4or** sur OpenRouter) qui dessinent aux côtés des humains.
 
 Fil conducteur : la **Théorie de la Simplicité** (J.-L. Dessalles) — l'émergence est mesurée par
 **U = C_w − C_d** (complexité de génération moins complexité de description). Voir
@@ -27,8 +27,8 @@ Trois services coopèrent :
   les fichiers statiques, et **enregistre** les sessions (`API.recorder` → `db/recorder.db`).
 - **`3002` — Recorder / Player** : **rejeu** des sessions sur `http://localhost:3002/player/`
   (lit la même base).
-- **`8006` — Serveur IA V6** (Python/FastAPI) : proxy unifié vers **OpenRouter** pour les agents
-  de vision, avec **compteur de coût** et garde-fou de budget.
+- **`8006` — Serveur IA V4or** (variante de V4, Python/FastAPI) : proxy unifié vers **OpenRouter**
+  pour les agents de vision, avec **compteur de coût** et garde-fou de budget.
 
 La mesure de l'émergence repose sur la triade **W** (agents qui dessinent) / **O** (observation,
 calcul de C_d) / **N** (narration, C_w et erreurs de prédiction) — détaillée dans
@@ -37,34 +37,34 @@ calcul de C_d) / **N** (narration, C_w et erreurs de prédiction) — détaillé
 ## Démarrage rapide
 
 Prérequis : [Crystal](https://crystal-lang.org/install/), Python 3 (FastAPI/httpx), un compilateur
-C et les libs système (voir messages de `start-v6.sh`).
+C et les libs système (voir messages de `start-v4or.sh`).
 
 ```sh
 # 1. Dépendances + compilation Crystal
 shards install && shards build
 
-# 2. Configuration (clé OpenRouter pour les agents V6)
+# 2. Configuration (clé OpenRouter pour les agents V4or)
 cp .env.example .env        # puis renseigner OPENROUTER_API_KEY
 
-# 3. Tout lancer (jeu 3001 + player 3002 + IA V6 8006)
-./start-v6.sh
+# 3. Tout lancer (jeu 3001 + player 3002 + IA V4or 8006)
+./start-v4or.sh
 ```
 
 Accès :
 - Jeu : `http://localhost:3001/`
-- Agents de vision V6 : `http://localhost:3001/ai-player-v6.html`
+- Agents de vision V4or : `http://localhost:3001/ai-player-v4or.html`
   (un onglet = un modèle, ex. `?model=anthropic/claude-opus-4.8`)
 - Rejeu des sessions : `http://localhost:3002/player/`
-- API IA V6 / coûts : `http://localhost:8006/docs` · `http://localhost:8006/api/usage`
+- API IA V4or / coûts : `http://localhost:8006/docs` · `http://localhost:8006/api/usage`
 
-## Agents LLM de vision (V6 — OpenRouter)
+## Agents LLM de vision (V4or — OpenRouter, variante de V4)
 
 - **Fournisseur unique** via [OpenRouter](https://openrouter.ai/) : le **modèle est une simple
   configuration** (plus d'adaptateur par fournisseur). Clé **côté serveur** (`OPENROUTER_API_KEY`).
 - **Multi-modèles en parallèle** (1 agent = 1 modèle) pour comparer la capacité d'émergence.
 - **Compteur de coût centralisé** + **kill-switch** `MAX_SESSION_USD` (HTTP 402 au dépassement).
-- Fichiers clés : `python/poietic_ai_server_v6.py`, `python/cost_tracker_v6.py`,
-  `public/js/llm-adapters/openrouter.js`, `public/js/v6/ai-player-v6.js`, `public/prompts/v6-*.json`.
+- Fichiers clés : `python/poietic_ai_server_v4or.py`, `python/cost_tracker_v4or.py`,
+  `public/js/llm-adapters/openrouter.js`, `public/js/v4or/ai-player-v4or.js`, `public/prompts/v4or-*.json`.
 
 Les générations précédentes (V2 LLaVA/Gemini, V3 capture canvas, V4 O-W, V5 O-N-W) restent
 présentes côte à côte. Voir [`VERSIONS.md`](VERSIONS.md).
@@ -90,7 +90,8 @@ La V5 mesure l'émergence en continu : C_w, C_d, U, erreurs de prédiction par a
 | **V3** | Perception réelle : capture du canvas, vision locale consolidée |
 | **V4** | Architecture **O-W** : un observateur dédié mesure l'émergence (port 8004) |
 | **V5** | Triade **O-N-W** : narration, erreurs de prédiction, classements (8005 + métriques 5005) |
-| **V6** | **OpenRouter** : provider unique, multi-modèles, coût maîtrisé (8006) |
+| **V4or** | Variante de V4 sur **OpenRouter** : provider unique, multi-modèles, coût maîtrisé (8006) |
+| **V6** | _Réservé_ : version « quantique » (développée hors dépôt, à intégrer) |
 
 ➡️ Philosophie et caractéristiques détaillées : **[`VERSIONS.md`](VERSIONS.md)**.
 

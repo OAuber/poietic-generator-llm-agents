@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Poietic AI Server V6 - provider-agnostique via OpenRouter.
+"""Poietic AI Server V4or - variante de V4, provider-agnostique via OpenRouter.
 
 Scope B : agents W (vision, cote navigateur) + machine O d'observation
 (cote serveur), tous deux routes par OpenRouter avec une cle serveur.
@@ -8,7 +8,7 @@ Points cles :
 - Proxy unique POST /api/llm/openrouter (format OpenAI, vision via image_url).
 - Cle serveur (OPENROUTER_API_KEY) ; base_url configurable (couture local, non
   utilisee par defaut).
-- Compteur de cout centralise (cost_tracker_v6) + kill-switch MAX_SESSION_USD.
+- Compteur de cout centralise (cost_tracker_v4or) + kill-switch MAX_SESSION_USD.
 - Machine O periodique via OpenRouter, isolee dans run_analysis_pipeline()
   pour brancher la machine N plus tard (evolution vers C, flag ENABLE_N).
 
@@ -28,7 +28,7 @@ import re
 import json
 import httpx
 
-from cost_tracker_v6 import cost_tracker
+from cost_tracker_v4or import cost_tracker
 
 # ==============================================================================
 # CONFIG (env)
@@ -36,7 +36,7 @@ from cost_tracker_v6 import cost_tracker
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 # base_url configurable : couture pour pointer vers un endpoint local compatible
-# OpenAI (Ollama) plus tard. Defaut : OpenRouter (V6 = 100% cloud).
+# OpenAI (Ollama) plus tard. Defaut : OpenRouter (V4or = 100% cloud).
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
 CHAT_COMPLETIONS_URL = f"{OPENROUTER_BASE_URL}/chat/completions"
 
@@ -49,13 +49,13 @@ ENABLE_N = os.getenv("ENABLE_N", "false").lower() in ("1", "true", "yes")
 
 # En-tetes d'attribution recommandes par OpenRouter
 APP_URL = os.getenv("APP_URL", "http://localhost:3001")
-APP_TITLE = os.getenv("APP_TITLE", "Poietic Generator V6")
+APP_TITLE = os.getenv("APP_TITLE", "Poietic Generator V4or")
 
 O_CADENCE_SECONDS = int(os.getenv("O_CADENCE_SECONDS", "25"))
-# Session du banc : doit correspondre au ?session= du front (defaut "poietic-v6").
+# Session du banc : doit correspondre au ?session= du front (defaut "poietic-v4or").
 # La machine O (serveur) enregistre son cout sous cette session pour que le
 # panneau "Session cost" reflete le cout reel (W agents + O).
-BENCH_SESSION_ID = os.getenv("SESSION_ID", "poietic-v6")
+BENCH_SESSION_ID = os.getenv("SESSION_ID", "poietic-v4or")
 
 # ==============================================================================
 # STORE O (repris de V4, simplifie)
@@ -110,7 +110,7 @@ w_agents_data: dict[str, dict] = {}
 # CHARGEMENT PROMPT O
 # ==============================================================================
 
-O_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "..", "public", "prompts", "v6-observation.json")
+O_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "..", "public", "prompts", "v4or-observation.json")
 _o_prompt_template: Optional[str] = None
 
 
@@ -372,13 +372,13 @@ async def periodic_o_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not OPENROUTER_API_KEY:
-        print("[V6] ATTENTION : OPENROUTER_API_KEY non definie. Les appels LLM echoueront.")
-    print(f"[V6] base_url={OPENROUTER_BASE_URL} | O_MODEL={O_MODEL} | ENABLE_N={ENABLE_N} | MAX_SESSION_USD={MAX_SESSION_USD}")
+        print("[V4or] ATTENTION : OPENROUTER_API_KEY non definie. Les appels LLM echoueront.")
+    print(f"[V4or] base_url={OPENROUTER_BASE_URL} | O_MODEL={O_MODEL} | ENABLE_N={ENABLE_N} | MAX_SESSION_USD={MAX_SESSION_USD}")
     asyncio.create_task(periodic_o_task())
     yield
 
 
-app = FastAPI(title="Poietic AI Server V6", version="6.0.0", lifespan=lifespan)
+app = FastAPI(title="Poietic AI Server V4or", version="4.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -391,7 +391,7 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {
-        "service": "Poietic AI Server V6",
+        "service": "Poietic AI Server V4or",
         "provider": OPENROUTER_BASE_URL,
         "o_model": O_MODEL,
         "enable_n": ENABLE_N,
@@ -405,7 +405,7 @@ async def root():
             "GET /o/image",
             "POST /o/agents",
             "POST /o/analyze",
-            "POST /v6/w-data",
+            "POST /v4or/w-data",
         ],
     }
 
@@ -571,7 +571,7 @@ async def trigger_o_analysis():
     return {"ok": True, "snapshot": store.latest, "version": store.version}
 
 
-@app.post("/v6/w-data")
+@app.post("/v4or/w-data")
 async def receive_w_data(payload: dict = Body(...)):
     """Recoit les donnees W (strategy/predictions). Inerte sauf si ENABLE_N.
 
@@ -587,7 +587,7 @@ async def receive_w_data(payload: dict = Body(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    print("Demarrage Poietic AI Server V6...")
+    print("Demarrage Poietic AI Server V4or (variante de V4, OpenRouter)...")
     print("  Proxy LLM : http://localhost:8006/api/llm/openrouter")
     print("  Usage     : http://localhost:8006/api/usage")
     print("  Docs      : http://localhost:8006/docs")

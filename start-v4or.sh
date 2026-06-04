@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Demarre Poietic Generator + serveur IA V6 (OpenRouter).
-# Usage : depuis la racine du depot : ./start-v6.sh
+# Demarre Poietic Generator + serveur IA V4or (variante de V4, OpenRouter).
+# Usage : depuis la racine du depot : ./start-v4or.sh
 # Calque sur start-v5.sh (Linux natif : localhost fiable, ext4).
 set -euo pipefail
 
@@ -34,7 +34,7 @@ resolve_python() {
   fi
   echo "" >&2
   echo "Dependances Python introuvables. Installez-les avec l'une des options :" >&2
-  echo "  sudo apt install python3.12-venv && rm -rf python/.venv && ./start-v6.sh" >&2
+  echo "  sudo apt install python3.12-venv && rm -rf python/.venv && ./start-v4or.sh" >&2
   echo "  python3 -m pip install --user --break-system-packages -r python/requirements-api.txt" >&2
   return 1
 }
@@ -73,7 +73,7 @@ if [[ -f "$ROOT/.env" ]]; then
 fi
 
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
-  echo "Attention : OPENROUTER_API_KEY non definie (export ou .env). Les appels LLM V6 echoueront." >&2
+  echo "Attention : OPENROUTER_API_KEY non definie (export ou .env). Les appels LLM V4or echoueront." >&2
 fi
 
 cleanup() {
@@ -81,7 +81,7 @@ cleanup() {
   echo "Arret des processus..."
   [[ -n "${API_PID:-}" ]] && kill "$API_PID" 2>/dev/null || true
   [[ -n "${REC_PID:-}" ]] && kill "$REC_PID" 2>/dev/null || true
-  [[ -n "${V6_PID:-}" ]] && kill "$V6_PID" 2>/dev/null || true
+  [[ -n "${V4OR_PID:-}" ]] && kill "$V4OR_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -93,18 +93,18 @@ echo "=== Lancement recorder-server / player (port 3002) ==="
 "$ROOT/bin/poietic-recorder" --port 3002 &
 REC_PID=$!
 
-echo "=== Lancement serveur IA V6 (port 8006) ==="
-"$PYTHON" "$ROOT/python/poietic_ai_server_v6.py" &
-V6_PID=$!
+echo "=== Lancement serveur IA V4or (port 8006) ==="
+"$PYTHON" "$ROOT/python/poietic_ai_server_v4or.py" &
+V4OR_PID=$!
 
 echo ""
 echo "Pret."
 echo "  Jeu + fichiers statiques : http://localhost:3001/"
-echo "  Client V6                : http://localhost:3001/ai-player-v6.html"
-echo "  Client V6 (modele force) : http://localhost:3001/ai-player-v6.html?model=anthropic/claude-opus-4.8"
+echo "  Client V4or              : http://localhost:3001/ai-player-v4or.html"
+echo "  Client V4or (modele forcé): http://localhost:3001/ai-player-v4or.html?model=anthropic/claude-opus-4.8"
 echo "  Player (rejeu)           : http://localhost:3002/player/  (ou http://localhost:3002/)"
-echo "  API V6                   : http://localhost:8006/docs"
+echo "  API V4or                 : http://localhost:8006/docs"
 echo "  Usage / cout             : http://localhost:8006/api/usage"
 echo ""
 echo "Ctrl+C pour tout arreter."
-wait "$API_PID" "$REC_PID" "$V6_PID"
+wait "$API_PID" "$REC_PID" "$V4OR_PID"

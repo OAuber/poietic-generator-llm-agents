@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Player V6 - Poietic Generator (OpenRouter)</title>
+    <title>AI Player V4or - Poietic Generator (OpenRouter)</title>
     <link rel="stylesheet" href="css/llm-player.css">
     <style>
         .header-banner { background:#1a1a1a; border-bottom:2px solid #333; padding:10px 15px; display:flex; flex-direction:column; gap:8px; }
@@ -51,9 +51,9 @@
 
         <div class="control-panel">
             <div class="header-banner">
-                <div class="banner-title">AI Player V6 - Poietic Generator (OpenRouter)</div>
+                <div class="banner-title">AI Player V4or - Poietic Generator (OpenRouter)</div>
                 <div class="banner-info">
-                    <span>Mode: <span id="v6-mode">seed</span></span>
+                    <span>Mode: <span id="v4or-mode">seed</span></span>
                     <span>Model: <span id="header-llm-model">-</span></span>
                     <span>Position: <span id="header-position">[-, -]</span></span>
                 </div>
@@ -137,7 +137,7 @@
                     <!-- Metrics -->
                     <div class="tab-panel" id="tab-monitoring">
                         <div class="section">
-                            <div class="section-title">Simplicity Theory Metrics (V6 - O/W)</div>
+                            <div class="section-title">Simplicity Theory Metrics (V4or - O/W)</div>
                             <div id="simplicity-metrics-container" style="background:#1a1a1a; padding:10px; border-radius:6px; font-family:monospace;">
                                 <div style="margin-bottom:15px;">
                                     <h4 style="color:#888; margin:0 0 8px 0; font-size:11px; font-weight:normal;">O-machine (server, OpenRouter)</h4>
@@ -192,14 +192,14 @@
         <div class="image-modal-content"><img id="modal-image" src="" alt="LLM Image"></div>
     </div>
 
-    <!-- Scripts V6 - OpenRouter -->
+    <!-- Scripts V4or - OpenRouter -->
     <script type="module" src="js/spatial-analysis.js?v=20250116-52"></script>
     <script type="module" src="js/llava-canvas.js?v=20250124-053"></script>
     <script type="module">
-        import { OpenRouterProvider } from './js/llm-adapters/openrouter.js?v=2026-06-03-v6b';
+        import { OpenRouterProvider } from './js/llm-adapters/openrouter.js?v=2026-06-04-v4or';
         window.OpenRouterProvider = OpenRouterProvider;
-        console.log('[V6] OpenRouter provider exposed globally');
+        console.log('[V4or] OpenRouter provider exposed globally');
     </script>
-    <script type="module" src="js/v6/ai-player-v6.js?v=2026-06-03-v6b"></script>
+    <script type="module" src="js/v4or/ai-player-v4or.js?v=2026-06-04-v4or"></script>
 </body>
 </html>

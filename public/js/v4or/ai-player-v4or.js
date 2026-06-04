@@ -1,8 +1,8 @@
 import { SimplicityMetrics } from '../simplicity-metrics.js';
 
-// AI Player V6 - distille de V4. Provider unique (OpenRouter) injecte,
+// AI Player V4or (variante de V4) - distille de V4. Provider unique (OpenRouter) injecte,
 // modele choisi au lancement, cle cote serveur (proxy :8006), compteur de cout.
-class AIPlayerV6 {
+class AIPlayerV4or {
   constructor() {
     this.isRunning = false;
     this.isPaused = false;
@@ -35,14 +35,14 @@ class AIPlayerV6 {
 
     // Session partagee (agregation cout du banc) + modele choisi au lancement
     const params = new URLSearchParams(loc.search);
-    this.sessionId = params.get('session') || 'poietic-v6';
+    this.sessionId = params.get('session') || 'poietic-v4or';
     this.model = params.get('model') || this.provider?.models?.[0]?.id || 'google/gemini-3.5-flash';
 
     this.elements = {
       interval: document.getElementById('interval'),
       btnStart: document.getElementById('btn-start'),
       btnPause: document.getElementById('btn-pause'),
-      modeLabel: document.getElementById('v6-mode'),
+      modeLabel: document.getElementById('v4or-mode'),
       journal: document.getElementById('journal'),
       predError: document.getElementById('prediction-error'),
       viewerFrame: document.getElementById('viewer-frame'),
@@ -74,7 +74,7 @@ class AIPlayerV6 {
       this.elements.journal.textContent += args.join(' ') + '\n';
       this.elements.journal.scrollTop = this.elements.journal.scrollHeight;
     }
-    console.log('[V6]', ...args);
+    console.log('[V4or]', ...args);
   }
 
   escapeHtml(text) {
@@ -436,7 +436,7 @@ class AIPlayerV6 {
       }, 3000);
 
       this.socket.onopen = () => {
-        this.log('Connecte au Poietic Generator (V6)');
+        this.log('Connecte au Poietic Generator (V4or)');
         if (this.elements.statusBadge) this.elements.statusBadge.textContent = 'Connected';
         this.startHeartbeat();
       };
@@ -738,4 +738,4 @@ class AIPlayerV6 {
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => new AIPlayerV6());
+window.addEventListener('DOMContentLoaded', () => new AIPlayerV4or());
