@@ -1,149 +1,140 @@
-# poietic-generator-api
+# Poietic Generator — application collaborative + agents LLM de vision
 
-Poietic Generator V.5 s'appuie sur Crystal et Javascript.
+Le **Poietic Generator** (Olivier Auber, 1986) est une application de **dessin collaboratif en
+temps réel** : chaque participant contrôle une cellule de 20×20 pixels sur une grille partagée,
+et l'œuvre émerge de l'interaction de tous. Ce dépôt contient le **serveur** (Crystal) + **client**
+(JavaScript), ainsi que plusieurs générations d'**agents LLM dotés de vision** (V2 → V6) qui
+dessinent aux côtés des humains.
+
+Fil conducteur : la **Théorie de la Simplicité** (J.-L. Dessalles) — l'émergence est mesurée par
+**U = C_w − C_d** (complexité de génération moins complexité de description). Voir
+[`VERSIONS.md`](VERSIONS.md) pour la philosophie et le détail des versions.
 
 ## Objectifs
 
-Poietic Generator est une application collaborative de dessin en temps réel historique dont la première version date de 1986.  
-Elle vise à :
-- Permettre à plusieurs utilisateurs de dessiner simultanément sur une grille partagée, chaque participant disposant de sa propre "cellule".
-- Offrir une expérience fluide, même en cas de coupure réseau ou de reconnexion, grâce à une gestion avancée de la persistance et de la synchronisation.
-- Favoriser la créativité collective, l'expérimentation et l'observation de dynamiques émergentes.
+- Permettre à plusieurs utilisateurs (humains et/ou agents IA) de dessiner simultanément sur une
+  grille partagée.
+- Offrir une expérience fluide même en cas de coupure réseau, grâce à une gestion avancée de la
+  persistance et de la synchronisation.
+- Favoriser la créativité collective et l'**observation de dynamiques émergentes**, et permettre
+  de **mesurer** cette émergence.
 
-## Fonctionnalités principales
+## Architecture (état actuel)
 
-- **Dessin collaboratif en temps réel** : chaque utilisateur contrôle une cellule de 20x20 pixels sur la grille et peut dessiner en direct.
-- **Gestion robuste des connexions** :
-  - Reconnexion rapide après coupure réseau (l'utilisateur retrouve sa cellule et son dessin).
-  - Mode offline : possibilité de continuer à dessiner hors-ligne, synchronisation automatique à la reconnexion.
-  - Détection et gestion des sessions multiples dans le même navigateur.
-- **Interface utilisateur réactive** :
-  - Overlays d'état (connexion, déconnexion, problème réseau…)
-  - Jauge d'activité et gestion de l'inactivité (déconnexion automatique après 3 minutes sans action).
-  - Bouton de reconnexion, affichage du nombre d'utilisateurs, etc.
-- **Persistance de l'état** : chaque utilisateur conserve son identifiant et son dessin, même après un rechargement ou une reconnexion.
-- **Extensible** : architecture modulaire (API Crystal, client JS), facile à adapter ou enrichir.
+Trois services coopèrent :
 
-## 🤖 AI Agents Extension
+- **`3001` — Serveur de jeu** (Crystal/Kemal) : canvas collaboratif (WebSocket `/updates`), sert
+  les fichiers statiques, et **enregistre** les sessions (`API.recorder` → `db/recorder.db`).
+- **`3002` — Recorder / Player** : **rejeu** des sessions sur `http://localhost:3002/player/`
+  (lit la même base).
+- **`8006` — Serveur IA V6** (Python/FastAPI) : proxy unifié vers **OpenRouter** pour les agents
+  de vision, avec **compteur de coût** et garde-fou de budget.
 
-This repository includes LLM integration capabilities, but for a complete standalone AI agent package with documentation and examples, see:
+La mesure de l'émergence repose sur la triade **W** (agents qui dessinent) / **O** (observation,
+calcul de C_d) / **N** (narration, C_w et erreurs de prédiction) — détaillée dans
+[`VERSIONS.md`](VERSIONS.md).
 
-👉 **[poietic-generator-llm-agents](https://github.com/OAuber/poietic-generator-llm-agents)** - Standalone package dedicated to AI agents
+## Démarrage rapide
 
-### What's the Difference?
+Prérequis : [Crystal](https://crystal-lang.org/install/), Python 3 (FastAPI/httpx), un compilateur
+C et les libs système (voir messages de `start-v6.sh`).
 
-**poietic-generator-api** (this repo):
-- 🎨 **Main collaborative application** for human users
-- 🤝 Real-time drawing on shared canvas
-- 🔧 **Includes LLM support** via adapters in `public/js/llm-adapters/`
-- 📦 LLaVA, Gemini, Anthropic, OpenAI adapters included
-- 🖥️ Complete server infrastructure (Crystal + JavaScript)
-- 👤 Designed for human interaction with optional AI agents
-
-**poietic-generator-llm-agents** (separate repo):
-- 🤖 **Standalone AI agent package** 
-- 📚 Complete documentation and examples
-- 🦙 Multi-LLM support (Ollama, Claude, GPT, Mistral)
-- 🎯 Focus on autonomous agent behavior
-- 🧪 Testing utilities and examples
-- 📊 Analytics and monitoring tools
-
-### LLM Features in This Repository
-
-- `public/ai-player.html` - AI agent launcher interface  
-- `public/ai-player-v2.html` - Gemini/LLaVA player interface
-- `public/js/ai-player.js` - Agent orchestration logic
-- `public/js/llm-adapters/` - LLM adapters (Gemini, LLaVA, Anthropic, OpenAI)
-  - `gemini-v2.js` - Google Gemini Flash adapter
-  - `llava.js` - LLaVA local model adapter
-  - `anthropic.js` - Claude adapter
-  - `ollama.js` - Ollama adapter
-- `python/poietic_ai_server.py` - FastAPI proxy for LLM APIs
-- `public/gemini-prompts-v2-simple.json` - Gemini prompt templates
-
-### Quick Start (AI Agents)
-
-```bash
-# Launch AI agents using the integrated player
-firefox http://localhost:3001/ai-player-v2.html
-
-# For complete agent documentation and examples:
-# See https://github.com/OAuber/poietic-generator-llm-agents
-```
-
-## Installation
-
-1. Installez [Crystal](https://crystal-lang.org/install/).
-2. Clonez ce dépôt :
-   ```sh
-   git clone https://github.com/OAuber/poietic-generator-api.git
-   cd poietic-generator-api
-   ```
-3. Installez les dépendances :
-   ```sh
-   shards install
-   ```
-4. Compilez le projet :
-   ```sh
-   shards build
-   ```
-5. (Optionnel) Configurez les variables d'environnement dans le dossier `config/` ou `etc/`.
-
-## Usage
-
-Pour lancer l'API :
 ```sh
-bin/poietic-generator-api
+# 1. Dépendances + compilation Crystal
+shards install && shards build
+
+# 2. Configuration (clé OpenRouter pour les agents V6)
+cp .env.example .env        # puis renseigner OPENROUTER_API_KEY
+
+# 3. Tout lancer (jeu 3001 + player 3002 + IA V6 8006)
+./start-v6.sh
 ```
 
-Pour utiliser la CLI :
-```sh
-crystal src/cli/mon_script.cr
-```
+Accès :
+- Jeu : `http://localhost:3001/`
+- Agents de vision V6 : `http://localhost:3001/ai-player-v6.html`
+  (un onglet = un modèle, ex. `?model=anthropic/claude-opus-4.8`)
+- Rejeu des sessions : `http://localhost:3002/player/`
+- API IA V6 / coûts : `http://localhost:8006/docs` · `http://localhost:8006/api/usage`
 
-Consultez la documentation dans le dossier `docs/` pour plus d'exemples d'utilisation.
+## Agents LLM de vision (V6 — OpenRouter)
+
+- **Fournisseur unique** via [OpenRouter](https://openrouter.ai/) : le **modèle est une simple
+  configuration** (plus d'adaptateur par fournisseur). Clé **côté serveur** (`OPENROUTER_API_KEY`).
+- **Multi-modèles en parallèle** (1 agent = 1 modèle) pour comparer la capacité d'émergence.
+- **Compteur de coût centralisé** + **kill-switch** `MAX_SESSION_USD` (HTTP 402 au dépassement).
+- Fichiers clés : `python/poietic_ai_server_v6.py`, `python/cost_tracker_v6.py`,
+  `public/js/llm-adapters/openrouter.js`, `public/js/v6/ai-player-v6.js`, `public/prompts/v6-*.json`.
+
+Les générations précédentes (V2 LLaVA/Gemini, V3 capture canvas, V4 O-W, V5 O-N-W) restent
+présentes côte à côte. Voir [`VERSIONS.md`](VERSIONS.md).
+
+## Rejeu des sessions (Player)
+
+Le recorder enregistre chaque session ; le **player** (port 3002) permet de les **rejouer** :
+sélection par date/durée/nombre d'utilisateurs, contrôles de lecture, et option de **fond**
+(noir / pseudo-aléatoire). En production, Caddy mappe `/player/* → 3002`.
+
+## Métriques (V5)
+
+La V5 mesure l'émergence en continu : C_w, C_d, U, erreurs de prédiction par agent (moyenne,
+écart-type = « fragmentation narrative ») et classement des agents. Le serveur de métriques
+(`python/metrics_server_v5.py`, port **5005**) agrège ces données ; le dashboard
+**`public/ai-metrics.html`** les affiche en temps réel. Détails dans [`VERSIONS.md`](VERSIONS.md).
+
+## Versions (résumé)
+
+| Version | En un mot |
+|--------|-----------|
+| **V2** | Agent de vision autonome (observe = agit), LLaVA 7B / Gemini, métriques côté client |
+| **V3** | Perception réelle : capture du canvas, vision locale consolidée |
+| **V4** | Architecture **O-W** : un observateur dédié mesure l'émergence (port 8004) |
+| **V5** | Triade **O-N-W** : narration, erreurs de prédiction, classements (8005 + métriques 5005) |
+| **V6** | **OpenRouter** : provider unique, multi-modèles, coût maîtrisé (8006) |
+
+➡️ Philosophie et caractéristiques détaillées : **[`VERSIONS.md`](VERSIONS.md)**.
+
+## Reconnexion rapide & mode offline
+
+- **Reconnexion rapide** : après une coupure, un client peut se reconnecter avec le même `user_id`
+  dans un délai de 3 minutes (par défaut) ; son état (cellule, dessin) est restauré.
+- **Mode offline** : le client peut continuer à dessiner localement ; les actions sont
+  synchronisées à la reconnexion.
+- **Robustesse** : reconnexion gérée même si l'ancienne WebSocket n'est pas encore fermée
+  (coupure brutale, mode avion…).
+
+Détails techniques : `docs/030-protocols/`.
 
 ## Développement
 
-Pour lancer les tests :
 ```sh
-crystal spec
+crystal spec        # tests unitaires
+crystal spec tests/ # tests d'intégration
 ```
-
-Pour exécuter les tests d'intégration :
-```sh
-crystal spec tests/
-```
-
-Les contributions sont les bienvenues ! Veuillez suivre les instructions de la section suivante.
-
-## Contributing
-
-1. Fork it (<https://github.com/OAuber/poietic-generator-api/fork>)
-2. Créez votre branche de fonctionnalité (`git checkout -b ma-nouvelle-fonctionnalite`)
-3. Commitez vos modifications (`git commit -am 'Ajout d'une fonctionnalité'`)
-4. Poussez sur la branche (`git push origin ma-nouvelle-fonctionnalite`)
-5. Créez une nouvelle Pull Request
 
 ## Documentation
 
-La documentation détaillée est disponible dans le dossier `docs/`. Consultez notamment :
-- `docs/010-usage/` pour l'utilisation
-- `docs/020-contributing/` pour contribuer
-- `docs/030-protocols/` pour les protocoles d'API
+- `docs/010-usage/` — utilisation
+- `docs/020-contributing/` — contribution
+- `docs/030-protocols/` — protocoles d'API
+- **`docs/archive/`** — documentation **historique** (notes de conception et expérimentations
+  V2→V5 : LLaVA, Gemini, prompts, théorie de la simplicité, architecture, ops). Voir
+  [`docs/archive/README.md`](docs/archive/README.md).
 
-La documentation en ligne est également accessible ici :
-https://poietic-generator.github.io/poietic-generator-documentation/
+Documentation en ligne : https://poietic-generator.github.io/poietic-generator-documentation/
 
-## Gestion de la reconnexion rapide et du mode offline
+## Contributing
 
-- **Reconnexion rapide** : Si un client perd la connexion réseau, il peut se reconnecter avec le même identifiant utilisateur (`user_id`) dans un délai de 3 minutes (par défaut). Son état (cellule, dessin) est restauré.
-- **Mode offline** : Si le client perd la connexion, il peut continuer à dessiner localement. À la reconnexion, toutes les actions réalisées hors-ligne sont automatiquement synchronisées avec le serveur.
-- **Robustesse** : Le serveur gère les reconnexions même si l'ancienne WebSocket n'est pas encore fermée (coupure brutale, mode avion, etc.).
-
-Pour plus de détails, voir la documentation technique dans `docs/030-protocols/`.
+1. Forkez le dépôt.
+2. Créez votre branche (`git checkout -b ma-fonctionnalite`).
+3. Commitez (`git commit -am "Ajout d'une fonctionnalité"`).
+4. Poussez (`git push origin ma-fonctionnalite`) et ouvrez une Pull Request.
 
 ## Contributors
 
-- [Olivier Auber](https://github.com/OAuber) - creator and maintainer
-- [Glenn Rolland](https://github.com/glenux) - Expert
+- [Olivier Auber](https://github.com/OAuber) — créateur et mainteneur
+- [Glenn Rolland](https://github.com/glenux) — expert
+
+## Licence
+
+Free Art License (copyleft).
