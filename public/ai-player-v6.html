@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Player V5 - Poietic Generator (O-N-W Architecture)</title>
+    <title>AI Player V6 - Quantum Generator</title>
     <link rel="stylesheet" href="css/llm-player.css">
     <style>
         /* Header Banner Styles */
@@ -314,9 +314,8 @@
         <div class="control-panel">
             <!-- Header Banner -->
             <div class="header-banner">
-                <div class="banner-title">AI Player V5 - Poietic Generator</div>
+                <div class="banner-title">AI Poietic Generator: Player V6 (Quantum)</div>
                 <div class="banner-info">
-                    <span>Mode: <span id="v4-mode">seed</span></span>
                     <span>LLM Model: <span id="header-llm-model">Gemini Flash 2.5</span></span>
                     <span>Agent position: <span id="header-position">[-, -]</span></span>
                 </div>
@@ -344,7 +343,7 @@
                         <div class="input-group">
                             <label>LLM Model</label>
                             <select id="llm-model-select">
-                                <option value="gemini-v4" selected>💎 Google Gemini V4 (O/W Alternation)</option>
+                                <option value="gemini-v6" selected>⚛️ Google Gemini V6 (Quantum Architecture)</option>
                             </select>
                         </div>
 
@@ -371,13 +370,13 @@
 
                         <div class="input-group">
                             <label>Delay after iteration (s)</label>
-                            <input type="number" id="interval" value="20" min="0" max="60">
+                            <input type="number" id="interval" value="30" min="0" max="60">
                         </div>
 
                         <!-- Status Section -->
                         <div class="section">
                             <div class="section-title">Status</div>
-                            <div class="decision-box" style="margin-top:12px;">
+                            <div style="margin-top:12px; width: 100%;">
                                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                                     <span class="status-badge disconnected" id="status-badge">Disconnected</span>
                                     <span class="status-badge disconnected" id="llm-status-badge">LLM: Inactive</span>
@@ -402,7 +401,7 @@
                                 
                                 <!-- O+N-machine Graph (Server-side) -->
                                 <div style="margin-bottom: 15px;">
-                                    <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
+                                    <div style="color: #888; font-size: 12px; margin-bottom: 5px; padding-left: 0;">
                                         Iteration: <span id="o-version">0</span> | 
                                         C_w: <span id="o-cw">0</span> | 
                                         C_d: <span id="o-cd">0</span> | 
@@ -417,7 +416,7 @@
                                 </div>
 
                                 <!-- V5: Graphique erreurs de prédiction (remplace graphique W-machine) -->
-                                <div style="margin-top: 20px; margin-bottom: 15px;">
+                                <div style="margin-top: 15px; margin-bottom: 15px;">
                                     <h4 style="color: #888; margin: 0 0 8px 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">PREDICTION ERRORS</h4>
                                     <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
                                         Current Error: <span id="prediction-error">0.00</span> | 
@@ -429,6 +428,35 @@
                                         <span style="color: #007bff; font-weight: bold;">●</span> Agent Error
                                         <span style="margin-left: 12px; color: #28a745; font-weight: bold;">●</span> Mean Agents Error
                                         <span style="margin-left: 12px; color: #dc3545; font-weight: bold;">⋯</span> Std Deviation
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- V6: Quantum Metrics -->
+                        <div class="section" style="margin-top: 15px;">
+                            <div class="section-title">QUANTUM METRICS</div>
+                            <div id="quantum-metrics-container" style="background: #1a1a1a; padding: 10px; border-radius: 6px; font-family: monospace;">
+                                
+                                <!-- Quantum Metrics Display -->
+                                <div style="margin-bottom: 15px;">
+                                    <div style="color: #888; font-size: 12px; margin-bottom: 5px;">
+                                        Version: <span id="quantum-version">0</span> | 
+                                        φ: <span id="metric-phi" style="color: #00d4ff;">0.00</span> | 
+                                        ξ: <span id="metric-xi" style="color: #8080ff;">0.00</span> | 
+                                        I: <span id="metric-I" style="color: #ff80ff;">0.00</span> | 
+                                        τ: <span id="metric-tau" style="color: #ffcc00;">0.00</span> | 
+                                        ΔS: <span id="metric-dS" style="color: #ffff80;">0.00</span> | 
+                                        U: <span id="metric-u" style="color: #00ff88;">0</span> | 
+                                        Rank: <span id="metric-rank" style="color: #ff4488;">-</span>
+                                    </div>
+                                    <canvas id="quantum-chart" width="800" height="120" style="width: 100%; height: 120px;"></canvas>
+                                    <div style="color: #ccc; font-size: 12px; margin-top: 5px;">
+                                        <span style="color: #00d4ff;">■</span> φ (Formal Resonance)
+                                        <span style="margin-left: 12px; color: #8080ff;">■</span> ξ/3 (Collective Extent)
+                                        <span style="margin-left: 12px; color: #ff80ff;">■</span> I (Pareidolic Contrast)
+                                        <span style="margin-left: 12px; color: #ffcc00;">■</span> τ (Narrative Convergence)
+                                        <span style="margin-left: 12px; color: #ffff80;">■</span> ΔS (Complexity Flux)
                                     </div>
                                 </div>
                             </div>
@@ -448,19 +476,19 @@
 
                     <!-- Tab 4: Debug -->
                     <div class="tab-panel" id="tab-debug">
-                        <!-- Event Log -->
-                        <div class="section">
-                            <div class="section-title">Event Log</div>
-                            <div class="journal" id="journal">
-                                <div class="journal-entry">Waiting for connection...</div>
-                            </div>
-                        </div>
-
                         <!-- Images sent to LLM -->
                         <div class="section">
                             <div class="section-title">Images sent to LLM</div>
                             <div class="images-display" id="llm-images">
                                 <div class="image-placeholder">No images sent yet</div>
+                            </div>
+                        </div>
+
+                        <!-- Event Log -->
+                        <div class="section">
+                            <div class="section-title">Event Log</div>
+                            <div class="journal" id="journal">
+                                <div class="journal-entry">Waiting for connection...</div>
                             </div>
                         </div>
                     </div>
@@ -477,15 +505,75 @@
         </div>
     </div>
 
-    <!-- Scripts V4 - O/W Alternation -->
-    <script type="module" src="js/spatial-analysis.js?v=20250116-52"></script>
-    <script type="module" src="js/llava-canvas.js?v=20250124-053"></script>
-    <!-- Load Gemini V5 and expose globally -->
+    <!-- Scripts V6 - Quantum Architecture -->
+    <script type="module" src="js/spatial-analysis.js?v=20250203-01"></script>
+    <script type="module" src="js/llava-canvas.js?v=20250203-01"></script>
+    <!-- Load Gemini V6 and expose globally -->
     <script type="module">
-        import { GeminiV5Adapter } from './js/llm-adapters/gemini-v5.js?v=20250127-v5-33';
-        window.GeminiV5Adapter = GeminiV5Adapter;
-        console.log('✅ [V5] Gemini V5 Adapter (O-N-W Architecture) exposed globally');
+        import { GeminiV6Adapter } from './js/llm-adapters/gemini-v6.js?v=20250203-v6-01';
+        window.GeminiV6Adapter = GeminiV6Adapter;
+        console.log('✅ [V6] Gemini V6 Adapter (Quantum Architecture) exposed globally');
     </script>
-    <script type="module" src="js/ai-player-v5.js?v=20250127-v5-33"></script>
+    <script type="module" src="js/ai-player-v6.js?v=20250203-v6-01"></script>
+    <script>
+        // Tab switching logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const tabPanels = document.querySelectorAll('.tab-panel');
+            
+            tabButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const targetTab = btn.dataset.tab;
+                    
+                    // Remove active class from all buttons and panels
+                    tabButtons.forEach(b => b.classList.remove('active'));
+                    tabPanels.forEach(p => p.classList.remove('active'));
+                    
+                    // Add active class to clicked button and corresponding panel
+                    btn.classList.add('active');
+                    const targetPanel = document.getElementById(`tab-${targetTab}`);
+                    if (targetPanel) {
+                        targetPanel.classList.add('active');
+                    }
+                });
+            });
+            
+            // Viewer URL toggle
+            const toggleViewerUrl = document.getElementById('toggle-viewer-url');
+            const viewerUrlSelect = document.getElementById('viewer-url');
+            if (toggleViewerUrl && viewerUrlSelect) {
+                toggleViewerUrl.addEventListener('click', () => {
+                    const isVisible = viewerUrlSelect.style.display !== 'none';
+                    viewerUrlSelect.style.display = isVisible ? 'none' : 'block';
+                    toggleViewerUrl.textContent = isVisible ? '▼ Change' : '▲ Hide';
+                });
+            }
+            
+            // Image modal
+            const imageModal = document.getElementById('image-modal');
+            const modalImage = document.getElementById('modal-image');
+            const modalClose = document.querySelector('.image-modal-close');
+            
+            if (imageModal && modalImage && modalClose) {
+                // Open modal on image click
+                document.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('image-thumbnail')) {
+                        modalImage.src = e.target.src;
+                        imageModal.style.display = 'block';
+                    }
+                });
+                
+                // Close modal
+                modalClose.addEventListener('click', () => {
+                    imageModal.style.display = 'none';
+                });
+                imageModal.addEventListener('click', (e) => {
+                    if (e.target === imageModal) {
+                        imageModal.style.display = 'none';
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

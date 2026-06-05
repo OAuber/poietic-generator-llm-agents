@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Poietic Generator: Metrics</title>
+    <title>AI Poietic Generator: Metrics V6</title>
     <style>
         :root {
             --bg-primary: #0d1117;
@@ -270,6 +270,8 @@
             min-width: 240px;
             z-index: 1000;
             display: none;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
         }
 
         .add-popup-menu.show {
@@ -540,7 +542,7 @@
     <!-- Header -->
     <div class="header">
         <div class="header-left">
-            <h1>📊 AI Poietic Generator: Metrics</h1>
+            <h1>📊 AI Poietic Generator: Metrics V6</h1>
             <div id="connection-status" class="connection-status disconnected">
                 <span class="dot"></span>
                 <span class="text">Disconnected</span>
@@ -570,6 +572,7 @@
                 ➕ Add Visualization
             </button>
             <div class="add-popup-menu" id="add-popup-menu">
+                <!-- V5 Popups -->
                 <div class="add-popup-menu-item" data-type="simplicity">
                     <span class="icon">📈</span>
                     <div>
@@ -629,14 +632,14 @@
                 <div class="add-popup-menu-item" data-type="verbatim">
                     <span class="icon">💬</span>
                     <div>
-                        <div class="label">Verbatim Stream (W machines)</div>
-                        <div class="desc">W machine responses with strategies and iterations</div>
+                        <div class="label">Verbatim (S+W machines)</div>
+                        <div class="desc">S and W machine responses with strategies and iterations</div>
                     </div>
                 </div>
                 <div class="add-popup-menu-item" data-type="verbatim-on">
                     <span class="icon">📝</span>
                     <div>
-                        <div class="label">Verbatim Stream (O N machines)</div>
+                        <div class="label">Verbatim (O+N machines)</div>
                         <div class="desc">O and N machine responses</div>
                     </div>
                 </div>
@@ -654,6 +657,42 @@
                         <div class="desc">Avg pixels change & ΔC_w by rank</div>
                     </div>
                 </div>
+                <!-- V6 Quantum Popups -->
+                <div class="add-popup-menu-item" data-type="quantum-coherence">
+                    <span class="icon">⚛️</span>
+                    <div>
+                        <div class="label">Quantum Coherence</div>
+                        <div class="desc">φ (Formal Resonance), ξ (Collective Extent), I (Pareidolic Contrast)</div>
+                    </div>
+                </div>
+                <div class="add-popup-menu-item" data-type="narrative-convergence">
+                    <span class="icon">🌀</span>
+                    <div>
+                        <div class="label">Narrative Convergence</div>
+                        <div class="desc">τ (Narrative Convergence), ΔS (Complexity Flux)</div>
+                    </div>
+                </div>
+                <div class="add-popup-menu-item" data-type="quantum-overview">
+                    <span class="icon">✨</span>
+                    <div>
+                        <div class="label">Quantum State Overview</div>
+                        <div class="desc">All quantum metrics in one view</div>
+                    </div>
+                </div>
+                <div class="add-popup-menu-item" data-type="quantum-verbatim">
+                    <span class="icon">📖</span>
+                    <div>
+                        <div class="label">O+N Verbatim (Quantum)</div>
+                        <div class="desc">O structures, N narrative, prediction errors</div>
+                    </div>
+                </div>
+                <div class="add-popup-menu-item" data-type="follow-graph">
+                    <span class="icon">🔀</span>
+                    <div>
+                        <div class="label">Follow Relations</div>
+                        <div class="desc">Who follows whom between agents</div>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="toolbar-divider"></div>
@@ -665,7 +704,7 @@
         <div class="toolbar-divider"></div>
         <div class="toolbar-section" style="display: flex; align-items: center; gap: 8px;">
             <label style="font-size: 11px; color: var(--text-secondary);">Strategy Params:</label>
-            <input type="number" id="strategy-u-threshold" value="70" min="0" max="200" step="5" 
+            <input type="number" id="strategy-u-threshold" value="20" min="0" max="200" step="5" 
                    style="width: 60px; padding: 4px 6px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 11px;"
                    title="U threshold: Consider easy strategies if U < this value">
             <span style="font-size: 11px; color: var(--text-secondary);">U</span>
@@ -696,9 +735,8 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Scripts -->
-    <script src="js/popup-manager.js?v=20250127-17"></script>
-    <script src="js/replay-engine.js?v=20250127-16"></script>
-    <script src="js/ai-metrics.js?v=20250127-16"></script>
+    <script src="js/popup-manager-v6.js?v=20250203-v6-01"></script>
+    <script src="js/replay-engine.js?v=20250203-v6-01"></script>
+    <script src="js/ai-metrics-v6.js?v=20250203-v6-01"></script>
 </body>
 </html>
-

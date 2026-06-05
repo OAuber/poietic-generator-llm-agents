@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Narrative Viewer V6</title>
+    <link rel="stylesheet" href="/css/narrative-viewer.css">
+</head>
+<body>
+    <div class="narrative-viewer">
+        <!-- Left: O+N narrative (quantum) -->
+        <div class="text-panel left-panel">
+            <div class="text-content" id="on-content">
+                <div class="loading">Waiting for O+N quantum narrative...</div>
+            </div>
+        </div>
+        <!-- Center: viewer2 canvas -->
+        <div class="viewer-panel">
+            <iframe src="/viewer2" id="viewer-iframe"></iframe>
+        </div>
+        <!-- Right: W narrative (strategies) -->
+        <div class="text-panel right-panel">
+            <div class="text-content" id="w-content">
+                <div class="loading">Waiting for W-agent narratives...</div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="/js/narrative-viewer-v6.js"></script>
+</body>
+</html>
+
+
