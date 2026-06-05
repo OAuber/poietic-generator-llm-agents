@@ -14,6 +14,8 @@ import re
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
+import utterance_store
+
 # ==============================================================================
 # OPENROUTER (V5 route ses appels LLM via OpenRouter, pas Gemini en direct)
 # ==============================================================================
@@ -1704,6 +1706,11 @@ async def periodic_on_task():
             
             store.set_snapshot(combined_snapshot)
             print(f"[ON] Snapshot O+N combiné (version {store.version}, {len(combined_snapshot['structures'])} structures, U={u_value})")
+
+            combined_snapshot['version'] = store.version
+            combined_snapshot['timestamp'] = store.latest.get('timestamp') if store.latest else None
+            utterance_store.record_o_from_snapshot(combined_snapshot)
+            utterance_store.record_n_from_snapshot(combined_snapshot)
             
             # V5: Envoyer snapshot N (combiné) au serveur de métriques
             # Le snapshot combiné contient toutes les données N (narrative, C_w, prediction_errors)
@@ -1853,6 +1860,16 @@ async def receive_w_data(payload: dict = Body(...)):
         return {'ok': False, 'error': 'missing_agent_id'}
     
     w_store.update_agent_data(agent_id, payload)
+    agent_record = {
+        'id': agent_id,
+        'position': payload.get('position', [0, 0]),
+        'iteration': payload.get('iteration', 0),
+        'strategy': payload.get('strategy', ''),
+        'rationale': payload.get('rationale', ''),
+        'predictions': payload.get('predictions', {}),
+        'timestamp': payload.get('timestamp'),
+    }
+    utterance_store.record_w_from_agent(agent_record)
     return {'ok': True, 'agent_id': agent_id, 'timestamp': datetime.now(timezone.utc).isoformat()}
 
 

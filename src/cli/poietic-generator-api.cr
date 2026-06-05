@@ -590,6 +590,14 @@ get "/js/llm-adapters/:file" do |env|
   file.gets_to_end
 end
 
+# Route pour TTS / tableau parlant
+get "/js/tts/:file" do |env|
+  file = env.params.url["file"].split("?").first
+  env.response.headers["Content-Type"] = "application/javascript"
+  file = FileStorage.get("js/tts/#{file}")
+  file.gets_to_end
+end
+
 # Route spécifique pour le manuel LLM
 get "/MANUEL_PRATIQUE_LLM.md" do |env|
   env.response.headers["Content-Type"] = "text/markdown; charset=utf-8"

@@ -18,6 +18,9 @@ from typing import Dict, List, Optional, Set
 from collections import defaultdict
 import websockets
 from websockets.server import serve
+import threading
+
+import utterance_store
 
 # ==============================================================================
 # QUANTUM SIMPLICITY TRACKER
@@ -198,7 +201,7 @@ class SessionRecorder:
                 "strategy_id": strategy_id,
                 "strategy_ids": strategy_ids if strategy_ids else ([strategy_id] if strategy_id else []),
                 "source_agents": source_agents or [],
-                "rationale": rationale[:500] if rationale else ""
+                "rationale": rationale or ""
             })
             
             if tokens:
@@ -278,9 +281,15 @@ async def handle_message(websocket: websockets.WebSocketServerProtocol, message:
         if msg_type == 'quantum_snapshot':
             snapshot = data.get('snapshot', {})
             tracker.add_quantum_snapshot(snapshot)
+            version = snapshot.get('version', tracker.snapshot_count)
+            if version != getattr(tracker, '_last_o_utterance_version', -1):
+                tracker._last_o_utterance_version = version
+                utterance_store.record_o_from_snapshot(snapshot)
+            if version != getattr(tracker, '_last_n_utterance_version', -1):
+                tracker._last_n_utterance_version = version
+                utterance_store.record_n_from_snapshot(snapshot)
             
             # Extract data for V5-compatible events
-            version = snapshot.get('version', tracker.snapshot_count)
             prediction_errors = snapshot.get('prediction_errors', {})
             agent_rankings = snapshot.get('agent_rankings', {})
             sa = snapshot.get('simplicity_assessment', {})
@@ -462,6 +471,8 @@ async def handle_message(websocket: websockets.WebSocketServerProtocol, message:
                 iteration=iteration,
                 follow_action=follow_action
             )
+            if agent_type == "ai":
+                utterance_store.record_w_from_agent(agent_data)
             
             # Broadcast agent event to all clients
             await broadcast({
@@ -498,9 +509,23 @@ async def handler(websocket: websockets.WebSocketServerProtocol, path: str = Non
         print(f"[Q-Metrics] Client {client_id} disconnected ({len(connected_clients)} remaining)")
 
 
+def _start_utterance_http():
+    """API HTTP énoncés + export + SSE live (port 5010)."""
+    import utterance_http
+
+    t = threading.Thread(
+        target=utterance_http.run_server,
+        kwargs={"port": 5010},
+        daemon=True,
+    )
+    t.start()
+    print("[Q-Metrics] Utterances HTTP: http://localhost:5010/api/utterances/...")
+
+
 async def main():
     """Start WebSocket server"""
     port = 5006
+    _start_utterance_http()
     print(f"[Q-Metrics] 🚀 Quantum Metrics Server V6 starting on port {port}")
     
     async with serve(handler, "0.0.0.0", port):

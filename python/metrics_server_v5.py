@@ -16,6 +16,8 @@ from datetime import datetime
 import uuid
 import copy
 
+import utterance_store
+
 app = FastAPI(title="Poietic Metrics Server V5", version="5.1.0")
 
 
@@ -160,8 +162,8 @@ class SessionRecorder:
                 "strategy_id": strategy_id,
                 "strategy_ids": strategy_ids if strategy_ids else ([strategy_id] if strategy_id else []),  # CRITICAL FIX: Support for multiple strategies
                 "source_agents": source_agents or [],
-                "rationale": rationale[:500] if rationale else "",  # Limiter la taille
-                "verbatim_summary": verbatim_summary[:1000] if verbatim_summary else ""
+                "rationale": rationale or "",
+                "verbatim_summary": verbatim_summary or ""
             })
             
             # V5.1: Ajouter les métriques de tokens si disponibles
@@ -641,6 +643,8 @@ async def metrics_endpoint(websocket: WebSocket):
                     rank=current_rank,  # V5.1: Ajouter le rank actuel
                     iteration=iteration  # CRITICAL FIX: Pass iteration
                 )
+                if agent_type == "ai":
+                    utterance_store.record_w_from_agent(agent_data)
                 
                 # Broadcast state to all connected clients
                 state = tracker.get_state_summary()
@@ -670,6 +674,10 @@ async def metrics_endpoint(websocket: WebSocket):
                 
                 # V5.1: Stocker le snapshot O complet pour l'événement d'itération
                 session_recorder.last_o_snapshot = copy.deepcopy(snapshot)
+                version = snapshot.get('version', 0)
+                if version != getattr(session_recorder, '_last_o_utterance_version', -1):
+                    session_recorder._last_o_utterance_version = version
+                    utterance_store.record_o_from_snapshot(snapshot)
                 
                 # V5.1: Extraire et stocker les métriques globales
                 simplicity = snapshot.get('simplicity_assessment', {})
@@ -728,6 +736,10 @@ async def metrics_endpoint(websocket: WebSocket):
                     std_error = variance ** 0.5
                 
                 session_recorder.update_global_metrics(C_w, C_d, U, mean_error, std_error, version)
+                session_recorder.last_n_snapshot = copy.deepcopy(snapshot)
+                if version != getattr(session_recorder, '_last_n_utterance_version', -1):
+                    session_recorder._last_n_utterance_version = version
+                    utterance_store.record_n_from_snapshot(snapshot)
                 
                 # V5.1: Calculer et stocker les rankings
                 agent_positions = {aid: a.get('position', [0, 0]) for aid, a in tracker.agents.items()}
@@ -1031,8 +1043,84 @@ async def get_session_events(limit: int = 50, offset: int = 0):
     }
 
 
+# ==============================================================================
+# PROXY NARRATIVE VIEWER → serveur O-N (8005)
+# ==============================================================================
+
+ON_SERVER = "http://127.0.0.1:8005"
+
+
+@app.get("/narrative/o/latest")
+async def narrative_proxy_o_latest():
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{ON_SERVER}/o/latest")
+        return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e), "_pending": True})
+
+
+@app.get("/narrative/n/w-data")
+async def narrative_proxy_w_data():
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{ON_SERVER}/n/w-data")
+        return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"agents": {}, "error": str(e)})
+
+
+@app.get("/narrative/o/image")
+async def narrative_proxy_o_image():
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{ON_SERVER}/o/image")
+        return JSONResponse(content=r.json(), status_code=r.status_code)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"image_base64": "", "error": str(e)})
+
+
+# ==============================================================================
+# TABLEAU PARLANT — énoncés W/O/N (sidecar JSONL)
+# ==============================================================================
+
+@app.get("/api/utterances/sessions")
+async def list_utterance_sessions():
+    return {"sessions": utterance_store.list_session_ids()}
+
+
+@app.get("/api/utterances/{session_id}")
+async def get_utterances(session_id: str):
+    return {
+        "session_id": session_id,
+        "utterances": utterance_store.list_utterances(session_id),
+    }
+
+
+@app.get("/api/utterances/{session_id}/export")
+async def export_utterances_bundle(session_id: str):
+    from utterance_http import export_bundle
+
+    return await export_bundle(session_id)
+
+
 if __name__ == "__main__":
+    import threading
     import uvicorn
+    import utterance_http
+
+    threading.Thread(
+        target=utterance_http.run_server,
+        kwargs={"port": 5010},
+        daemon=True,
+    ).start()
+
     print("🚀 Démarrage Poietic Metrics Server V5.1 (O-N-W Architecture + SessionRecorder)")
     print("   WebSocket: ws://localhost:5005/metrics")
     print("   Health: http://localhost:5005/health")

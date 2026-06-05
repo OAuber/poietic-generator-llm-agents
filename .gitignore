@@ -37,6 +37,9 @@ vendor/bundle
 db/*.db
 db/*.db-shm
 db/*.db-wal
+db/utterances/
+db/tts_cache/
+db/exports/
 
 # Compiled binaries and archives
 *.tgz 
@@ -63,6 +66,9 @@ lib/
 db/*.db
 db/*.db-shm
 db/*.db-wal
+db/utterances/
+db/tts_cache/
+db/exports/
 *.db-journal
 recordings.db*
 

@@ -17,11 +17,77 @@ body {
     display: grid;
     height: 100vh;
     width: 100vw;
-    /* Landscape: 3 columns */
-    grid-template-columns: 300px 1fr 300px;
+    grid-template-columns: 320px 1fr 300px;
     grid-template-rows: 1fr;
     gap: 1px;
     background: #333;
+}
+
+.nv-status {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    font-size: 11px;
+    color: #888;
+    border-bottom: 1px solid #2a2a2a;
+    background: #121212;
+}
+
+.speech-controls {
+    flex-shrink: 0;
+    max-height: 42vh;
+    overflow-y: auto;
+    border-bottom: 1px solid #333;
+    background: #141414;
+}
+
+.speech-controls-inner {
+    padding: 10px 12px;
+    font-size: 11px;
+}
+
+.speech-controls .sc-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.speech-controls .sc-toggles label {
+    margin-right: 8px;
+}
+
+.speech-controls select,
+.speech-controls input[type="range"] {
+    flex: 1;
+    min-width: 80px;
+}
+
+.speech-controls .sc-btn {
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: #2a4a6a;
+    color: #eee;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.speech-controls .sc-btn:hover {
+    background: #3a5a7a;
+}
+
+.speech-controls .sc-hr {
+    border: none;
+    border-top: 1px solid #333;
+    margin: 8px 0;
+}
+
+[data-tts-hover]:hover {
+    background: rgba(80, 120, 180, 0.12);
+    cursor: pointer;
 }
 
 .text-panel {
@@ -29,6 +95,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-width: 0;
 }
 
 .text-content {

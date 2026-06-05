@@ -484,14 +484,15 @@ class AIPlayerV5 {
         // CRITICAL FIX: Ne pas remplacer un snapshot plus récent par un plus ancien
         // (peut arriver si le serveur retourne un snapshot O seul version 0 après un snapshot combiné version 1)
         // MAIS: Accepter tous les snapshots plus récents même si on a sauté des versions
-        const currentVersion = this.Osnapshot?.version || -1;
-        if (!this.Osnapshot || 
-            this.Osnapshot._pending || 
+        const prevVersion = this.Osnapshot?.version;
+        const currentVersion = prevVersion ?? 0;
+        if (!this.Osnapshot ||
+            this.Osnapshot._pending ||
             snapshot.version > currentVersion ||
             (snapshot.version === this.Osnapshot.version && !snapshot._pending && this.Osnapshot._pending)) {
-          const versionGap = snapshot.version > currentVersion ? (snapshot.version - currentVersion) : 0;
+          const versionGap = prevVersion != null ? (snapshot.version - prevVersion) : 0;
           if (versionGap > 1) {
-            console.warn(`[V5] ⚠️  Gap de versions détecté (fetchOSnapshot): client passe de version ${currentVersion} à ${snapshot.version} (gap: ${versionGap} versions sautées)`);
+            console.warn(`[V5] ⚠️  Gap de versions (fetchOSnapshot): v${prevVersion} → v${snapshot.version} (${versionGap - 1} sautée(s))`);
           }
           this.Osnapshot = snapshot;
           // Mettre à jour lastOVersionSeen pour éviter de bloquer sur une ancienne version
@@ -1148,7 +1149,7 @@ class AIPlayerV5 {
           // Snapshot invalide (vide, pending, ou N/A) - attendre un snapshot valide
           // CRITICAL FIX: Timeout pour éviter blocage infini si aucun snapshot valide n'arrive
           this._waitAttempts = (this._waitAttempts || 0) + 1;
-          const maxWaitAttempts = 30; // 30 tentatives × 2s = 60s max d'attente
+          const maxWaitAttempts = isFirstAction ? 10 : 30; // 20s première action, 60s ensuite
           
           if (this._waitAttempts >= maxWaitAttempts) {
             this.log(`⚠️  Timeout attente snapshot valide (${maxWaitAttempts} tentatives = 60s) - FORÇAGE action avec snapshot disponible pour éviter blocage`);
@@ -1172,7 +1173,7 @@ class AIPlayerV5 {
           // CRITICAL FIX: Réduire le timeout si on détecte qu'on est en retard (autres agents ont déjà reçu des snapshots plus récents)
           // Si lastOVersionSeen > lastOVersionAtAction, cela signifie qu'on a reçu un snapshot plus récent mais qu'on n'a pas encore agi
           const isBehind = this.lastOVersionSeen > this.lastOVersionAtAction;
-          const maxWaitOldSnapshotAttempts = isBehind ? 3 : 15; // 3 tentatives (6s) si en retard, 15 (30s) sinon
+          const maxWaitOldSnapshotAttempts = isBehind ? 2 : (isFirstAction ? 6 : 12);
           
           if (this._waitOldSnapshotAttempts >= maxWaitOldSnapshotAttempts) {
             this.log(`⚠️  Timeout attente snapshot plus récent (${maxWaitOldSnapshotAttempts} tentatives = ${maxWaitOldSnapshotAttempts * 2}s) - FORÇAGE action avec snapshot disponible (version ${finalCurrentOVersion}) pour éviter blocage`);
@@ -1207,10 +1208,14 @@ class AIPlayerV5 {
         // CRITICAL FIX: Si on est en retard (lastOVersionSeen > lastOVersionAtAction), permettre l'action même avec le même snapshot
         // car cela signifie qu'on a reçu un snapshot plus récent mais qu'on n'a pas encore agi
         const isBehind = this.lastOVersionSeen > this.lastOVersionAtAction;
-        if (!isFirstAction && finalCurrentOVersion === this.lastOVersionAtAction && !isBehind) {
+        // Plusieurs agents W peuvent agir en parallèle sur le même snapshot (positions différentes)
+        const sameSnapshotAlreadyActed = !isFirstAction &&
+          finalCurrentOVersion === this.lastOVersionAtAction &&
+          !isBehind;
+        if (sameSnapshotAlreadyActed) {
           this._waitSameSnapshotAttempts = (this._waitSameSnapshotAttempts || 0) + 1;
           // CRITICAL FIX: Réduire le timeout si on détecte qu'on est en retard
-          const maxWaitSameSnapshotAttempts = isBehind ? 3 : 15; // 3 tentatives (6s) si en retard, 15 (30s) sinon
+          const maxWaitSameSnapshotAttempts = isBehind ? 2 : (isFirstAction ? 5 : 10);
           
           if (this._waitSameSnapshotAttempts >= maxWaitSameSnapshotAttempts) {
             this.log(`⚠️  Timeout attente snapshot suivant (${maxWaitSameSnapshotAttempts} tentatives = ${maxWaitSameSnapshotAttempts * 2}s) - FORÇAGE action avec snapshot actuel (version ${finalCurrentOVersion}) pour éviter blocage`);
@@ -1230,12 +1235,11 @@ class AIPlayerV5 {
                 continue;
               }
             }
-            this.log(`Déjà agi avec snapshot version ${finalCurrentOVersion}, attente snapshot suivant (tentatives: ${this._waitSameSnapshotAttempts}/${maxWaitSameSnapshotAttempts}${isBehind ? ', agent en retard' : ''})...`);
-            await new Promise(r => setTimeout(r, 2000)); // Attendre 2s avant de réessayer
-            continue; // Passer à l'itération suivante sans appeler Gemini
+            this.log(`Déjà agi avec snapshot v${finalCurrentOVersion}, attente suivant (${this._waitSameSnapshotAttempts}/${maxWaitSameSnapshotAttempts})…`);
+            await new Promise(r => setTimeout(r, 1500));
+            continue;
           }
         } else {
-          // Nouveau snapshot ou première action ou agent en retard : réinitialiser compteur
           this._waitSameSnapshotAttempts = 0;
         }
         // Si finalCurrentOVersion > lastOVersionAtAction OU si c'est la première action → agir (parallèle autorisé)
@@ -1773,6 +1777,8 @@ class AIPlayerV5 {
           strategy: parsed?.strategy || 'N/A',
           strategy_id: strategy_id,  // CRITICAL FIX: Send strategy_id
           strategy_ids: strategy_ids,  // CRITICAL FIX: Send strategy_ids array
+          rationale: parsed?.rationale || '',
+          predictions: parsed?.predictions || {},
           iteration: iteration
         };
         
@@ -1832,26 +1838,24 @@ class AIPlayerV5 {
               // CRITICAL FIX: Ne pas remplacer un snapshot plus récent par un plus ancien
               // (peut arriver si un snapshot O seul version 0 arrive après un snapshot combiné version 1)
               // CRITICAL: Les snapshots N (combinés) sont toujours préférés aux snapshots O seuls
-              const currentVersion = this.Osnapshot?.version || -1;
+              const prevVersion = this.Osnapshot?.version;
+              const currentVersion = prevVersion ?? 0;
               const isNCombined = msg.type === 'n_snapshot_update';
               const isOAlone = msg.type === 'o_snapshot_update';
               const hasStructures = snapshotData.structures && Array.isArray(snapshotData.structures) && snapshotData.structures.length > 0;
               const hasPredictionErrors = snapshotData.prediction_errors && Object.keys(snapshotData.prediction_errors).length > 0;
               
-              // CRITICAL FIX: Accepter TOUS les snapshots plus récents, même si on a sauté des versions
-              // Si un client est en retard (ex: version 2) et reçoit version 5, il doit l'accepter
-              // Ne pas bloquer sur une version ancienne
               const shouldUpdate = !this.Osnapshot || 
                                   this.Osnapshot._pending || 
                                   (snapshotData.version > currentVersion) ||
-                                  (snapshotData.version === currentVersion && isNCombined && (hasStructures || hasPredictionErrors)) || // N snapshot combiné remplace O snapshot seul même version
-                                  (snapshotData.version === currentVersion && isOAlone && !hasPredictionErrors && this.Osnapshot.prediction_errors); // O snapshot seul ne remplace pas N combiné
+                                  (snapshotData.version === currentVersion && isNCombined && (hasStructures || hasPredictionErrors)) ||
+                                  (snapshotData.version === currentVersion && isOAlone && !hasPredictionErrors && this.Osnapshot.prediction_errors);
               
               if (shouldUpdate) {
-                const oldVersion = this.Osnapshot?.version || 'none';
-                const versionGap = snapshotData.version > currentVersion ? (snapshotData.version - currentVersion) : 0;
+                const oldVersion = prevVersion ?? 'none';
+                const versionGap = prevVersion != null ? (snapshotData.version - prevVersion) : 0;
                 if (versionGap > 1) {
-                  console.warn(`[V5] ⚠️  Gap de versions détecté: client passe de version ${oldVersion} à ${snapshotData.version} (gap: ${versionGap} versions sautées)`);
+                  console.warn(`[V5] ⚠️  Gap de versions (WS): v${oldVersion} → v${snapshotData.version} (${versionGap - 1} sautée(s))`);
                 }
                 this.Osnapshot = snapshotData;
                 // CRITICAL: Marquer comme non-pending si snapshot a des structures ou prediction_errors

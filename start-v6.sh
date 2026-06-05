@@ -67,6 +67,7 @@ cleanup() {
   [[ -n "${REC_PID:-}" ]] && kill "$REC_PID" 2>/dev/null || true
   [[ -n "${METRICS_PID:-}" ]] && kill "$METRICS_PID" 2>/dev/null || true
   [[ -n "${V6_PID:-}" ]] && kill "$V6_PID" 2>/dev/null || true
+  [[ -n "${PIPER_PID:-}" ]] && kill "$PIPER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -86,15 +87,22 @@ echo "=== Lancement serveur IA V6 quantique O-N (port 8006) ==="
 "$PYTHON" "$ROOT/python/poietic_ai_server_v6.py" &
 V6_PID=$!
 
+echo "=== Lancement TTS Piper (port 5012, optionnel) ==="
+"$PYTHON" "$ROOT/python/tts_piper_server.py" &
+PIPER_PID=$!
+
 echo ""
 echo "Pret."
 echo "  Jeu + fichiers statiques : http://localhost:3001/"
 echo "  Client V6 (quantique)    : http://localhost:3001/ai-player-v6.html"
 echo "  Narrative viewer V6      : http://localhost:3001/narrative-viewer-v6.html"
+echo "  Tableau parlant live     : http://localhost:3001/tableau-parlant-live.html"
 echo "  Dashboard metriques V6   : http://localhost:3001/ai-metrics-v6.html"
 echo "  Player (rejeu)           : http://localhost:3002/player/"
 echo "  API V6 (O-N quantique)   : http://localhost:8006/docs"
-echo "  Metriques V6 (WS)        : ws://localhost:5006/metrics"
+echo "  Metriques V6 (WS)        : ws://localhost:5006/quantum-metrics"
+echo "  Enonces / export (HTTP)  : http://localhost:5010/api/utterances/..."
+echo "  Piper TTS                : http://localhost:5012/health"
 echo ""
 echo "Ctrl+C pour tout arreter."
-wait "$API_PID" "$REC_PID" "$METRICS_PID" "$V6_PID"
+wait "$API_PID" "$REC_PID" "$METRICS_PID" "$V6_PID" "$PIPER_PID"

@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Narrative Viewer V5</title>
-    <link rel="stylesheet" href="/css/narrative-viewer.css">
+    <title>Narrative Viewer V5 — Tableau parlant</title>
+    <link rel="stylesheet" href="/css/narrative-viewer.css?v=tp2">
 </head>
 <body>
     <div class="narrative-viewer">
         <div class="text-panel left-panel">
+            <div id="speech-panel"></div>
+            <div id="nv-status" class="nv-status">Connexion…</div>
             <div class="text-content" id="on-content">
                 <div class="loading">Loading O+N data...</div>
             </div>
@@ -22,7 +24,6 @@
             </div>
         </div>
     </div>
-    <script type="module" src="/js/narrative-viewer.js"></script>
+    <script src="/js/narrative-viewer.js?v=tp4"></script>
 </body>
 </html>
-

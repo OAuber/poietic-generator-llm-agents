@@ -1,3 +1,5 @@
+import { attachTableauParlant, ttsPayload } from '/js/narrative-viewer-mixin.js';
+
 class NarrativeViewerV6 {
   constructor() {
     this.onContentEl = document.getElementById('on-content');
@@ -6,32 +8,25 @@ class NarrativeViewerV6 {
     const loc = window.location;
     const WS_PROTOCOL = loc.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_HOST = loc.host.replace(/:\d+$/, '');
-    // Metrics server V6 (quantum metrics) on port 5006
     this.metricsWsUrl = `${WS_PROTOCOL}//${WS_HOST}:5006/quantum-metrics`;
 
     this.socket = null;
-    this.onDataHistory = []; // O+N narrative history
-    this.wDataHistory = [];  // W narrative history
+    this.onDataHistory = [];
+    this.wDataHistory = [];
   }
-
-  // --- Filtrage texte: supprimer les métriques et nombres explicites ---
 
   stripNumericMetrics(text) {
     if (!text) return '';
-    let t = text;
-    // Supprimer lignes purement numériques ou quasi-numériques
-    t = t
+    let t = text
       .split('\n')
-      .filter(line => {
+      .filter((line) => {
         const trimmed = line.trim();
         if (!trimmed) return false;
-        // Lignes qui ne contiennent que chiffres, signes, % ou lettres isolées de métriques
         if (/^[\d\s.,:%φξIΔSUCdAw+-]+$/.test(trimmed)) return false;
         return true;
       })
       .join('\n');
 
-    // Supprimer motifs de métriques simples inline (approximation)
     t = t
       .replace(/\bC_w\s*=\s*[\d.,]+/g, '')
       .replace(/\bC_d\s*=\s*[\d.,]+/g, '')
@@ -42,7 +37,6 @@ class NarrativeViewerV6 {
       .replace(/τ\s*=\s*[\d.,]+/g, '')
       .replace(/ΔS\s*=\s*[\d.,]+/g, '');
 
-    // Nettoyer doubles sauts de ligne
     return t.replace(/\n{3,}/g, '\n\n').trim();
   }
 
@@ -51,8 +45,6 @@ class NarrativeViewerV6 {
     div.textContent = text;
     return div.innerHTML;
   }
-
-  // --- Formatage des textes O, N, W (sans métriques explicites) ---
 
   formatOText(snapshot) {
     const desc = snapshot?.simplicity_assessment?.C_d_current?.description || '';
@@ -76,23 +68,19 @@ class NarrativeViewerV6 {
     if (individualPred) parts.push(individualPred);
     if (collectivePred) parts.push(collectivePred);
 
-    const text = parts.join('\n\n');
-    return this.stripNumericMetrics(text);
+    return this.stripNumericMetrics(parts.join('\n\n'));
   }
-
-  // --- Ajout au flux O+N ---
 
   addONEntry(snapshot) {
     const oText = this.formatOText(snapshot);
     const nText = this.formatNText(snapshot);
-
     if (!oText && !nText) return;
 
     const entry = {
       timestamp: snapshot.timestamp || new Date().toISOString(),
       version: snapshot.version,
       oText,
-      nText
+      nText,
     };
 
     this.onDataHistory.unshift(entry);
@@ -100,10 +88,15 @@ class NarrativeViewerV6 {
       this.onDataHistory = this.onDataHistory.slice(0, 100);
     }
 
+    if (oText) {
+      this.speakUtterance?.({ text: oText, source: 'O', iteration: snapshot.version || 0 });
+    }
+    if (nText) {
+      this.speakUtterance?.({ text: nText, source: 'N', iteration: snapshot.version || 0 });
+    }
+
     this.renderONContent();
   }
-
-  // --- Ajout au flux W ---
 
   addWEntry(agentData) {
     const text = this.formatWText(agentData);
@@ -114,12 +107,11 @@ class NarrativeViewerV6 {
       text,
       agentId: agentData.id || 'unknown',
       position: agentData.position || [0, 0],
-      iteration: agentData.iteration || 0
+      iteration: agentData.iteration || 0,
     };
 
-    // Dédupliquer par agentId-iteration
     const key = `${entry.agentId}-${entry.iteration}`;
-    const exists = this.wDataHistory.some(e => `${e.agentId}-${e.iteration}` === key);
+    const exists = this.wDataHistory.some((e) => `${e.agentId}-${e.iteration}` === key);
     if (exists) return;
 
     this.wDataHistory.unshift(entry);
@@ -127,10 +119,16 @@ class NarrativeViewerV6 {
       this.wDataHistory = this.wDataHistory.slice(0, 100);
     }
 
+    this.speakUtterance?.({
+      text,
+      source: 'W',
+      agentId: entry.agentId,
+      position: entry.position,
+      iteration: entry.iteration,
+    });
+
     this.renderWContent();
   }
-
-  // --- Rendu des panneaux ---
 
   renderONContent() {
     if (this.onDataHistory.length === 0) {
@@ -138,39 +136,39 @@ class NarrativeViewerV6 {
       return;
     }
 
-    const html = this.onDataHistory.map(entry => {
-      const date = new Date(entry.timestamp);
-      const timeStr = date.toLocaleTimeString();
-      const parts = [];
+    const html = this.onDataHistory
+      .map((entry) => {
+        const date = new Date(entry.timestamp);
+        const timeStr = date.toLocaleTimeString();
+        const parts = [];
 
-      if (entry.oText) {
-        parts.push(`
-          <div class="text-section">
+        if (entry.oText) {
+          const payload = ttsPayload({ text: entry.oText, source: 'O' });
+          parts.push(`
+          <div class="text-section" data-tts-hover data-tts-payload="${payload}">
             <div class="machine-title">Observation (O) – ${timeStr}</div>
             <div class="text">${this.escapeHtml(entry.oText)}</div>
           </div>
         `);
-      }
+        }
 
-      if (entry.nText) {
-        parts.push(`
-          <div class="text-section">
+        if (entry.nText) {
+          const payload = ttsPayload({ text: entry.nText, source: 'N' });
+          parts.push(`
+          <div class="text-section" data-tts-hover data-tts-payload="${payload}">
             <div class="machine-title">Narration (N) – ${timeStr}</div>
             <div class="text">${this.escapeHtml(entry.nText)}</div>
           </div>
         `);
-      }
+        }
 
-      if (parts.length === 0) return '';
-
-      return `
-        <div class="text-entry">
-          ${parts.join('')}
-        </div>
-      `;
-    }).join('');
+        if (parts.length === 0) return '';
+        return `<div class="text-entry">${parts.join('')}</div>`;
+      })
+      .join('');
 
     this.onContentEl.innerHTML = html;
+    this._bindHoverTts?.();
   }
 
   renderWContent() {
@@ -179,23 +177,31 @@ class NarrativeViewerV6 {
       return;
     }
 
-    const html = this.wDataHistory.map(entry => {
-      const date = new Date(entry.timestamp);
-      const timeStr = date.toLocaleTimeString();
-      const pos = entry.position || [0, 0];
-      const posStr = `[${pos[0]},${pos[1]}]`;
-      return `
-        <div class="text-entry">
+    const html = this.wDataHistory
+      .map((entry) => {
+        const date = new Date(entry.timestamp);
+        const timeStr = date.toLocaleTimeString();
+        const pos = entry.position || [0, 0];
+        const posStr = `[${pos[0]},${pos[1]}]`;
+        const payload = ttsPayload({
+          text: entry.text,
+          source: 'W',
+          agentId: entry.agentId,
+          position: pos,
+          iteration: entry.iteration,
+        });
+        return `
+        <div class="text-entry" data-tts-hover data-tts-payload="${payload}">
           <div class="machine-title">W-agent ${posStr} – ${timeStr}</div>
           <div class="text">${this.escapeHtml(entry.text)}</div>
         </div>
       `;
-    }).join('');
+      })
+      .join('');
 
     this.wContentEl.innerHTML = html;
+    this._bindHoverTts?.();
   }
-
-  // --- WebSocket metrics V6 ---
 
   connectMetrics() {
     try {
@@ -203,7 +209,6 @@ class NarrativeViewerV6 {
       this.socket = ws;
 
       ws.onopen = () => {
-        // Demander l'état initial (quantum history) si besoin
         ws.send(JSON.stringify({ type: 'get_state' }));
       };
 
@@ -216,7 +221,6 @@ class NarrativeViewerV6 {
 
       ws.onclose = () => {
         this.socket = null;
-        // Tentative de reconnexion simple
         setTimeout(() => this.connectMetrics(), 5000);
       };
     } catch (e) {
@@ -235,22 +239,21 @@ class NarrativeViewerV6 {
       }
       case 'session_agent_event': {
         const data = msg.data;
-        if (!data || data.type && data.type !== 'ai') {
-          // dans metrics_server_v6, agent_type est dans data.agent_type
-        }
-        // On ne garde que les agents AI
-        if (data && (data.agent_type === 'ai' || !data.agent_type)) {
+        if (data && (data.agent_type === 'ai' || data.type === 'ai' || !data.agent_type)) {
           this.addWEntry(data);
         }
         break;
       }
       default:
-        // ignorer les autres messages
         break;
     }
   }
 
   init() {
+    attachTableauParlant(this, {
+      metricsBase: 'http://localhost:5010',
+      utterancesBase: 'http://localhost:5010',
+    });
     this.connectMetrics();
   }
 }
@@ -260,5 +263,3 @@ document.addEventListener('DOMContentLoaded', () => {
   window.narrativeViewerV6 = viewer;
   viewer.init();
 });
-
-

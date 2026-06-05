@@ -67,6 +67,7 @@ cleanup() {
   [[ -n "${REC_PID:-}" ]] && kill "$REC_PID" 2>/dev/null || true
   [[ -n "${METRICS_PID:-}" ]] && kill "$METRICS_PID" 2>/dev/null || true
   [[ -n "${V5_PID:-}" ]] && kill "$V5_PID" 2>/dev/null || true
+  [[ -n "${PIPER_PID:-}" ]] && kill "$PIPER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -86,14 +87,22 @@ echo "=== Lancement serveur IA V5 O-N (port 8005) ==="
 "$PYTHON" "$ROOT/python/poietic_ai_server_v5.py" &
 V5_PID=$!
 
+echo "=== Lancement TTS Piper (port 5012, optionnel) ==="
+"$PYTHON" "$ROOT/python/tts_piper_server.py" &
+PIPER_PID=$!
+
 echo ""
 echo "Pret."
 echo "  Jeu + fichiers statiques : http://localhost:3001/"
 echo "  Client V5                : http://localhost:3001/ai-player-v5.html"
+echo "  Narrative viewer (TTS)   : http://localhost:3001/narrative-viewer.html"
+echo "  Tableau parlant live     : http://localhost:3001/tableau-parlant-live.html"
 echo "  Player (rejeu)           : http://localhost:3002/player/"
 echo "  Dashboard metriques V5   : http://localhost:3001/ai-metrics.html"
 echo "  API V5 (O-N)             : http://localhost:8005/docs"
 echo "  Metriques V5 (WS)        : ws://localhost:5005/metrics"
+echo "  Enonces / export (HTTP)  : http://localhost:5010/api/utterances/..."
+echo "  Piper TTS                : http://localhost:5012/health"
 echo ""
 echo "Ctrl+C pour tout arreter."
-wait "$API_PID" "$REC_PID" "$METRICS_PID" "$V5_PID"
+wait "$API_PID" "$REC_PID" "$METRICS_PID" "$V5_PID" "$PIPER_PID"
