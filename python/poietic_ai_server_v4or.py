@@ -12,7 +12,7 @@ Points cles :
 - Machine O periodique via OpenRouter, isolee dans run_analysis_pipeline()
   pour brancher la machine N plus tard (evolution vers C, flag ENABLE_N).
 
-Port : 8006.
+Port : 8007.
 """
 from __future__ import annotations
 
@@ -588,7 +588,7 @@ async def receive_w_data(payload: dict = Body(...)):
 if __name__ == "__main__":
     import uvicorn
     print("Demarrage Poietic AI Server V4or (variante de V4, OpenRouter)...")
-    print("  Proxy LLM : http://localhost:8006/api/llm/openrouter")
-    print("  Usage     : http://localhost:8006/api/usage")
-    print("  Docs      : http://localhost:8006/docs")
-    uvicorn.run(app, host="0.0.0.0", port=8006, log_level="info", access_log=False)
+    print("  Proxy LLM : http://localhost:8007/api/llm/openrouter")
+    print("  Usage     : http://localhost:8007/api/usage")
+    print("  Docs      : http://localhost:8007/docs")
+    uvicorn.run(app, host="0.0.0.0", port=8007, log_level="info", access_log=False)

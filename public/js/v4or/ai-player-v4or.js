@@ -1,7 +1,7 @@
 import { SimplicityMetrics } from '../simplicity-metrics.js';
 
 // AI Player V4or (variante de V4) - distille de V4. Provider unique (OpenRouter) injecte,
-// modele choisi au lancement, cle cote serveur (proxy :8006), compteur de cout.
+// modele choisi au lancement, cle cote serveur (proxy :8007), compteur de cout.
 class AIPlayerV4or {
   constructor() {
     this.isRunning = false;
@@ -31,7 +31,7 @@ class AIPlayerV4or {
     const loc = window.location;
     const WS_PROTOCOL = loc.protocol === 'https:' ? 'wss:' : 'ws:';
     this.WS_URL = `${WS_PROTOCOL}//${loc.host}/updates?type=bot`;
-    this.O_API_BASE = loc.origin.replace(/:\d+$/, ':8006');
+    this.O_API_BASE = loc.origin.replace(/:\d+$/, ':8007');
 
     // Session partagee (agregation cout du banc) + modele choisi au lancement
     const params = new URLSearchParams(loc.search);

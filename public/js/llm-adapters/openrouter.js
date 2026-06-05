@@ -1,11 +1,11 @@
 // OpenRouter Provider (V4or) - provider unique, config-driven.
 // Mime l'interface de GeminiV4Adapter (loadPromptFile, buildSystemPrompt,
-// parseJSONResponse) mais route TOUT via le proxy serveur :8006 (cle serveur),
+// parseJSONResponse) mais route TOUT via le proxy serveur :8007 (cle serveur),
 // au format OpenAI vision (content[] text + image_url). Le modele est un parametre.
 
 export const OpenRouterProvider = {
   name: 'OpenRouter',
-  version: '2026-06-04-v4or',
+  version: '2026-06-05-v4or',
 
   // Modeles de VISION proposes par defaut (modifiables dans l'UI).
   // NB: utiliser des slugs multimodaux valides. Qwen3.7-max est text-only ->
@@ -18,9 +18,9 @@ export const OpenRouterProvider = {
     { id: 'qwen/qwen3-vl-8b-instruct', label: 'Qwen3-VL 8B (vision, cheap)' },
   ],
 
-  // Base du serveur proxy V4or (port 8006), derivee de l'origine courante
+  // Base du serveur proxy V4or (port 8007), derivee de l'origine courante
   apiBase() {
-    return window.location.origin.replace(/:\d+$/, ':8006');
+    return window.location.origin.replace(/:\d+$/, ':8007');
   },
 
   async loadPromptFile(kind) {

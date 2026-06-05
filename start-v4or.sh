@@ -93,7 +93,7 @@ echo "=== Lancement recorder-server / player (port 3002) ==="
 "$ROOT/bin/poietic-recorder" --port 3002 &
 REC_PID=$!
 
-echo "=== Lancement serveur IA V4or (port 8006) ==="
+echo "=== Lancement serveur IA V4or (port 8007) ==="
 "$PYTHON" "$ROOT/python/poietic_ai_server_v4or.py" &
 V4OR_PID=$!
 
@@ -103,8 +103,8 @@ echo "  Jeu + fichiers statiques : http://localhost:3001/"
 echo "  Client V4or              : http://localhost:3001/ai-player-v4or.html"
 echo "  Client V4or (modele forcé): http://localhost:3001/ai-player-v4or.html?model=anthropic/claude-opus-4.8"
 echo "  Player (rejeu)           : http://localhost:3002/player/  (ou http://localhost:3002/)"
-echo "  API V4or                 : http://localhost:8006/docs"
-echo "  Usage / cout             : http://localhost:8006/api/usage"
+echo "  API V4or                 : http://localhost:8007/docs"
+echo "  Usage / cout             : http://localhost:8007/api/usage"
 echo ""
 echo "Ctrl+C pour tout arreter."
 wait "$API_PID" "$REC_PID" "$V4OR_PID"

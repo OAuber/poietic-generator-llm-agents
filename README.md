@@ -27,7 +27,7 @@ Trois services coopèrent :
   les fichiers statiques, et **enregistre** les sessions (`API.recorder` → `db/recorder.db`).
 - **`3002` — Recorder / Player** : **rejeu** des sessions sur `http://localhost:3002/player/`
   (lit la même base).
-- **`8006` — Serveur IA V4or** (variante de V4, Python/FastAPI) : proxy unifié vers **OpenRouter**
+- **`8007` — Serveur IA V4or** (variante de V4, Python/FastAPI) : proxy unifié vers **OpenRouter**
   pour les agents de vision, avec **compteur de coût** et garde-fou de budget.
 
 La mesure de l'émergence repose sur la triade **W** (agents qui dessinent) / **O** (observation,
@@ -46,7 +46,7 @@ shards install && shards build
 # 2. Configuration (clé OpenRouter pour les agents V4or)
 cp .env.example .env        # puis renseigner OPENROUTER_API_KEY
 
-# 3. Tout lancer (jeu 3001 + player 3002 + IA V4or 8006)
+# 3. Tout lancer (jeu 3001 + player 3002 + IA V4or 8007)
 ./start-v4or.sh
 ```
 
@@ -55,7 +55,7 @@ Accès :
 - Agents de vision V4or : `http://localhost:3001/ai-player-v4or.html`
   (un onglet = un modèle, ex. `?model=anthropic/claude-opus-4.8`)
 - Rejeu des sessions : `http://localhost:3002/player/`
-- API IA V4or / coûts : `http://localhost:8006/docs` · `http://localhost:8006/api/usage`
+- API IA V4or / coûts : `http://localhost:8007/docs` · `http://localhost:8007/api/usage`
 
 ## Agents LLM de vision (V4or — OpenRouter, variante de V4)
 
@@ -90,7 +90,7 @@ La V5 mesure l'émergence en continu : C_w, C_d, U, erreurs de prédiction par a
 | **V3** | Perception réelle : capture du canvas, vision locale consolidée |
 | **V4** | Architecture **O-W** : un observateur dédié mesure l'émergence (port 8004) |
 | **V5** | Triade **O-N-W** : narration, erreurs de prédiction, classements (8005 + métriques 5005) |
-| **V4or** | Variante de V4 sur **OpenRouter** : provider unique, multi-modèles, coût maîtrisé (8006) |
+| **V4or** | Variante de V4 sur **OpenRouter** : provider unique, multi-modèles, coût maîtrisé (8007) |
 | **V6** | _Réservé_ : version « quantique » (développée hors dépôt, à intégrer) |
 
 ➡️ Philosophie et caractéristiques détaillées : **[`VERSIONS.md`](VERSIONS.md)**.

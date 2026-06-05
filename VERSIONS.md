@@ -146,7 +146,7 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 **reproductible et économe**.
 
 **Caractéristiques.**
-- Serveur `python/poietic_ai_server_v4or.py` (**port 8006**) ; **clé côté serveur**
+- Serveur `python/poietic_ai_server_v4or.py` (**port 8007**) ; **clé côté serveur**
   (`OPENROUTER_API_KEY`), jamais exposée au navigateur.
 - **Provider unique** `openrouter.js` (format OpenAI vision) ; **1 onglet = 1 modèle**
   (`?model=…`), multi-modèles en parallèle.
@@ -169,7 +169,7 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 | **V2** | Agent vision autonome | observe = agit | LLaVA 7B, Gemini 1.5 | ST côté client (local+global) | — (client) |
 | **V3** | Perception réelle (capture canvas) | observe = agit | LLaVA local, Gemini | ST côté client | — (client) |
 | **V4** | Séparer mesure / action | **O** + **W** | Gemini multimodal | C_w/C_d/U par O (image) | `v4` (8004) |
-| **V4or** | Variante de V4, banc multi-modèles, coût maîtrisé | O + W (N en couture) | **Tous via OpenRouter** | C_d (O) + **coût/qualité** | `v4or` (8006) |
+| **V4or** | Variante de V4, banc multi-modèles, coût maîtrisé | O + W (N en couture) | **Tous via OpenRouter** | C_d (O) + **coût/qualité** | `v4or` (8007) |
 | **V5** | Triade fidèle + feedback | **O** + **N** + **W** | Gemini | C_d (O) + C_w & erreurs (N) | `v5` (8005) + métriques (5005) |
 | **V6** | _Réservé_ : version « quantique » (hors dépôt, à intégrer) | — | — | — | — |
 
