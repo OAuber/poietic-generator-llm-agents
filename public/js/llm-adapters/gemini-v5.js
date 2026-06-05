@@ -167,40 +167,27 @@ export const GeminiV5Adapter = {
     // Chaque agent (onglet navigateur) peut appeler en parallèle sans queue globale
     
     const timeout = 420000;
-    const key = this.getApiKey();
-    if (!key) throw new Error('Clé API Gemini manquante');
-    const model = 'gemini-2.5-flash';
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${key}`;
-    
-    console.log(`[Gemini V5] 📤 Appel API Gemini (${model}) - ${systemText.length} chars, ${images ? (images.globalImageBase64 ? '1 global' : '') + (images.localImageBase64 ? '1 local' : '') : 'no images'}`);
-    const parts = [{ text: systemText }];
-    // Ajouter images (global/local) si fournies
-    const maybePushImage = (dataUrl) => {
-      if (!dataUrl || typeof dataUrl !== 'string') return;
-      let clean = dataUrl;
-      if (clean.startsWith('data:image/png;base64,')) clean = clean.replace('data:image/png;base64,', '');
-      if (/^[A-Za-z0-9+/=]+$/.test(clean)) {
-        parts.push({ inline_data: { mime_type: 'image/png', data: clean }});
-      }
-    };
-    maybePushImage(images?.globalImageBase64);
-    maybePushImage(images?.localImageBase64);
+    // V5 (porté OpenRouter) : route via le proxy serveur (clé côté serveur), format OpenAI vision.
+    const base = window.location.origin.replace(/:\d+$/, ':8005');
+    const model = (this.model || 'google/gemini-3.5-flash');
 
-    // CRITICAL: Ajuster maxOutputTokens selon le contexte
-    // Seed nécessite 400 pixels (~1200 tokens) + JSON structure (~500 tokens) = ~1700 tokens minimum
-    // Action nécessite plus de tokens pour stratégies audacieuses et plus de pixels
-    // Utiliser 24000 pour seed (400 pixels), 20000 pour action (permet stratégies complexes)
+    console.log(`[Gemini V5→OpenRouter] 📤 ${model} - ${systemText.length} chars, ${images ? (images.globalImageBase64 ? '1 global ' : '') + (images.localImageBase64 ? '1 local' : '') : 'no images'}`);
+    const content = [{ type: 'text', text: systemText }];
+    const pushImage = (dataUrl) => {
+      if (!dataUrl || typeof dataUrl !== 'string') return;
+      const url = dataUrl.startsWith('data:') ? dataUrl : `data:image/png;base64,${dataUrl}`;
+      content.push({ type: 'image_url', image_url: { url } });
+    };
+    pushImage(images?.globalImageBase64);
+    pushImage(images?.localImageBase64);
+
     const isSeed = systemText.includes('SEED') || systemText.includes('seed');
-    const maxOutputTokens = isSeed ? 24000 : 20000;
-    
-    // CRITICAL: Température élevée pour réduire la timidité et encourager la créativité
-    // 1.2 = plus créatif, moins conservateur, plus audacieux dans les stratégies
-    // Permet aux agents de prendre plus de risques (contestation, fusion complexe, etc.)
-    const temperature = 1.2;
-    
+    const maxTokens = isSeed ? 24000 : 20000;
     const body = {
-      contents: [{ parts }],
-      generationConfig: { temperature, maxOutputTokens }
+      model,
+      messages: [{ role: 'user', content }],
+      max_tokens: maxTokens,
+      temperature: 1.2
     };
     
     // Retry avec backoff exponentiel pour erreurs 503/429 (rate limit)
@@ -210,11 +197,11 @@ export const GeminiV5Adapter = {
       try {
         const controller = new AbortController();
         setTimeout(() => controller.abort(), timeout);
-        const r = await fetch(apiUrl, { 
-          method: 'POST', 
-          body: JSON.stringify(body), 
-          headers: { 'Content-Type': 'application/json' }, 
-          signal: controller.signal 
+        const r = await fetch(`${base}/api/llm/openrouter`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal
         });
         
         if (r.status === 503 || r.status === 429) {
@@ -268,28 +255,22 @@ export const GeminiV5Adapter = {
         }
         
         const data = await r.json();
-        const candidate = data?.candidates?.[0];
-        const text = candidate?.content?.parts?.map(p => p.text).join('\n') || '';
-        const finishReason = candidate?.finishReason || 'UNKNOWN';
-        
-        // V5.1: Extraire les métriques de tokens pour calculer le coût de signalement
-        const usageMetadata = data?.usageMetadata || {};
-        const inputTokens = usageMetadata.promptTokenCount || 0;
-        const outputTokens = usageMetadata.candidatesTokenCount || 0;
-        const totalTokens = usageMetadata.totalTokenCount || 0;
-        
-        // CRITICAL: Logger si la réponse est incomplète
-        if (finishReason === 'MAX_TOKENS') {
-          console.warn(`[Gemini V5] ⚠️ Réponse TRONQUÉE (MAX_TOKENS atteint): ${outputTokens} tokens de sortie, texte: ${text.substring(0, 200)}...`);
-        } else if (finishReason === 'SAFETY') {
-          console.warn(`[Gemini V5] ⚠️ Réponse BLOQUÉE (SAFETY): contenu filtré par les filtres de sécurité`);
-        } else if (finishReason === 'RECITATION') {
-          console.warn(`[Gemini V5] ⚠️ Réponse BLOQUÉE (RECITATION): contenu recité détecté`);
-        } else if (finishReason !== 'STOP') {
-          console.warn(`[Gemini V5] ⚠️ FinishReason inattendu: ${finishReason}`);
+        const choice = data?.choices?.[0];
+        let text = choice?.message?.content || '';
+        if (Array.isArray(text)) text = text.map(p => p?.text || '').join('\n');
+        const finishReason = choice?.finish_reason || 'stop';
+
+        // Métriques tokens (usage OpenRouter)
+        const usage = data?.usage || {};
+        const inputTokens = usage.prompt_tokens || 0;
+        const outputTokens = usage.completion_tokens || 0;
+        const totalTokens = usage.total_tokens || (inputTokens + outputTokens);
+
+        if (finishReason === 'length') {
+          console.warn(`[Gemini V5→OpenRouter] ⚠️ Réponse TRONQUÉE (length): ${outputTokens} tokens, texte: ${text.substring(0, 200)}...`);
         }
-        
-        // Retourner texte + métriques + finishReason pour détection côté client
+
+        // Retourner texte + métriques + finishReason (forme inchangée)
         return {
           text: text,
           finishReason: finishReason,

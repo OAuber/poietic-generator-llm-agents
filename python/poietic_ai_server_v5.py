@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-from fastapi import FastAPI, Body, Query
+from fastapi import FastAPI, Body, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import Optional, Tuple, List
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
@@ -12,6 +13,46 @@ import base64
 import re
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
+
+# ==============================================================================
+# OPENROUTER (V5 route ses appels LLM via OpenRouter, pas Gemini en direct)
+# ==============================================================================
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1').rstrip('/')
+OPENROUTER_CHAT_URL = f"{OPENROUTER_BASE_URL}/chat/completions"
+# Modele vision par defaut (equivalent OpenRouter de gemini-2.5-flash)
+LLM_MODEL = os.getenv('O_MODEL', 'google/gemini-3.5-flash')
+APP_URL = os.getenv('APP_URL', 'http://localhost:3001')
+APP_TITLE = os.getenv('APP_TITLE', 'Poietic Generator V5')
+
+
+def _gemini_parts_to_openai_content(parts):
+    """Convertit des `parts` Gemini ([{text}|{inline_data}]) en `content` OpenAI."""
+    content = []
+    for p in parts:
+        if 'text' in p:
+            content.append({'type': 'text', 'text': p['text']})
+        elif 'inline_data' in p:
+            data_b64 = p['inline_data'].get('data', '')
+            mime = p['inline_data'].get('mime_type', 'image/png')
+            content.append({'type': 'image_url', 'image_url': {'url': f"data:{mime};base64,{data_b64}"}})
+    return content
+
+
+def _openrouter_headers():
+    return {
+        'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+        'Content-Type': 'application/json',
+        'HTTP-Referer': APP_URL,
+        'X-Title': APP_TITLE,
+    }
+
+
+# Suivi de cout (reutilise le CostTracker generique de V4or)
+from cost_tracker_v4or import CostTracker
+cost_tracker = CostTracker()
+BENCH_SESSION_ID = 'poietic-v5'  # libelle de session fige (independant de SESSION_ID partage)
+MAX_SESSION_USD = float(os.getenv('MAX_SESSION_USD', '0') or '0')
 
 # ==============================================================================
 # CONFIGURATION - Token to bits conversion factors
@@ -647,9 +688,9 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
     """Appelle Gemini pour O-machine (observation des structures et calcul C_d)
     Retourne: (résultat JSON, nombre de tokens de sortie)"""
     print(f"[O] 🚀 Début appel Gemini O (agents: {agents_count}, image: {len(image_base64)} bytes)")
-    api_key = os.getenv('GEMINI_API_KEY')
+    api_key = OPENROUTER_API_KEY
     if not api_key:
-        print("[O] GEMINI_API_KEY non définie")
+        print("[O] OPENROUTER_API_KEY non définie")
         return (None, None)
     
     try:
@@ -763,31 +804,39 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
     else:
         print(f"[O] ⚠️  ATTENTION: Aucune image fournie à Gemini O!")
     
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = OPENROUTER_CHAT_URL
     body = {
-        'contents': [{'parts': parts}],
-        'generationConfig': {
-            'temperature': 0.7,
-            'maxOutputTokens': 16000  # V5.1: Augmenter modérément (12000→16000) car thoughts peuvent être longs même avec prompts simplifiés
-        }
+        'model': LLM_MODEL,
+        'messages': [{'role': 'user', 'content': _gemini_parts_to_openai_content(parts)}],
+        'temperature': 0.7,
+        'max_tokens': 16000,  # V5.1 (porte OpenRouter)
+        'usage': {'include': True}
     }
     
     try:
         timeout_obj = httpx.Timeout(120.0, connect=30.0)
         async with httpx.AsyncClient(timeout=timeout_obj) as client:
-            resp = await client.post(url, json=body)
+            resp = await client.post(url, headers=_openrouter_headers(), json=body)
             if not resp.is_success:
                 error_text = resp.text
                 print(f"[O] Erreur HTTP {resp.status_code}: {error_text[:500]}")
                 return (None, None)
             
-            data = resp.json()
+            raw = resp.json()
             text = ''
-            if data.get('candidates') and len(data['candidates']) > 0:
-                content = data['candidates'][0].get('content', {})
-                for part in content.get('parts', []):
-                    if 'text' in part:
-                        text += part['text']
+            try:
+                text = (raw['choices'][0]['message']['content'] or '')
+            except (KeyError, IndexError, TypeError):
+                text = ''
+            # Remap usage OpenRouter -> format Gemini pour le code en aval (metriques)
+            _u = raw.get('usage', {}) if isinstance(raw, dict) else {}
+            data = {'usageMetadata': {
+                'candidatesTokenCount': _u.get('completion_tokens', 0),
+                'promptTokenCount': _u.get('prompt_tokens', 0),
+                'totalTokenCount': _u.get('total_tokens', 0),
+                'thoughtsTokenCount': 0,
+            }}
+            cost_tracker.record(BENCH_SESSION_ID, 'O-machine', LLM_MODEL, _u)
             
             if not text or len(text.strip()) < 10:
                 print(f"[O] ❌ Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
@@ -823,9 +872,9 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
     Retourne: (résultat JSON, nombre de tokens de sortie)"""
     print(f"[N] 🚀 Début appel Gemini N avec {len(w_agents_data)} agents W")
     print(f"[N]    O-snapshot: {len(o_snapshot.get('structures', []))} structures")
-    api_key = os.getenv('GEMINI_API_KEY')
+    api_key = OPENROUTER_API_KEY
     if not api_key:
-        print("[N] GEMINI_API_KEY non définie")
+        print("[N] OPENROUTER_API_KEY non définie")
         return (None, None)
     
     try:
@@ -893,31 +942,39 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         print(f"[N] Erreur injection données: {e}")
         return None
     
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = OPENROUTER_CHAT_URL
     body = {
-        'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': {
-            'temperature': 0.7,
-            'maxOutputTokens': 16000  # V5.1: Augmenter modérément (12000→16000) pour éviter MAX_TOKENS avec beaucoup d'agents
-        }
+        'model': LLM_MODEL,
+        'messages': [{'role': 'user', 'content': _gemini_parts_to_openai_content([{'text': prompt}])}],
+        'temperature': 0.7,
+        'max_tokens': 16000,  # V5.1 (porte OpenRouter)
+        'usage': {'include': True}
     }
     
     try:
         timeout_obj = httpx.Timeout(120.0, connect=30.0)
         async with httpx.AsyncClient(timeout=timeout_obj) as client:
-            resp = await client.post(url, json=body)
+            resp = await client.post(url, headers=_openrouter_headers(), json=body)
             if not resp.is_success:
                 error_text = resp.text
                 print(f"[N] Erreur HTTP {resp.status_code}: {error_text[:500]}")
                 return (None, None)
             
-            data = resp.json()
+            raw = resp.json()
             text = ''
-            if data.get('candidates') and len(data['candidates']) > 0:
-                content = data['candidates'][0].get('content', {})
-                for part in content.get('parts', []):
-                    if 'text' in part:
-                        text += part['text']
+            try:
+                text = (raw['choices'][0]['message']['content'] or '')
+            except (KeyError, IndexError, TypeError):
+                text = ''
+            # Remap usage OpenRouter -> format Gemini pour le code en aval (metriques)
+            _u = raw.get('usage', {}) if isinstance(raw, dict) else {}
+            data = {'usageMetadata': {
+                'candidatesTokenCount': _u.get('completion_tokens', 0),
+                'promptTokenCount': _u.get('prompt_tokens', 0),
+                'totalTokenCount': _u.get('total_tokens', 0),
+                'thoughtsTokenCount': 0,
+            }}
+            cost_tracker.record(BENCH_SESSION_ID, 'N-machine', LLM_MODEL, _u)
             
             if not text or len(text.strip()) < 10:
                 print(f"[N] ❌ Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
@@ -1803,6 +1860,66 @@ async def receive_w_data(payload: dict = Body(...)):
 async def get_w_data():
     """Récupère toutes les données W (pour debug)"""
     return {'agents': w_store.get_all_agents_data(), 'timestamp': datetime.now(timezone.utc).isoformat()}
+
+
+@app.post("/api/llm/openrouter")
+async def proxy_openrouter_v5(request: Request):
+    """Proxy OpenRouter pour les agents W (clé serveur). Format OpenAI passe-plat."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "JSON invalide"})
+    messages = body.get("messages")
+    if not messages:
+        return JSONResponse(status_code=400, content={"error": "messages manquants"})
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(status_code=500, content={"error": "OPENROUTER_API_KEY non définie"})
+    payload = {
+        "model": body.get("model") or LLM_MODEL,
+        "messages": messages,
+        "max_tokens": int(body.get("max_tokens") or 16000),
+        "temperature": float(body.get("temperature", 1.0)),
+        "usage": {"include": True},
+    }
+    if body.get("reasoning") is not None:
+        payload["reasoning"] = body["reasoning"]
+    model = payload["model"]
+    session_id = body.get("session_id") or BENCH_SESSION_ID
+    agent_id = body.get("agent_id") or "W-agent"
+    if cost_tracker.is_over_budget(session_id, MAX_SESSION_USD):
+        return JSONResponse(status_code=402, content={"error": "budget_exceeded", "session_cost_usd": cost_tracker.session_cost(session_id)})
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(420.0, connect=30.0)) as client:
+            resp = await client.post(OPENROUTER_CHAT_URL, headers=_openrouter_headers(), json=payload)
+        data = resp.json()
+        if isinstance(data, dict) and data.get("usage"):
+            cost_tracker.record(session_id, agent_id, model, data["usage"])
+        return JSONResponse(status_code=resp.status_code, content=data)
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": f"Erreur reseau OpenRouter: {e}"})
+
+
+@app.get("/api/usage")
+async def get_usage_v5(session_id: Optional[str] = Query(None)):
+    """Agregats de cout (session/agent/modele) : O, N et agents W."""
+    return cost_tracker.snapshot(session_id)
+
+
+@app.get("/api/usage/openrouter")
+async def get_openrouter_usage_v5():
+    """Consommation officielle du compte OpenRouter (cumulee)."""
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(status_code=400, content={"error": "OPENROUTER_API_KEY non définie"})
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
+            resp = await client.get(f"{OPENROUTER_BASE_URL}/credits", headers=_openrouter_headers())
+        payload = resp.json()
+        d = payload.get("data", payload) if isinstance(payload, dict) else {}
+        tc, tu = d.get("total_credits"), d.get("total_usage")
+        rem = (round(float(tc) - float(tu), 6) if (tc is not None and tu is not None) else None)
+        return {"total_credits": tc, "total_usage": tu, "remaining": rem}
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e)})
 
 
 if __name__ == "__main__":

@@ -125,33 +125,28 @@ export const GeminiV6Adapter = {
 
   async callAPI(systemText, images) {
     const timeout = 420000;
-    const key = this.getApiKey();
-    if (!key) throw new Error('Missing Gemini API key');
-    
-    const model = 'gemini-2.5-flash';
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${key}`;
-    
-    console.log(`[Gemini V6] 📤 Quantum API call (${systemText.length} chars)`);
-    
-    const parts = [{ text: systemText }];
-    const maybePushImage = (dataUrl) => {
+    // V6 (porté OpenRouter) : route via le proxy serveur (clé côté serveur), format OpenAI vision.
+    const base = window.location.origin.replace(/:\d+$/, ':8006');
+    const model = (this.model || 'google/gemini-3.5-flash');
+
+    console.log(`[Gemini V6→OpenRouter] 📤 Quantum API call (${model}, ${systemText.length} chars)`);
+
+    const content = [{ type: 'text', text: systemText }];
+    const pushImage = (dataUrl) => {
       if (!dataUrl || typeof dataUrl !== 'string') return;
-      let clean = dataUrl;
-      if (clean.startsWith('data:image/png;base64,')) clean = clean.replace('data:image/png;base64,', '');
-      if (/^[A-Za-z0-9+/=]+$/.test(clean)) {
-        parts.push({ inline_data: { mime_type: 'image/png', data: clean }});
-      }
+      const url = dataUrl.startsWith('data:') ? dataUrl : `data:image/png;base64,${dataUrl}`;
+      content.push({ type: 'image_url', image_url: { url } });
     };
-    maybePushImage(images?.globalImageBase64);
-    maybePushImage(images?.localImageBase64);
+    pushImage(images?.globalImageBase64);
+    pushImage(images?.localImageBase64);
 
     const isSeed = systemText.includes('S-machine') || systemText.includes('SEED');
-    const maxOutputTokens = isSeed ? 24000 : 20000;
-    const temperature = 1.2;
-    
+    const maxTokens = isSeed ? 24000 : 20000;
     const body = {
-      contents: [{ parts }],
-      generationConfig: { temperature, maxOutputTokens }
+      model,
+      messages: [{ role: 'user', content }],
+      max_tokens: maxTokens,
+      temperature: 1.2
     };
     
     const maxRetries = 3;
@@ -161,11 +156,11 @@ export const GeminiV6Adapter = {
       try {
         const controller = new AbortController();
         setTimeout(() => controller.abort(), timeout);
-        const r = await fetch(apiUrl, { 
-          method: 'POST', 
-          body: JSON.stringify(body), 
-          headers: { 'Content-Type': 'application/json' }, 
-          signal: controller.signal 
+        const r = await fetch(`${base}/api/llm/openrouter`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal
         });
         
         if (r.status === 503 || r.status === 429) {
@@ -189,22 +184,23 @@ export const GeminiV6Adapter = {
         }
         
         const data = await r.json();
-        const candidate = data?.candidates?.[0];
-        const text = candidate?.content?.parts?.map(p => p.text).join('\n') || '';
-        const finishReason = candidate?.finishReason || 'UNKNOWN';
-        
-        const usageMetadata = data?.usageMetadata || {};
-        const inputTokens = usageMetadata.promptTokenCount || 0;
-        const outputTokens = usageMetadata.candidatesTokenCount || 0;
-        
-        if (finishReason === 'MAX_TOKENS') {
-          console.warn(`[Gemini V6] ⚠️ Response TRUNCATED (MAX_TOKENS): ${outputTokens} tokens`);
+        const choice = data?.choices?.[0];
+        let text = choice?.message?.content || '';
+        if (Array.isArray(text)) text = text.map(p => p?.text || '').join('\n');
+        const finishReason = choice?.finish_reason || 'stop';
+
+        const usage = data?.usage || {};
+        const inputTokens = usage.prompt_tokens || 0;
+        const outputTokens = usage.completion_tokens || 0;
+
+        if (finishReason === 'length') {
+          console.warn(`[Gemini V6→OpenRouter] ⚠️ Response TRUNCATED (length): ${outputTokens} tokens`);
         }
-        
+
         return {
           text: text,
           finishReason: finishReason,
-          tokens: { input: inputTokens, output: outputTokens, total: inputTokens + outputTokens }
+          tokens: { input: inputTokens, output: outputTokens, total: usage.total_tokens || (inputTokens + outputTokens) }
         };
       } catch (error) {
         lastError = error;
