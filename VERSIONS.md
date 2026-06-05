@@ -89,8 +89,14 @@ les prédictions** de chaque agent. Boucle de rétroaction par agent.
 - Serveurs `poietic_ai_server_v5.py` (**8005**) + serveur de métriques (`metrics_server_v5.py`, **5005**).
 - Les agents W **poussent** stratégie / rationale / prédictions à N (`POST /n/w-data`).
 - Snapshot O+N **personnalisé** par agent (`GET /o/latest?agent_id=…`).
-- Catalogue de **stratégies** (`strategies-v5.json`) avec coûts ΔC_w/ΔC_d estimés.
+- Catalogue de **stratégies** (`strategies-v5.json`, + `strategies-v5-advanced.json` /
+  `strategies-v5-safe.json`) avec coûts ΔC_w/ΔC_d estimés.
 - Synchronisation fine (warmup, quiescence) — plus riche mais plus sensible à la latence.
+- **Appels LLM via OpenRouter** : O et N (serveur) **et** agents W (proxy `/api/llm/openrouter`)
+  passent par OpenRouter — clé serveur `OPENROUTER_API_KEY`, modèle vision configurable
+  (défaut `google/gemini-3.5-flash`). **Suivi des coûts** (`/api/usage`, `/api/usage/openrouter`)
+  et **sélecteur de modèle** dans l'UI. Lancement via `start-v5.sh`.
+- Doc d'architecture : `TOPO_AGENTS_IO_V5.md`.
 
 ### Métriques (Théorie de la Simplicité)
 
@@ -136,8 +142,8 @@ l'export** des métriques — découplé de la boucle temps réel O-N-W (qui peu
 ## V4or — OpenRouter (variante de V4, banc multi-modèles)
 
 > **Note de nommage.** Cette version est une **variante de V4** (« V4 OpenRouter »), pas un
-> successeur de V5. Le nom **« V6 » est réservé** à une version **« quantique »** développée hors
-> de ce dépôt (voir « Lignée et état »).
+> successeur de V5. Le nom **« V6 »** désigne désormais la version **quantique** (intégrée, voir
+> plus bas).
 
 **Philosophie.** **Ouvrir à tous les modèles** et **gouverner le coût**. On remplace le « zoo »
 d'adaptateurs par modèle par **un seul fournisseur unifié** ([OpenRouter](https://openrouter.ai/)),
@@ -160,6 +166,25 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 - Fichiers : `public/js/v4or/ai-player-v4or.js`, `public/ai-player-v4or.html`,
   `public/prompts/v4or-*.json`, `public/js/llm-adapters/openrouter.js`.
 
+## V6 — Architecture quantique (Q-machine, sur OpenRouter)
+
+**Philosophie.** Réinterpréter la triade dans une **métaphore quantique** : le canvas collaboratif
+est traité comme un **appareil à fentes multiples**, les agents étant des opérateurs d'évolution.
+Cycle **Ss → O → N → Ws → …** :
+- **O‑machine** : appareil de **mesure quantique** (collapse des superpositions observées) ;
+- **N‑machine** : **interprète narratif** des états collapsés ;
+- **W‑machines** : **opérateurs d'évolution** (les « fentes »).
+
+**Caractéristiques.**
+- Serveurs `python/poietic_ai_server_v6.py` (**8006**) + métriques `python/metrics_server_v6.py` (**5006**).
+- **Appels LLM via OpenRouter** (O, N et W via le proxy `/api/llm/openrouter`) — clé serveur,
+  modèle configurable, **suivi des coûts** (`/api/usage`) et **sélecteur de modèle** dans l'UI.
+- **Stratégies quantiques** : `strategies-v6-{coherent,decoherence,quantum}.json`.
+- Observables spécifiques : `coherence_observables`, `emergence_observables` (en plus de C_w/C_d/U).
+- UI : `ai-player-v6.html`, **dashboard** `ai-metrics-v6.html`, **narrative viewer**
+  `narrative-viewer-v6.html`, `popup-manager-v6.js`, prompts `gemini-prompts-v6-*.json`.
+  Lancement via `start-v6.sh`. Doc : `TOPO_AGENTS_IO_V6.md`.
+
 ---
 
 ## Tableau de synthèse
@@ -170,8 +195,8 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 | **V3** | Perception réelle (capture canvas) | observe = agit | LLaVA local, Gemini | ST côté client | — (client) |
 | **V4** | Séparer mesure / action | **O** + **W** | Gemini multimodal | C_w/C_d/U par O (image) | `v4` (8004) |
 | **V4or** | Variante de V4, banc multi-modèles, coût maîtrisé | O + W (N en couture) | **Tous via OpenRouter** | C_d (O) + **coût/qualité** | `v4or` (8007) |
-| **V5** | Triade fidèle + feedback | **O** + **N** + **W** | Gemini | C_d (O) + C_w & erreurs (N) | `v5` (8005) + métriques (5005) |
-| **V6** | _Réservé_ : version « quantique » (hors dépôt, à intégrer) | — | — | — | — |
+| **V5** | Triade fidèle + feedback | **O** + **N** + **W** | **Tous via OpenRouter** | C_d (O) + C_w & erreurs (N) | `v5` (8005) + métriques (5005) |
+| **V6** | Quantique (Q-machine, fentes multiples) | **O** + **N** + **W** | **Tous via OpenRouter** | C_d/C_w/U + observables quantiques | `v6` (8006) + métriques (5006) |
 
 ---
 
@@ -186,16 +211,16 @@ d'émergence collaborative de modèles de vision variés, sur le **même banc**,
 
 ## Lignée et état
 
-- **V2 → V3 → V4 → V5** : raffinement progressif (agent unique → séparation O/W → triade O-N-W).
-- **V4or** : repart de la robustesse de **V4** comme socle provider-agnostique (variante de V4),
-  sans recopier le passé ; **V3/V4/V5 restent intacts** (versions côte à côte).
-- **À venir (autre machine)** : une **V5 évoluée** et une **V6 « quantique »** ont été développées
-  hors de ce dépôt (non encore committées) et seront **fusionnées ici** ultérieurement. Le nom
-  « V6 » est donc **réservé** à cette version quantique.
-- **Prochaine étape (vers « C »)** : réactiver la **machine N** sur le socle V4or (les coutures
-  existent) pour retrouver erreurs de prédiction et classements, mais multi-modèles.
-- **Métrique « quantique »** : expérimentée hors dépôt, destinée à la future **V6** ; à formaliser
-  et brancher (idéalement sur le serveur de métriques 5005 / `ai-metrics.html`).
+- **V2 → V3 → V4 → V5 → V6** : raffinement progressif (agent unique → perception réelle →
+  séparation O/W → triade O-N-W → métaphore quantique).
+- **V4or** : variante de **V4** sur OpenRouter (socle provider-agnostique). V3/V4 restent intacts.
+- **V5 et V6 intégrées** (fusion de la branche `integration/v5-v6`) : V5 (triade optimisée, prompts
+  et stratégies retravaillés, classement) et V6 (architecture quantique) sont présentes côte à côte.
+- **OpenRouter partout** : **V4or, V5 et V6** routent désormais leurs appels LLM via OpenRouter
+  (clé serveur unique, **suivi des coûts** `/api/usage`, **sélecteur de modèle** dans l'UI).
+  Ports IA : V4or **8007**, V5 **8005** (+ métriques **5005**), V6 **8006** (+ métriques **5006**).
+- **Scripts de lancement** : `start-v4or.sh`, `start-v5.sh`, `start-v6.sh` — chacun démarre le jeu
+  (3001), le recorder/player (3002) et les serveurs IA/métriques de la version.
 
 ---
 
