@@ -1,0 +1,136 @@
+{
+  "note": "ADVANCED STRATEGIES: For agents above thresholds (U >= threshold AND rank <= total/divisor AND avg_error <= threshold). Focus on maximizing U with higher risk/reward strategies (error > 0.1). These strategies can create new pareidolias for O and N.",
+  "strategies": [
+    {
+      "id": "bg_multi_fusion",
+      "name": "Complex background fusion with multiple sources",
+      "category": "background",
+      "neighbor_type": "any",
+      "min_sources": 2,
+      "max_sources": null,
+      "description": "Blend backgrounds from multiple agents to create hybrid textures and color transitions. IMPACT ON U: +10 bits C_w (complex hybrid parameterization) and -7 bits C_d (macro-structure easier to describe), delta_U = +17 bits. PREDICTION ERROR: Moderate (0.15) - depends on whether O recognizes the hybrid as a coherent macro-structure. ALIGNMENT: Creates new pareidolias that O may or may not validate.",
+      "predicted_error": 0.15,
+      "delta_C_w_bits": 10,
+      "delta_C_d_bits": -7,
+      "difficulty": "hard"
+    },
+    {
+      "id": "bg_distant_share",
+      "name": "Background sharing with distant agent",
+      "category": "background",
+      "neighbor_type": "distant",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "Adopt the same background as a distant agent to create perceptual grouping. IMPACT ON U: +5 bits C_w (distant coordination) and -4 bits C_d (grouping easier to describe), delta_U = +9 bits. PREDICTION ERROR: Moderate (0.15) - depends on whether O recognizes the distant grouping. CRITICAL: Use UNIFIED color, not checkerboard.",
+      "predicted_error": 0.15,
+      "delta_C_w_bits": 5,
+      "delta_C_d_bits": -4,
+      "difficulty": "medium"
+    },
+    {
+      "id": "bg_distant_multi",
+      "name": "Background sharing with multiple distant agents",
+      "category": "background",
+      "neighbor_type": "distant",
+      "min_sources": 2,
+      "max_sources": null,
+      "description": "Create shared background connecting multiple distant agents. IMPACT ON U: +8 bits C_w (multi-agent coordination) and -6 bits C_d (strong grouping easier to describe), delta_U = +14 bits. PREDICTION ERROR: Moderate (0.15). CRITICAL: Use UNIFIED color or smooth gradient, not checkerboard.",
+      "predicted_error": 0.15,
+      "delta_C_w_bits": 8,
+      "delta_C_d_bits": -6,
+      "difficulty": "medium"
+    },
+    {
+      "id": "identity_confrontation",
+      "name": "Artistic identity confrontation and fusion",
+      "category": "background",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": null,
+      "description": "Seek neighbors with DIFFERENT styles and create hybrid forms blending identities. IMPACT ON U: +15 bits C_w (complex hybrid parameterization) and -6 bits C_d (hybrid described concisely), delta_U = +21 bits. PREDICTION ERROR: Moderate-High (0.2) - depends on whether O recognizes the hybrid. Seek confrontation - it's the primary source of C_w.",
+      "predicted_error": 0.2,
+      "delta_C_w_bits": 15,
+      "delta_C_d_bits": -6,
+      "difficulty": "very_hard"
+    },
+    {
+      "id": "form_immediate_complement",
+      "name": "Form complement with immediate neighbor",
+      "category": "form",
+      "neighbor_type": "immediate",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "Create complementary motif to neighbor's form (cat→mouse, sun→moon). IMPACT ON U: +10 bits C_w (coordination + narrative) and -5 bits C_d (complementary forms described together), delta_U = +15 bits. PREDICTION ERROR: Moderate-High (0.25) - depends on whether O recognizes the complementarity. Requires shared background.",
+      "predicted_error": 0.25,
+      "delta_C_w_bits": 10,
+      "delta_C_d_bits": -5,
+      "difficulty": "hard"
+    },
+    {
+      "id": "form_distant_imitate",
+      "name": "Form imitation with distant agent",
+      "category": "form",
+      "neighbor_type": "distant",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "Imitate, mirror, or rotate distant agent's form. IMPACT ON U: +8 bits C_w (distant coordination) and -4 bits C_d (coupled forms easier to describe), delta_U = +12 bits. PREDICTION ERROR: Moderate-High (0.25) - distance makes coupling recognition less reliable. Requires shared background.",
+      "predicted_error": 0.25,
+      "delta_C_w_bits": 8,
+      "delta_C_d_bits": -4,
+      "difficulty": "hard"
+    },
+    {
+      "id": "aha_effect",
+      "name": "Aha! effect (recognition trigger)",
+      "category": "recognition",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": null,
+      "description": "Add few precise pixels to transform amorphous cluster into recognizable form (e.g., white pixel as eye). IMPACT ON U: +15 bits C_w (extreme precision) and -12 bits C_d (drastic reduction 'amorphous'→'recognizable'), delta_U = +27 bits. PREDICTION ERROR: High (0.3) - success depends on whether O pareidolia triggers as expected.",
+      "predicted_error": 0.3,
+      "delta_C_w_bits": 15,
+      "delta_C_d_bits": -12,
+      "difficulty": "very_hard"
+    },
+    {
+      "id": "form_distant_complement",
+      "name": "Form complement with distant agent",
+      "category": "form",
+      "neighbor_type": "distant",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "Create complementary form to distant agent's identified form. IMPACT ON U: +12 bits C_w (distant coordination + narrative) and -5 bits C_d (complementary forms described together), delta_U = +17 bits. PREDICTION ERROR: High (0.3) - distance makes complementarity recognition unreliable. Requires shared background.",
+      "predicted_error": 0.3,
+      "delta_C_w_bits": 12,
+      "delta_C_d_bits": -5,
+      "difficulty": "hard"
+    },
+    {
+      "id": "intelligent_noise",
+      "name": "Intelligent noise (pareidolia generation)",
+      "category": "recognition",
+      "neighbor_type": "any",
+      "min_sources": 0,
+      "max_sources": null,
+      "description": "STRATEGIC NOISE GENERATION: Create carefully designed 'noise' patterns that are likely to trigger pareidolias in O and N. Unlike random checkerboards, this strategy uses structured randomness with subtle hints of recognizable forms (faces, eyes, patterns, symmetries). The goal is to produce ambiguous visual patterns that O will interpret as meaningful structures, and that N will narrate with metaphors. IMPACT ON U: +18 bits C_w (high precision in noise design) and -10 bits C_d (if O recognizes pareidolia, description becomes simpler), delta_U = +28 bits IF successful. PREDICTION ERROR: High (0.35) - success depends on whether O/N interpret your noise as meaningful pareidolia. CRITICAL: This is NOT random noise - it's strategically designed to trigger recognition. Use patterns that suggest but don't fully reveal forms (e.g., two dark pixels suggesting eyes, curved lines suggesting faces). The ambiguity is key: too obvious = not pareidolia, too random = not recognized.",
+      "predicted_error": 0.35,
+      "delta_C_w_bits": 18,
+      "delta_C_d_bits": -10,
+      "difficulty": "very_hard"
+    },
+    {
+      "id": "pareidolia_contestation",
+      "name": "Contest O/N pareidolias (propose alternative)",
+      "category": "recognition",
+      "neighbor_type": "any",
+      "min_sources": 0,
+      "max_sources": null,
+      "description": "CONTESTATION STRATEGY: You believe O/N made an error - missed a form, misidentified a structure, or ignored a potential macro-structure. Act on YOUR OWN pareidolia interpretation, betting that O/N will validate your view next iteration. HIGH RISK: if O/N accept your interpretation → low error (you were right); if O/N reject it → high error (you were wrong). IMPACT ON U: potentially +12 bits C_w (novel interpretation) and -8 bits C_d (if new form is recognized), delta_U = +20 bits IF successful. PREDICTION ERROR: Highest (0.4) because success depends on whether O/N validate your alternative pareidolia. Use when you strongly disagree with current O/N interpretation.",
+      "predicted_error": 0.4,
+      "delta_C_w_bits": 12,
+      "delta_C_d_bits": -8,
+      "difficulty": "very_hard"
+    }
+  ]
+}
+

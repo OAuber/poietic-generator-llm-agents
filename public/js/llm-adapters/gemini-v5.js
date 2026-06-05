@@ -1,11 +1,12 @@
 export const GeminiV5Adapter = {
   name: 'Gemini V5',
-  version: '2025-01-27-v5-7',
+  version: '2025-01-27-v5-33',
   apiKey: null,
   prompts: null,
-  strategies: null, // Cache pour strategies-v5.json
-  lastCallTime: 0, // Timestamp du dernier appel API
-  minCallInterval: 2000, // Intervalle minimum entre deux appels (2 secondes)
+  strategies: null, // Cache pour strategies-v5.json (compatibilité)
+  strategiesCache: null, // Cache séparé par type (safe/advanced)
+  // V5.2: Supprimé lastCallTime et minCallInterval - les retries gèrent déjà les rate limits
+  // et cela créait une queue globale empêchant le parallélisme entre agents
 
   async loadPromptFile(kind) {
     const map = {
@@ -20,113 +21,138 @@ export const GeminiV5Adapter = {
     return await res.json();
   },
 
-  async loadStrategies() {
-    if (this.strategies) return this.strategies; // Déjà chargé
+  async loadStrategies(context = null) {
+    // Déterminer quel fichier charger selon le contexte
+    let strategyFile = 'strategies-v5.json'; // Par défaut
+    let cacheKey = 'default';
+    
+    if (context && context.kind === 'action') {
+      // Calculer les valeurs nécessaires (même logique que dans buildSystemPrompt)
+      let myRank = 999;
+      let myAvgError = 1.0;
+      let totalAgents = 0;
+      
+      if (context?.agent_rankings) {
+        const rankings = context.agent_rankings;
+        const myAgentId = context?.myAgentId || '';
+        const myRanking = rankings[myAgentId] || {rank: 999, avg_error: 1.0, total_iterations: 0, position: [0, 0]};
+        myRank = myRanking.rank || 999;
+        myAvgError = myRanking.avg_error || 1.0;
+        totalAgents = Object.keys(rankings).length;
+      }
+      
+      // Calculer U si pas directement disponible
+      const C_w = parseFloat(context.C_w) || 0;
+      const C_d = parseFloat(context.C_d) || 0;
+      const U = parseFloat(context.U) || (C_w - C_d);
+      
+      // Vérifier si l'agent est au-dessus ou en dessous des seuils
+      
+      const uThreshold = this.getStrategyParam('strategy_u_threshold', 70);
+      const rankDivisor = this.getStrategyParam('strategy_rank_divisor', 2);
+      const errorThreshold = this.getStrategyParam('strategy_error_threshold', 0.5);
+      
+      // CRITICAL FIX: Utiliser myAvgError au lieu de avgError (variable non définie)
+      const isBelowThreshold = U < uThreshold || myRank > (totalAgents / rankDivisor) || myAvgError > errorThreshold;
+      
+      if (isBelowThreshold) {
+        strategyFile = 'strategies-v5-safe.json';
+        cacheKey = 'safe';
+      } else {
+        strategyFile = 'strategies-v5-advanced.json';
+        cacheKey = 'advanced';
+      }
+    }
+    
+    // Utiliser un cache séparé par type de stratégies
+    if (!this.strategiesCache) {
+      this.strategiesCache = {};
+    }
+    
+    if (this.strategiesCache[cacheKey]) {
+      return this.strategiesCache[cacheKey];
+    }
+    
     try {
-      const res = await fetch(`/strategies-v5.json?v=${this.version}`);
+      const res = await fetch(`/${strategyFile}?v=${this.version}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      this.strategies = await res.json();
-      return this.strategies;
+      const strategies = await res.json();
+      
+      // CRITICAL FIX: Vérifier que le fichier contient bien des stratégies
+      if (!strategies || !strategies.strategies || !Array.isArray(strategies.strategies) || strategies.strategies.length === 0) {
+        console.warn(`[Gemini V5] ⚠️  Fichier ${strategyFile} vide ou invalide, fallback vers strategies-v5.json`);
+        // Fallback vers le fichier par défaut si le fichier spécifique est vide
+        if (strategyFile !== 'strategies-v5.json') {
+          try {
+            const fallbackRes = await fetch(`/strategies-v5.json?v=${this.version}`);
+            if (fallbackRes.ok) {
+              const fallbackStrategies = await fallbackRes.json();
+              if (fallbackStrategies && fallbackStrategies.strategies && Array.isArray(fallbackStrategies.strategies) && fallbackStrategies.strategies.length > 0) {
+                this.strategiesCache[cacheKey] = fallbackStrategies;
+                this.strategies = fallbackStrategies;
+                return fallbackStrategies;
+              }
+            }
+          } catch (fallbackError) {
+            console.error(`[Gemini V5] ❌ Erreur chargement fallback strategies-v5.json:`, fallbackError);
+          }
+        }
+        // Si même le fallback échoue, retourner un objet vide mais valide
+        return { strategies: [] };
+      }
+      
+      this.strategiesCache[cacheKey] = strategies;
+      // Pour compatibilité, aussi mettre dans this.strategies
+      this.strategies = strategies;
+      return strategies;
     } catch (e) {
-      console.warn('[Gemini V5] Erreur chargement strategies-v5.json:', e);
+      console.error(`[Gemini V5] ❌ Erreur chargement ${strategyFile}:`, e);
+      
+      // CRITICAL FIX: Fallback vers strategies-v5.json si le fichier spécifique n'existe pas
+      if (strategyFile !== 'strategies-v5.json') {
+        try {
+          console.log(`[Gemini V5] 🔄 Tentative fallback vers strategies-v5.json...`);
+          const fallbackRes = await fetch(`/strategies-v5.json?v=${this.version}`);
+          if (fallbackRes.ok) {
+            const fallbackStrategies = await fallbackRes.json();
+            if (fallbackStrategies && fallbackStrategies.strategies && Array.isArray(fallbackStrategies.strategies) && fallbackStrategies.strategies.length > 0) {
+              console.log(`[Gemini V5] ✅ Fallback réussi: ${fallbackStrategies.strategies.length} stratégies chargées`);
+              this.strategiesCache[cacheKey] = fallbackStrategies;
+              this.strategies = fallbackStrategies;
+              return fallbackStrategies;
+            }
+          }
+        } catch (fallbackError) {
+          console.error(`[Gemini V5] ❌ Erreur chargement fallback strategies-v5.json:`, fallbackError);
+        }
+      }
+      
+      // Si même le fallback échoue, retourner un objet vide mais valide
       return { strategies: [] };
     }
   },
 
   formatStrategiesReference() {
-    if (!this.strategies || !this.strategies.strategies) return 'No strategies available';
+    // CRITICAL FIX: Vérifier que les stratégies sont valides avant de les formater
+    if (!this.strategies || !this.strategies.strategies || !Array.isArray(this.strategies.strategies) || this.strategies.strategies.length === 0) {
+      console.warn(`[Gemini V5] ⚠️  Aucune stratégie disponible (strategies=${!!this.strategies}, strategies.strategies=${!!this.strategies?.strategies}, length=${this.strategies?.strategies?.length || 0})`);
+      return 'No strategies available - system error';
+    }
     const strategies = this.strategies.strategies;
-    let text = 'AVAILABLE UNILATERAL STRATEGIES (ordered from easiest to hardest):\n\n';
-    
-    // Grouper par catégorie
-    const byCategory = {
-      'background_immediate': [],
-      'background_distant': [],
-      'background_any': [],
-      'form_immediate': [],
-      'form_distant': [],
-      'recognition_any': []
-    };
+    // CRITICAL: Format ultra-compact pour réduire tokens
+    // ID, nom court, predicted_error, difficulty, deltas (pas de description complète)
+    // ⭐ pour marquer les stratégies faciles (error <= 0.1 ET difficulty=easy)
+    let text = 'STRATEGIES (id, error, difficulty, ΔC_w, ΔC_d):\n';
     
     strategies.forEach(s => {
-      let key = `${s.category}_${s.neighbor_type}`;
-      // Si neighbor_type est "any", utiliser une catégorie spéciale
-      if (s.neighbor_type === 'any') {
-        key = `${s.category}_any`;
-      }
-      if (byCategory[key]) {
-        byCategory[key].push(s);
-      } else {
-        // Fallback: ajouter à une catégorie générique
-        const genericKey = `${s.category}_any`;
-        if (byCategory[genericKey]) {
-          byCategory[genericKey].push(s);
-        }
-      }
+      const neighbor = s.neighbor_type === 'immediate' ? 'imm' : s.neighbor_type === 'distant' ? 'dist' : 'any';
+      const sources = s.min_sources > 1 ? `[${s.min_sources}+]` : '';
+      const difficulty = s.difficulty || 'medium';
+      // Marquer visuellement les stratégies faciles avec ⭐
+      const isEasy = s.predicted_error <= 0.1 && s.difficulty === 'easy';
+      const marker = isEasy ? '⭐ ' : '  ';
+      text += `${marker}${s.id}: "${s.name}" (${neighbor}${sources}) error=${s.predicted_error}, diff=${difficulty}, ΔC_w=+${s.delta_C_w_bits}, ΔC_d=${s.delta_C_d_bits}\n`;
     });
-    
-    // A) Background avec voisin immédiat
-    if (byCategory.background_immediate.length > 0) {
-      text += 'A) BACKGROUND STRATEGIES WITH IMMEDIATE NEIGHBOR:\n';
-      byCategory.background_immediate.forEach(s => {
-        text += `  - "${s.name}" (id: ${s.id}): ${s.description}\n`;
-        text += `    Predicted error: ${s.predicted_error}, ΔC_w: +${s.delta_C_w_bits} bits, ΔC_d: ${s.delta_C_d_bits} bits\n`;
-      });
-      text += '\n';
-    }
-    
-    // B) Background avec agent éloigné
-    if (byCategory.background_distant.length > 0) {
-      text += 'B) BACKGROUND STRATEGIES WITH DISTANT AGENT(S):\n';
-      byCategory.background_distant.forEach(s => {
-        text += `  - "${s.name}" (id: ${s.id}): ${s.description}\n`;
-        text += `    Predicted error: ${s.predicted_error}, ΔC_w: +${s.delta_C_w_bits} bits, ΔC_d: ${s.delta_C_d_bits} bits\n`;
-        if (s.min_sources > 1) text += `    Requires ${s.min_sources} or more source agents\n`;
-      });
-      text += '\n';
-    }
-    
-    // B2) Background avec sources multiples (any)
-    if (byCategory.background_any.length > 0) {
-      text += 'B2) COMPLEX BACKGROUND STRATEGIES (multiple sources, immediate or distant):\n';
-      byCategory.background_any.forEach(s => {
-        text += `  - "${s.name}" (id: ${s.id}): ${s.description}\n`;
-        text += `    Predicted error: ${s.predicted_error}, ΔC_w: +${s.delta_C_w_bits} bits, ΔC_d: ${s.delta_C_d_bits} bits\n`;
-        if (s.min_sources > 1) text += `    Requires ${s.min_sources} or more source agents\n`;
-      });
-      text += '\n';
-    }
-    
-    // C) Forme avec voisin
-    if (byCategory.form_immediate.length > 0) {
-      text += 'C) FORM STRATEGIES WITH IMMEDIATE NEIGHBOR (requires shared background):\n';
-      byCategory.form_immediate.forEach(s => {
-        text += `  - "${s.name}" (id: ${s.id}): ${s.description}\n`;
-        text += `    Predicted error: ${s.predicted_error}, ΔC_w: +${s.delta_C_w_bits} bits, ΔC_d: ${s.delta_C_d_bits} bits\n`;
-      });
-      text += '\n';
-    }
-    
-    // D) Forme avec agent éloigné
-    if (byCategory.form_distant.length > 0) {
-      text += 'D) FORM STRATEGIES WITH DISTANT AGENT(S) (requires shared background):\n';
-      byCategory.form_distant.forEach(s => {
-        text += `  - "${s.name}" (id: ${s.id}): ${s.description}\n`;
-        text += `    Predicted error: ${s.predicted_error}, ΔC_w: +${s.delta_C_w_bits} bits, ΔC_d: ${s.delta_C_d_bits} bits\n`;
-      });
-      text += '\n';
-    }
-    
-    // E) Recognition strategies (Aha! effect)
-    if (byCategory.recognition_any.length > 0) {
-      text += 'E) RECOGNITION STRATEGIES (transform amorphous clusters into recognizable forms):\n';
-      byCategory.recognition_any.forEach(s => {
-        text += `  - "${s.name}" (id: ${s.id}): ${s.description}\n`;
-        text += `    Predicted error: ${s.predicted_error}, ΔC_w: +${s.delta_C_w_bits} bits, ΔC_d: ${s.delta_C_d_bits} bits\n`;
-        if (s.min_sources > 1) text += `    Requires ${s.min_sources} or more source agents\n`;
-      });
-      text += '\n';
-    }
     
     return text;
   },
@@ -137,15 +163,8 @@ export const GeminiV5Adapter = {
   },
 
   async callAPI(systemText, images) {
-    // Espacer les appels API pour éviter les rate limits
-    const now = Date.now();
-    const timeSinceLastCall = now - this.lastCallTime;
-    if (timeSinceLastCall < this.minCallInterval) {
-      const waitTime = this.minCallInterval - timeSinceLastCall;
-      console.log(`[Gemini V5] ⏳ Espacement des appels: attente ${waitTime}ms avant l'appel API`);
-      await new Promise(r => setTimeout(r, waitTime));
-    }
-    this.lastCallTime = Date.now();
+    // V5.2: Supprimé l'espacement global des appels - les retries avec backoff gèrent les rate limits
+    // Chaque agent (onglet navigateur) peut appeler en parallèle sans queue globale
     
     const timeout = 420000;
     const key = this.getApiKey();
@@ -167,9 +186,21 @@ export const GeminiV5Adapter = {
     maybePushImage(images?.globalImageBase64);
     maybePushImage(images?.localImageBase64);
 
+    // CRITICAL: Ajuster maxOutputTokens selon le contexte
+    // Seed nécessite 400 pixels (~1200 tokens) + JSON structure (~500 tokens) = ~1700 tokens minimum
+    // Action nécessite plus de tokens pour stratégies audacieuses et plus de pixels
+    // Utiliser 24000 pour seed (400 pixels), 20000 pour action (permet stratégies complexes)
+    const isSeed = systemText.includes('SEED') || systemText.includes('seed');
+    const maxOutputTokens = isSeed ? 24000 : 20000;
+    
+    // CRITICAL: Température élevée pour réduire la timidité et encourager la créativité
+    // 1.2 = plus créatif, moins conservateur, plus audacieux dans les stratégies
+    // Permet aux agents de prendre plus de risques (contestation, fusion complexe, etc.)
+    const temperature = 1.2;
+    
     const body = {
       contents: [{ parts }],
-      generationConfig: { temperature: 0.9, maxOutputTokens: 16000 }
+      generationConfig: { temperature, maxOutputTokens }
     };
     
     // Retry avec backoff exponentiel pour erreurs 503/429 (rate limit)
@@ -237,7 +268,9 @@ export const GeminiV5Adapter = {
         }
         
         const data = await r.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
+        const candidate = data?.candidates?.[0];
+        const text = candidate?.content?.parts?.map(p => p.text).join('\n') || '';
+        const finishReason = candidate?.finishReason || 'UNKNOWN';
         
         // V5.1: Extraire les métriques de tokens pour calculer le coût de signalement
         const usageMetadata = data?.usageMetadata || {};
@@ -245,9 +278,21 @@ export const GeminiV5Adapter = {
         const outputTokens = usageMetadata.candidatesTokenCount || 0;
         const totalTokens = usageMetadata.totalTokenCount || 0;
         
-        // Retourner texte + métriques
+        // CRITICAL: Logger si la réponse est incomplète
+        if (finishReason === 'MAX_TOKENS') {
+          console.warn(`[Gemini V5] ⚠️ Réponse TRONQUÉE (MAX_TOKENS atteint): ${outputTokens} tokens de sortie, texte: ${text.substring(0, 200)}...`);
+        } else if (finishReason === 'SAFETY') {
+          console.warn(`[Gemini V5] ⚠️ Réponse BLOQUÉE (SAFETY): contenu filtré par les filtres de sécurité`);
+        } else if (finishReason === 'RECITATION') {
+          console.warn(`[Gemini V5] ⚠️ Réponse BLOQUÉE (RECITATION): contenu recité détecté`);
+        } else if (finishReason !== 'STOP') {
+          console.warn(`[Gemini V5] ⚠️ FinishReason inattendu: ${finishReason}`);
+        }
+        
+        // Retourner texte + métriques + finishReason pour détection côté client
         return {
           text: text,
+          finishReason: finishReason,
           tokens: {
             input: inputTokens,
             output: outputTokens,
@@ -275,8 +320,10 @@ export const GeminiV5Adapter = {
     const lines = tpl.system || [];
     
     // Charger strategies-v5.json si nécessaire (pour action, observation, narration)
+    // Pour action, passer le contexte avec kind pour charger le bon fichier (safe/advanced)
     if (kind === 'action' || kind === 'observation' || kind === 'narration') {
-      await this.loadStrategies();
+      const contextWithKind = context ? { ...context, kind } : { kind };
+      await this.loadStrategies(contextWithKind);
     }
     
     // Formater les couleurs des voisins pour injection dans le prompt
@@ -290,9 +337,24 @@ export const GeminiV5Adapter = {
     }
     
     // V5: Extraire variables depuis lastObservation (snapshot O+N)
+    // CRITICAL: Format ultra-compact pour réduire tokens
     const obs = context?.lastObservation || {};
-    const structures = obs.structures ? JSON.stringify(obs.structures, null, 2) : '[]';
-    const formal_relations = obs.formal_relations ? JSON.stringify(obs.formal_relations, null, 2) : '{}';
+    
+    // Structures: résumé compact au lieu de JSON complet
+    // SOLUTION 1: Masquer les positions pour éviter l'alignement direct - seulement type, size, rank
+    let structures = '[]';
+    if (obs.structures && Array.isArray(obs.structures)) {
+      const structs = obs.structures.slice(0, 10); // Max 10 structures
+      structures = structs.map(s => {
+        // NE PAS inclure les positions - seulement type, size, rank pour éviter l'alignement direct
+        return `{type:"${s.type||'N/A'}", size:${s.size_agents||0}, rank:${s.rank_C_d||999}}`;
+      }).join(', ');
+      structures = `[${structures}]`;
+    }
+    
+    // Formal relations: seulement le summary
+    const formal_relations = obs.formal_relations?.summary || 'N/A';
+    
     const narrative = obs.narrative?.summary || 'N/A';
     const interpretation = obs.simplicity_assessment?.U_current?.interpretation || 'N/A';
     
@@ -341,32 +403,21 @@ export const GeminiV5Adapter = {
         rankingText += 'Agents are ranked by their cumulative average prediction error (lower = better rank).\n';
         rankingText += 'Rank 1 = best predictor (lowest error), highest rank = worst predictor.\n\n';
         
-        // Top 5
+        // CRITICAL: Format ultra-compact - Top 5 pour permettre plus de choix de sources
         const sorted = Object.entries(rankings)
           .sort((a, b) => a[1].rank - b[1].rank)
           .slice(0, 5);
         
         if (sorted.length > 0) {
-          rankingText += 'TOP PREDICTORS (best anticipation):\n';
-          sorted.forEach(([id, data]) => {
+          rankingText += 'TOP PREDICTORS (best sources for inspiration): ';
+          rankingText += sorted.map(([id, data], idx) => {
             const pos = data.position || ['?', '?'];
-            const isMe = id === myAgentId;
-            rankingText += `  ${data.rank}. Agent [${pos[0]},${pos[1]}]: avg_error=${data.avg_error.toFixed(3)}, iterations=${data.total_iterations}${isMe ? ' (YOU)' : ''}\n`;
-          });
+            return `Rank ${idx + 1}: [${pos[0]},${pos[1]}] err=${data.avg_error.toFixed(2)}`;
+          }).join(', ');
+          rankingText += '\n';
         }
         
-        rankingText += '\nYOUR RANKING:\n';
-        rankingText += `  Rank: ${myRank} / ${totalAgents}\n`;
-        rankingText += `  Average error: ${myAvgError.toFixed(3)}\n`;
-        rankingText += `  Total iterations: ${myRanking.total_iterations || 0}\n`;
-        
-        if (myRank <= 3 && totalAgents >= 3) {
-          rankingText += '  EXCELLENT: You are among the top predictors! Your anticipation capability is highly valued.\n';
-        } else if (myRank <= Math.floor(totalAgents / 2)) {
-          rankingText += '  GOOD: You are above average. Keep improving your predictions.\n';
-        } else {
-          rankingText += '  NEEDS IMPROVEMENT: Your prediction accuracy is below average. Consider using strategies with lower predicted error (e.g., exact reproduction).\n';
-        }
+        rankingText += `YOU: Rank ${myRank}/${totalAgents}, err=${myAvgError.toFixed(2)}, iter=${myRanking.total_iterations || 0}\n`;
       } else {
         rankingText = '\nAGENT RANKING: No rankings available yet (waiting for first predictions).\n';
       }
@@ -387,8 +438,9 @@ export const GeminiV5Adapter = {
       .replaceAll('{{neighbor_colors}}', neighborColorsText)
       .replaceAll('{{colorPalette}}', context?.colorPalette || 'No colors yet')
       // V5: Variables spécifiques O+N snapshot
-      .replaceAll('{{structures}}', structures)
-      .replaceAll('{{formal_relations}}', formal_relations)
+      // Pour action: ne pas injecter structures et formal_relations (trop précis, incite à se focaliser)
+      .replaceAll('{{structures}}', kind === 'action' ? 'N/A (not provided to avoid self-focus)' : structures)
+      .replaceAll('{{formal_relations}}', kind === 'action' ? 'N/A (not provided to avoid self-focus)' : formal_relations)
       .replaceAll('{{narrative}}', narrative)
       .replaceAll('{{C_w}}', String(context?.C_w ?? 'N/A'))
       .replaceAll('{{C_d}}', String(context?.C_d ?? 'N/A'))
@@ -402,8 +454,40 @@ export const GeminiV5Adapter = {
       .replaceAll('{{agent_rankings}}', rankingText) // V5: Ranking des agents
       .replaceAll('{{my_rank}}', String(myRank)) // V5: Rang personnel
       .replaceAll('{{my_avg_error}}', String(myAvgError.toFixed(3))) // V5: Erreur moyenne personnelle
-      .replaceAll('{{total_agents}}', String(totalAgents)); // V5: Nombre total d'agents
+      .replaceAll('{{total_agents}}', String(totalAgents)) // V5: Nombre total d'agents
+      // V5: Paramètres de stratégie configurables (depuis localStorage ou valeurs par défaut)
+      .replaceAll('{{strategy_u_threshold}}', String(this.getStrategyParam('strategy_u_threshold', 70)))
+      .replaceAll('{{strategy_rank_divisor}}', String(this.getStrategyParam('strategy_rank_divisor', 2)))
+      .replaceAll('{{strategy_error_threshold}}', String(this.getStrategyParam('strategy_error_threshold', 0.5)));
     return lines.map(render).join('\n');
+  },
+  
+  getStrategyParam(key, defaultValue) {
+    // Récupérer depuis localStorage (mis à jour par ai-metrics.html)
+    const stored = localStorage.getItem(key);
+    if (stored !== null) {
+      const parsed = parseFloat(stored);
+      if (!isNaN(parsed)) {
+        // CRITICAL FIX: Invalider le cache des stratégies si les paramètres changent
+        // Cela force le rechargement des stratégies avec les nouveaux seuils
+        const lastParamValue = this._lastStrategyParams?.[key];
+        if (lastParamValue !== undefined && lastParamValue !== parsed) {
+          console.log(`[Gemini V5] 🔄 Paramètre ${key} changé (${lastParamValue} → ${parsed}), invalidation cache stratégies`);
+          // Invalider le cache pour forcer le rechargement avec les nouveaux seuils
+          if (this.strategiesCache) {
+            delete this.strategiesCache.safe;
+            delete this.strategiesCache.advanced;
+          }
+        }
+        // Stocker la valeur actuelle pour détecter les changements futurs
+        if (!this._lastStrategyParams) {
+          this._lastStrategyParams = {};
+        }
+        this._lastStrategyParams[key] = parsed;
+        return parsed;
+      }
+    }
+    return defaultValue;
   },
 
   parseJSONResponse(textOrResult) {

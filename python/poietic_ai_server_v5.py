@@ -14,6 +14,13 @@ import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 # ==============================================================================
+# CONFIGURATION - Token to bits conversion factors
+# ==============================================================================
+TOKEN_TO_BITS_FACTOR_O = float(os.getenv('TOKEN_TO_BITS_FACTOR_O', '4.0'))
+TOKEN_TO_BITS_FACTOR_N = float(os.getenv('TOKEN_TO_BITS_FACTOR_N', '4.0'))
+TOKEN_TO_BITS_FACTOR_W = float(os.getenv('TOKEN_TO_BITS_FACTOR_W', '4.0'))
+
+# ==============================================================================
 # STORES
 # ==============================================================================
 
@@ -25,6 +32,32 @@ class WAgentDataStore:
     
     def update_agent_data(self, agent_id: str, data: dict):
         """Mettre à jour les données d'un agent W"""
+        # V5.2: Ignorer les heartbeats pour la logique métier (ne pas écraser les vraies données)
+        is_heartbeat = data.get('is_heartbeat', False)
+        if is_heartbeat:
+            # Heartbeat : seulement mettre à jour le timestamp pour éviter suppression
+            if agent_id in self.agents_data:
+                # CRITICAL: Mettre à jour le timestamp même si l'agent existe déjà
+                # Cela permet de maintenir l'agent actif même s'il est bloqué en attente
+                self.agents_data[agent_id]['timestamp'] = data.get('timestamp', datetime.now(timezone.utc).isoformat())
+                self.last_update_time = datetime.now(timezone.utc)
+            else:
+                # CRITICAL: Si l'agent n'existe pas encore, créer une entrée minimale
+                # Cela peut arriver si l'agent a été supprimé mais envoie encore des heartbeats
+                self.agents_data[agent_id] = {
+                    'agent_id': agent_id,
+                    'position': data.get('position', [0, 0]),
+                    'iteration': data.get('iteration', 0),
+                    'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                    'strategy': 'Heartbeat - agent still active',
+                    'rationale': 'Waiting for snapshot or generating action...',
+                    'predictions': {},
+                    'previous_predictions': {},
+                    'pixels': []
+                }
+                self.last_update_time = datetime.now(timezone.utc)
+            return  # Ne pas traiter comme une vraie mise à jour
+        
         previous_record = self.agents_data.get(agent_id, {})
         current_iteration = data.get('iteration', 0)
         previous_iteration = previous_record.get('iteration', -1)
@@ -65,6 +98,8 @@ class WAgentDataStore:
             # Si previous_predictions est vide mais qu'on a des predictions actuelles et iteration > 0,
             # cela signifie que c'est la première action après seed, donc previous_predictions devrait être vide
             'previous_predictions': previous_predictions,
+            # V5: Stocker les pixels pour calcul C_w_machine (prolongement sensori-moteur)
+            'pixels': data.get('pixels', []),
             'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat())
         }
         self.last_update_time = datetime.now(timezone.utc)
@@ -95,10 +130,26 @@ class WAgentDataStore:
                 agent_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 delta = (now - agent_time).total_seconds()
                 
-                # CRITIQUE: Ne pas supprimer les agents qui ont fait un seed (iteration 0) mais pas encore d'action
-                # car on a besoin de leurs prédictions pour évaluer l'erreur de prédiction de leur première action
-                # Timeout plus long pour les seeds (120s) car ils peuvent prendre du temps avant première action
-                seed_timeout = 120 if iteration == 0 else timeout
+                # V5.2: Timeout adaptatif selon l'itération
+                # - Seeds (iter=0) : 480s (8 minutes) - les seeds doivent générer 400 pixels, 
+                #   l'appel Gemini peut prendre jusqu'à 420s, et l'envoi des pixels peut prendre du temps
+                # - Première action (iter=1) : timeout normal
+                # - Agents actifs (iter > 1) : timeout beaucoup plus long car ils sont clairement actifs
+                #   et peuvent prendre du temps entre actions (attente snapshot, génération, rate limits)
+                if iteration == 0:
+                    effective_timeout = 480  # Seeds : 8 minutes (correspond au timeout Gemini max 420s + marge)
+                elif iteration == 1:
+                    effective_timeout = timeout  # Première action
+                elif iteration > 1:
+                    # Agents actifs : timeout beaucoup plus long (15 minutes)
+                    # Car ils peuvent prendre du temps entre actions (attente snapshot, génération Gemini jusqu'à 420s, rate limits)
+                    # Agents actifs : timeout beaucoup plus long (20 minutes)
+                    # Car ils peuvent prendre du temps entre actions (attente snapshot, génération Gemini jusqu'à 420s, rate limits)
+                    # CRITICAL: Le heartbeat est envoyé toutes les 30s, donc avec un timeout de 1200s (20 min),
+                    # on peut manquer jusqu'à 40 heartbeats avant suppression (tolérance réseau/WiFi élevée)
+                    effective_timeout = 1200  # 20 minutes pour agents actifs (tolérance réseau/WiFi)
+                else:
+                    effective_timeout = timeout
                 
                 # CRITICAL: Ne pas supprimer les agents qui ont des prédictions mais pas encore de previous_predictions
                 # car ils vont bientôt envoyer leur prochaine itération et on aura besoin de leurs prédictions actuelles
@@ -106,19 +157,27 @@ class WAgentDataStore:
                 if has_predictions and not has_previous_predictions and iteration > 0:
                     # Agent a des prédictions mais pas de previous_predictions - il va bientôt envoyer sa prochaine itération
                     # Ne pas supprimer avant 180s (3 minutes) pour laisser le temps
-                    effective_timeout = max(seed_timeout, 180)
-                else:
-                    effective_timeout = seed_timeout
+                    effective_timeout = max(effective_timeout, 180)
+                
+                # CRITICAL: Ne pas supprimer les seeds (iter=0) qui ont des pixels mais pas encore de données W complètes
+                # Les seeds peuvent prendre du temps à générer et envoyer leurs 400 pixels
+                if iteration == 0:
+                    has_pixels = bool(data.get('pixels', []))
+                    if has_pixels:
+                        # Seed a déjà généré des pixels, ne pas supprimer trop rapidement
+                        # Augmenter le timeout à 600s (10 minutes) si le seed a des pixels
+                        effective_timeout = max(effective_timeout, 600)
                 
                 if delta > effective_timeout:
-                    stale_agents.append(agent_id)
+                    # Stocker le timeout avec l'agent_id pour le log
+                    stale_agents.append((agent_id, effective_timeout))
             except:
                 pass
         
-        for agent_id in stale_agents:
+        for agent_id, agent_timeout in stale_agents:
             iteration = self.agents_data.get(agent_id, {}).get('iteration', -1)
             del self.agents_data[agent_id]
-            print(f"[W] Agent {agent_id[:8]} supprimé (inactif > {timeout}s, iter={iteration})")
+            print(f"[W] Agent {agent_id[:8]} supprimé (inactif > {agent_timeout}s, iter={iteration})")
     
     def all_agents_finished(self, quiescence_delay=5.0):
         """
@@ -392,6 +451,177 @@ def validate_structures_no_overlap(o_result: dict) -> Tuple[bool, List[str]]:
     return is_valid, errors
 
 # ==============================================================================
+# TOKEN ESTIMATION AND MACHINE METRICS
+# ==============================================================================
+
+def estimate_tokens_from_json_field(data: dict, field_path: List[str]) -> int:
+    """
+    Estime le nombre de tokens d'un champ JSON.
+    
+    Args:
+        data: Objet JSON
+        field_path: Chemin vers le champ (ex: ["structures"], ["formal_relations", "summary"])
+    
+    Returns:
+        Nombre estimé de tokens (approximation: ~4 chars/token pour Gemini)
+    """
+    try:
+        # Naviguer vers le champ
+        current = data
+        for key in field_path:
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                return 0
+        
+        # Sérialiser en JSON compact
+        json_text = json.dumps(current, ensure_ascii=False, separators=(',', ':'))
+        
+        # Estimation: ~4 caractères par token pour Gemini
+        tokens = max(0, len(json_text) // 4)
+        return tokens
+    except Exception as e:
+        print(f"[TokenEst] Erreur estimation tokens pour {field_path}: {e}")
+        return 0
+
+def calculate_cd_machine_tokens(o_result: dict, n_result: dict, o_total_tokens: int) -> int:
+    """
+    Calcule les tokens pour C_d_machine en incluant les résultats d'observation/narration
+    et en soustrayant UNIQUEMENT les tokens de l'estimation C_d.
+    
+    Args:
+        o_result: Résultat O-machine (structures, formal_relations, simplicity_assessment)
+        n_result: Résultat N-machine (narrative)
+        o_total_tokens: Nombre total de tokens de sortie de O
+    
+    Returns:
+        Nombre de tokens pour C_d_machine (après soustraction de l'estimation C_d)
+    """
+    if not o_result or not n_result:
+        return 0
+    
+    total_tokens = 0
+    
+    # 1. Tokens des structures (RÉSULTAT de l'observation, à INCLURE)
+    structures_tokens = estimate_tokens_from_json_field(o_result, ["structures"])
+    total_tokens += structures_tokens
+    
+    # 2. Tokens des formal_relations (RÉSULTAT de l'observation, à INCLURE)
+    formal_relations_tokens = estimate_tokens_from_json_field(o_result, ["formal_relations"])
+    total_tokens += formal_relations_tokens
+    
+    # 3. CRITICAL: Soustraire UNIQUEMENT les tokens de l'ESTIMATION de C_d (le calcul/raisonnement)
+    # L'estimation C_d est le champ simplicity_assessment.C_d_current qui contient:
+    # - La valeur calculée (value)
+    # - La description complète de l'estimation (description)
+    # Ce champ représente le calcul/raisonnement de O, pas le résultat observé.
+    # Les structures et formal_relations sont les RÉSULTATS observés, donc on les inclut.
+    # La description dans C_d_current est ambiguë (résultat + estimation), donc on soustrait tout le champ.
+    cd_current = o_result.get("simplicity_assessment", {}).get("C_d_current", {})
+    if cd_current:
+        # Soustraire les tokens de l'estimation C_d complète (valeur + description)
+        # C'est le calcul/raisonnement, pas le résultat observé
+        cd_estimation_json = json.dumps(cd_current, ensure_ascii=False, separators=(',', ':'))
+        cd_estimation_tokens = max(0, len(cd_estimation_json) // 4)
+        total_tokens -= cd_estimation_tokens
+    
+    # 4. Tokens du narrative (RÉSULTAT de la narration, à INCLURE)
+    narrative = n_result.get("narrative", {})
+    summary_text = narrative.get("summary", "")
+    if summary_text:
+        narrative_tokens = max(0, len(summary_text) // 4)
+        total_tokens += narrative_tokens
+    
+    return max(0, total_tokens)
+
+def calculate_cw_machine_tokens(w_agents_data: dict) -> int:
+    """
+    Calcule les tokens pour C_w_machine en sommant les tokens de tous les agents W.
+    
+    Inclut: strategy, rationale, predictions, pixels (prolongement sensori-moteur).
+    
+    Args:
+        w_agents_data: Dict {agent_id: {strategy, rationale, predictions, pixels, ...}}
+    
+    Returns:
+        Nombre total de tokens pour C_w_machine
+    """
+    if not w_agents_data:
+        return 0
+    
+    total_tokens = 0
+    
+    for agent_id, agent_data in w_agents_data.items():
+        # 1. Tokens de strategy (texte)
+        strategy = agent_data.get("strategy", "")
+        if strategy:
+            total_tokens += max(0, len(strategy) // 4)
+        
+        # 2. Tokens de rationale (texte)
+        rationale = agent_data.get("rationale", "")
+        if rationale:
+            total_tokens += max(0, len(rationale) // 4)
+        
+        # 3. Tokens de predictions (JSON)
+        predictions = agent_data.get("predictions", {})
+        if predictions:
+            predictions_json = json.dumps(predictions, ensure_ascii=False, separators=(',', ':'))
+            total_tokens += max(0, len(predictions_json) // 4)
+        
+        # 4. Tokens de pixels (prolongement sensori-moteur, format ["x,y#HEX", ...])
+        # Les pixels apportent de la complexité de génération même s'ils sont redondants avec strategy
+        pixels = agent_data.get("pixels", [])
+        if pixels:
+            pixels_json = json.dumps(pixels, ensure_ascii=False, separators=(',', ':'))
+            total_tokens += max(0, len(pixels_json) // 4)
+    
+    return total_tokens
+
+def calculate_machine_metrics(o_result: dict, n_result: dict, w_agents_data: dict, 
+                              o_tokens: Optional[int], n_tokens: Optional[int]) -> dict:
+    """
+    Calcule les métriques machine (C_d_machine, C_w_machine, U_machine) basées sur les tokens.
+    
+    Args:
+        o_result: Résultat O-machine
+        n_result: Résultat N-machine
+        w_agents_data: Données de tous les agents W
+        o_tokens: Nombre de tokens de sortie de O (optionnel, utilisé pour validation)
+        n_tokens: Nombre de tokens de sortie de N (optionnel, non utilisé actuellement)
+    
+    Returns:
+        Dict avec machine_metrics contenant C_d_machine, C_w_machine, U_machine
+    """
+    # Calculer les tokens pour C_d_machine
+    cd_tokens = calculate_cd_machine_tokens(o_result, n_result, o_tokens or 0)
+    C_d_machine = cd_tokens * TOKEN_TO_BITS_FACTOR_O
+    
+    # Calculer les tokens pour C_w_machine
+    cw_tokens = calculate_cw_machine_tokens(w_agents_data)
+    C_w_machine = cw_tokens * TOKEN_TO_BITS_FACTOR_W
+    
+    # Calculer U_machine
+    U_machine = C_w_machine - C_d_machine
+    
+    return {
+        "machine_metrics": {
+            "C_d_machine": {
+                "value": C_d_machine,
+                "tokens": cd_tokens,
+                "factor": TOKEN_TO_BITS_FACTOR_O
+            },
+            "C_w_machine": {
+                "value": C_w_machine,
+                "tokens": cw_tokens,
+                "factor": TOKEN_TO_BITS_FACTOR_W
+            },
+            "U_machine": {
+                "value": U_machine
+            }
+        }
+    }
+
+# ==============================================================================
 # APPELS GEMINI
 # ==============================================================================
 
@@ -413,37 +643,90 @@ def _truncate_predictions(predictions: dict, max_length: int = 150) -> dict:
             truncated[key] = value
     return truncated
 
-async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None, agent_positions: Optional[list] = None) -> Optional[dict]:
-    """Appelle Gemini pour O-machine (observation des structures et calcul C_d)"""
+async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot: Optional[dict] = None, agent_positions: Optional[list] = None) -> Tuple[Optional[dict], Optional[int]]:
+    """Appelle Gemini pour O-machine (observation des structures et calcul C_d)
+    Retourne: (résultat JSON, nombre de tokens de sortie)"""
     print(f"[O] 🚀 Début appel Gemini O (agents: {agents_count}, image: {len(image_base64)} bytes)")
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
         print("[O] GEMINI_API_KEY non définie")
-        return None
+        return (None, None)
     
     try:
         prompt = load_o_prompt()
         if not isinstance(prompt, str):
             print(f"[O] ⚠️ Prompt n'est pas une chaîne")
-            return None
+            return (None, None)
     except Exception as e:
         print(f"[O] Erreur chargement prompt: {e}")
-        return None
+        return (None, None)
     
     # Injecter agents_count
     try:
         prompt = prompt.replace('{{agents_count}}', str(agents_count))
     except Exception as e:
         print(f"[O] Erreur injection agents_count: {e}")
-        return None
+        return (None, None)
     
     # Injecter les positions réelles des agents
     try:
         if agent_positions and len(agent_positions) > 0:
-            # Formater la liste des positions pour le prompt
-            positions_str = ', '.join([f'[{pos[0]},{pos[1]}]' for pos in agent_positions])
-            prompt = prompt.replace('{{agent_positions}}', positions_str)
-            print(f"[O] 📍 Positions agents injectées: {positions_str}")
+            # Formater la liste des positions pour le prompt avec indication visuelle
+            # Trier pour cohérence (Y puis X)
+            sorted_positions = sorted(agent_positions, key=lambda p: (p[1], p[0]))
+            num_agents = len(sorted_positions)
+            
+            # Seuils basés sur les transitions de zoom de la grille (carrés parfaits centrés)
+            # 1 (1×1), 9 (3×3), 25 (5×5), 49 (7×7), 81 (9×9), etc.
+            # Pour ≥25 agents, utiliser format compact avec GRID SPAN
+            if num_agents >= 25:
+                # Format compact : liste simple + instructions de mapping
+                positions_str = ', '.join([f'[{pos[0]},{pos[1]}]' for pos in sorted_positions])
+                
+                # Calculer les limites pour donner une idée de la grille
+                min_x = min(p[0] for p in sorted_positions)
+                max_x = max(p[0] for p in sorted_positions)
+                min_y = min(p[1] for p in sorted_positions)
+                max_y = max(p[1] for p in sorted_positions)
+                
+                position_desc = f"{positions_str}\n"
+                position_desc += f"GRID SPAN: X=[{min_x} to {max_x}], Y=[{min_y} to {max_y}]. [0,0] is CENTER.\n"
+                position_desc += "Find each position visually: X<0=left, X>0=right, Y<0=top, Y>0=bottom relative to center."
+            else:
+                # Pour peu d'agents, format détaillé avec quadrants
+                positions_str = ', '.join([f'[{pos[0]},{pos[1]}]' for pos in sorted_positions])
+                
+                # Grouper par quadrant pour faciliter la compréhension
+                quadrants = {'top-left': [], 'top-right': [], 'bottom-left': [], 'bottom-right': [], 'center': []}
+                for pos in sorted_positions:
+                    x, y = pos[0], pos[1]
+                    if x == 0 and y == 0:
+                        quadrants['center'].append(f'[{x},{y}]')
+                    elif x < 0 and y < 0:
+                        quadrants['top-left'].append(f'[{x},{y}]')
+                    elif x >= 0 and y < 0:
+                        quadrants['top-right'].append(f'[{x},{y}]')
+                    elif x < 0 and y >= 0:
+                        quadrants['bottom-left'].append(f'[{x},{y}]')
+                    else:
+                        quadrants['bottom-right'].append(f'[{x},{y}]')
+                
+                # Construire une description plus claire
+                position_desc = f"{positions_str}\n"
+                position_desc += "VISUAL MAPPING:\n"
+                if quadrants['center']:
+                    position_desc += f"- CENTER: {', '.join(quadrants['center'])}\n"
+                if quadrants['top-left']:
+                    position_desc += f"- TOP-LEFT (Y<0, X<0): {', '.join(quadrants['top-left'])}\n"
+                if quadrants['top-right']:
+                    position_desc += f"- TOP-RIGHT (Y<0, X>=0): {', '.join(quadrants['top-right'])}\n"
+                if quadrants['bottom-left']:
+                    position_desc += f"- BOTTOM-LEFT (Y>=0, X<0): {', '.join(quadrants['bottom-left'])}\n"
+                if quadrants['bottom-right']:
+                    position_desc += f"- BOTTOM-RIGHT (Y>=0, X>=0): {', '.join(quadrants['bottom-right'])}\n"
+            
+            prompt = prompt.replace('{{agent_positions}}', position_desc)
+            print(f"[O] 📍 Positions agents injectées ({len(sorted_positions)} agents): {positions_str[:100]}...")
         else:
             # Si pas de positions, remplacer par un message
             prompt = prompt.replace('{{agent_positions}}', 'No agent positions available')
@@ -485,7 +768,7 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
         'contents': [{'parts': parts}],
         'generationConfig': {
             'temperature': 0.7,
-            'maxOutputTokens': 12000  # V5: Réduire pour éviter MAX_TOKENS (prompts plus concis maintenant)
+            'maxOutputTokens': 16000  # V5.1: Augmenter modérément (12000→16000) car thoughts peuvent être longs même avec prompts simplifiés
         }
     }
     
@@ -496,7 +779,7 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
             if not resp.is_success:
                 error_text = resp.text
                 print(f"[O] Erreur HTTP {resp.status_code}: {error_text[:500]}")
-                return None
+                return (None, None)
             
             data = resp.json()
             text = ''
@@ -512,38 +795,47 @@ async def call_gemini_o(image_base64: str, agents_count: int, previous_snapshot:
                 print(f"[O] 🔍 Réponse JSON brute: {json.dumps(data, indent=2)[:1000]}")
                 if text:
                     print(f"[O] Texte reçu: '{text}'")
-                return None
+                return (None, None)
             
             # Parser JSON
             result = parse_json_robust(text, "[O]")
+            # Extraire les tokens de sortie
+            usage_metadata = data.get('usageMetadata', {})
+            output_tokens = usage_metadata.get('candidatesTokenCount', 0) or usage_metadata.get('outputTokens', 0)
+            
+            thoughts_tokens = usage_metadata.get('thoughtsTokenCount', 0)
             if result:
-                print(f"[O] ✅ Gemini O réussi (longueur réponse: {len(text)} chars, thoughts: {data.get('usageMetadata', {}).get('thoughtsTokenCount', 0)} tokens)")
+                print(f"[O] ✅ Gemini O réussi (longueur réponse: {len(text)} chars, output tokens: {output_tokens}, thoughts: {thoughts_tokens} tokens)")
+                # Avertir si thoughts consomment trop de tokens
+                if thoughts_tokens > 10000:
+                    print(f"[O] ⚠️  ATTENTION: Thoughts très longs ({thoughts_tokens} tokens) - considérer optimisation prompt")
             else:
-                print(f"[O] ❌ Parsing JSON échoué")
-            return result
+                print(f"[O] ❌ Parsing JSON échoué (thoughts: {thoughts_tokens} tokens)")
+            return (result, output_tokens if result else None)
                 
     except Exception as e:
         print(f"[O] Erreur appel Gemini: {e}")
-        return None
+        return (None, None)
 
 
-async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined: Optional[dict] = None) -> Optional[dict]:
-    """Appelle Gemini pour N-machine (narration, C_w, erreurs prédiction)"""
+async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined: Optional[dict] = None) -> Tuple[Optional[dict], Optional[int]]:
+    """Appelle Gemini pour N-machine (narration, C_w, erreurs prédiction)
+    Retourne: (résultat JSON, nombre de tokens de sortie)"""
     print(f"[N] 🚀 Début appel Gemini N avec {len(w_agents_data)} agents W")
     print(f"[N]    O-snapshot: {len(o_snapshot.get('structures', []))} structures")
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
         print("[N] GEMINI_API_KEY non définie")
-        return None
+        return (None, None)
     
     try:
         prompt = load_n_prompt()
         if not isinstance(prompt, str):
             print(f"[N] ⚠️ Prompt n'est pas une chaîne")
-            return None
+            return (None, None)
     except Exception as e:
         print(f"[N] Erreur chargement prompt: {e}")
-        return None
+        return (None, None)
     
     # Construire le prompt avec les données O et W
     try:
@@ -561,9 +853,9 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
                 'iteration': data.get('iteration', 0),
                 'previous_iteration': data.get('previous_iteration', -1),
                 'strategy': data.get('strategy', 'N/A'),
-                'rationale': _truncate_text(data.get('rationale', ''), max_length=200),  # Tronquer rationale à 200 chars
-                'predictions': _truncate_predictions(data.get('predictions', {}), max_length=150),  # Tronquer prédictions
-                'previous_predictions': _truncate_predictions(data.get('previous_predictions', {}), max_length=150)  # Tronquer prédictions précédentes
+                'rationale': _truncate_text(data.get('rationale', ''), max_length=100),  # Tronquer rationale à 100 chars
+                'predictions': _truncate_predictions(data.get('predictions', {}), max_length=80),  # Tronquer prédictions à 80 chars
+                'previous_predictions': _truncate_predictions(data.get('previous_predictions', {}), max_length=80)  # Tronquer prédictions précédentes à 80 chars
             }
             w_optimized[agent_id] = optimized_data
         
@@ -606,7 +898,7 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {
             'temperature': 0.7,
-            'maxOutputTokens': 12000  # V5: Réduire pour éviter MAX_TOKENS (prompts plus concis maintenant)
+            'maxOutputTokens': 16000  # V5.1: Augmenter modérément (12000→16000) pour éviter MAX_TOKENS avec beaucoup d'agents
         }
     }
     
@@ -617,7 +909,7 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
             if not resp.is_success:
                 error_text = resp.text
                 print(f"[N] Erreur HTTP {resp.status_code}: {error_text[:500]}")
-                return None
+                return (None, None)
             
             data = resp.json()
             text = ''
@@ -630,14 +922,23 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
             if not text or len(text.strip()) < 10:
                 print(f"[N] ❌ Réponse Gemini vide ou trop courte (longueur: {len(text) if text else 0})")
                 print(f"[N] Status: {resp.status_code}, Headers: {dict(resp.headers)}")
+                print(f"[N] 🔍 Réponse JSON brute: {json.dumps(data, indent=2)[:1000]}")
                 if text:
                     print(f"[N] Texte reçu: '{text}'")
-                return None
+                return (None, None)
             
             # Parser JSON
             result = parse_json_robust(text, "[N]")
+            # Extraire les tokens de sortie
+            usage_metadata = data.get('usageMetadata', {})
+            output_tokens = usage_metadata.get('candidatesTokenCount', 0) or usage_metadata.get('outputTokens', 0)
+            
+            thoughts_tokens = usage_metadata.get('thoughtsTokenCount', 0)
             if result:
-                print(f"[N] ✅ Gemini N réussi (longueur réponse: {len(text)} chars, thoughts: {data.get('usageMetadata', {}).get('thoughtsTokenCount', 0)} tokens)")
+                print(f"[N] ✅ Gemini N réussi (longueur réponse: {len(text)} chars, output tokens: {output_tokens}, thoughts: {thoughts_tokens} tokens)")
+                # Avertir si thoughts consomment trop de tokens
+                if thoughts_tokens > 10000:
+                    print(f"[N] ⚠️  ATTENTION: Thoughts très longs ({thoughts_tokens} tokens) - considérer optimisation prompt")
                 # Log aperçu des erreurs de prédiction retournées
                 pred_errors = result.get('prediction_errors', {})
                 if isinstance(pred_errors, dict):
@@ -649,11 +950,11 @@ async def call_gemini_n(o_snapshot: dict, w_agents_data: dict, previous_combined
                     print(f"[N] ⚠️  prediction_errors n'est pas un dict: {type(pred_errors)}")
             else:
                 print(f"[N] ❌ Parsing JSON échoué")
-            return result
+            return (result, output_tokens if result else None)
                 
     except Exception as e:
         print(f"[N] Erreur appel Gemini: {e}")
-        return None
+        return (None, None)
 
 
 def parse_json_robust(text: str, prefix: str = "") -> Optional[dict]:
@@ -735,26 +1036,57 @@ async def periodic_on_task():
     """Tâche périodique : O puis N puis combinaison
     Déclenche l'analyse O+N lorsque tous les agents W actifs ont terminé leurs actions.
     """
+    print("[ON] 🚀 Tâche périodique O→N démarrée")
     while True:
         await asyncio.sleep(2)  # V5: Vérifier toutes les 2s si tous les agents W ont terminé
         
+        now = datetime.now(timezone.utc)
+        
         # Vérifications préalables
         if not store.latest_image_base64:
-            print("[ON] Pas d'image disponible, attente...")
+            # Log seulement toutes les 10s pour éviter le spam (utiliser un compteur simple)
+            if not hasattr(periodic_on_task, '_last_no_image_log'):
+                periodic_on_task._last_no_image_log = now
+            last_log = periodic_on_task._last_no_image_log
+            if (now - last_log).total_seconds() >= 10:
+                print("[ON] Pas d'image disponible, attente...")
+                periodic_on_task._last_no_image_log = now
             continue
-        
-        now = datetime.now(timezone.utc)
         
         # Warmup : attendre que les agents aient terminé leurs seeds
         warmup_delay = 30  # V5: Augmenter à 30s pour laisser temps aux seeds d'être visibles et appliqués
-        # V5: Réduire min_updates (1 update par agent minimum, mais au moins 3)
-        # Pour 4 agents, on attend au moins 4 updates (1 par agent)
-        min_updates = max(3, store.agents_count) if store.agents_count > 0 else 3
-        is_warmup = (store.updates_count or 0) < min_updates or (store.first_update_time and (now - store.first_update_time).total_seconds() < warmup_delay)
+        warmup_timeout = 60  # CRITICAL: Timeout absolu de 60s pour éviter blocage infini
+        
+        # V5: Vérifier le nombre d'agents qui ont envoyé des données W (plus fiable que updates_count)
+        w_data = w_store.get_all_agents_data()
+        agents_with_data = len(w_data)
+        
+        # Pour la première analyse, attendre qu'au moins 75% des agents aient envoyé leurs seeds
+        min_agents_ratio = 0.75
+        # Permettre 1 agent pour les tests, sinon minimum 2 ou 75% du total
+        if store.agents_count == 1:
+            min_agents_with_data = 1
+        else:
+            min_agents_with_data = max(2, int(store.agents_count * min_agents_ratio)) if store.agents_count > 0 else 2
+        
+        elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
+        
+        # Sortir du warmup si :
+        # 1. On a assez d'agents avec données (75% ou au moins 2) ET assez de temps écoulé (warmup_delay)
+        # 2. OU timeout absolu atteint (warmup_timeout)
+        is_warmup = False
+        if store.latest is None:  # Première analyse seulement
+            if elapsed < warmup_delay and agents_with_data < min_agents_with_data:
+                is_warmup = True
+            elif elapsed >= warmup_timeout:
+                # Timeout absolu : forcer la sortie même si pas tous les agents ont envoyé
+                print(f"[ON] ⚠️  Warmup timeout ({elapsed:.1f}s ≥ {warmup_timeout}s) - FORÇAGE sortie avec {agents_with_data}/{store.agents_count} agents")
+                is_warmup = False
+            else:
+                is_warmup = False
         
         if is_warmup:
-            elapsed = (now - store.first_update_time).total_seconds() if store.first_update_time else 0
-            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {store.updates_count or 0}/{min_updates} updates)...")
+            print(f"[ON] Warmup en cours ({elapsed:.1f}s / {warmup_delay}s, {agents_with_data}/{store.agents_count} agents avec données, min requis: {min_agents_with_data})...")
             # V5: Ne pas marquer les agents déconnectés pendant le warmup
             continue
         
@@ -763,6 +1095,7 @@ async def periodic_on_task():
         # Il faut donc un timeout de détection de déconnexion suffisamment long pour éviter les fausses déconnexions
         # V5: Timeout plus long pour la phase initiale (seeds peuvent prendre du temps)
         # CRITICAL: Vérifier aussi l'activité via les données W (plus fiable que seulement l'image)
+        # Note: w_data déjà récupéré plus haut pour le warmup, mais on le récupère à nouveau ici pour avoir les données les plus récentes
         w_data = w_store.get_all_agents_data()
         w_last_update = w_store.last_update_time
         w_activity_delta = (now - w_last_update).total_seconds() if w_last_update else float('inf')
@@ -775,15 +1108,36 @@ async def periodic_on_task():
         image_stale = store.is_stale(timeout_seconds=timeout_seconds)
         w_stale = w_activity_delta > timeout_seconds if w_last_update else False
         
-        # Considérer les agents déconnectés seulement si image ET données W sont obsolètes
-        # (évite fausses déconnexions si les agents envoient des données W mais pas d'images)
+        # V5: Vérifier qu'il y a des données W disponibles AVANT de vérifier la déconnexion
+        # Pour avoir le nombre réel d'agents actifs avec données
+        w_data = w_store.get_all_agents_data()
+        agents_with_data = len(w_data)
+        
+        # CRITICAL FIX: Détecter déconnexion si :
+        # 1. Image ET données W obsolètes (comportement normal)
+        # 2. OU si agents_count > agents_with_data ET données W obsolètes (agents déclarés mais pas de données récentes)
+        # 3. OU si agents_count > 0 ET agents_with_data == 0 ET données W obsolètes (tous les agents déconnectés)
+        should_disconnect = False
+        disconnect_reason = ""
+        
         if image_stale and w_stale:
-            if store.agents_count > 0:
-                print(f"[ON] Timeout détecté ({timeout_seconds}s): image obsolète ({image_stale}) ET données W obsolètes ({w_activity_delta:.1f}s) - agents considérés déconnectés")
-                store.set_agents_count(0)
+            should_disconnect = True
+            disconnect_reason = f"image obsolète ({image_stale}) ET données W obsolètes ({w_activity_delta:.1f}s)"
+        elif store.agents_count > agents_with_data and w_stale:
+            # Plus d'agents déclarés que d'agents avec données, et données obsolètes
+            should_disconnect = True
+            disconnect_reason = f"agents_count ({store.agents_count}) > agents_with_data ({agents_with_data}) ET données W obsolètes ({w_activity_delta:.1f}s)"
+        elif store.agents_count > 0 and agents_with_data == 0 and w_stale:
+            # Agents déclarés mais aucun avec données récentes
+            should_disconnect = True
+            disconnect_reason = f"agents_count ({store.agents_count}) > 0 mais agents_with_data (0) ET données W obsolètes ({w_activity_delta:.1f}s)"
+        
+        if should_disconnect and store.agents_count > 0:
+            print(f"[ON] ⚠️  Déconnexion détectée ({timeout_seconds}s timeout): {disconnect_reason} - agents considérés déconnectés")
+            store.set_agents_count(0)
         elif image_stale and not w_stale:
             # Image obsolète mais données W récentes : agents toujours actifs
-            print(f"[ON] Image obsolète mais données W récentes ({w_activity_delta:.1f}s < {timeout_seconds}s) - agents toujours actifs")
+            print(f"[ON] Image obsolète mais données W récentes ({w_activity_delta:.1f}s < {timeout_seconds}s) - agents toujours actifs ({agents_with_data}/{store.agents_count})")
         
         if store.agents_count == 0:
             print("[ON] Pas d'agents actifs, attente...")
@@ -792,7 +1146,17 @@ async def periodic_on_task():
         # V5: Vérifier qu'il y a des données W disponibles (au moins 1 agent a fait une action)
         # Pour la première analyse, on peut accepter 0 données W (seeds seulement)
         # Mais pour les analyses suivantes, on veut s'assurer qu'il y a des données W récentes
-        w_data = w_store.get_all_agents_data()
+        # CRITICAL FIX: Si agents_count est significativement supérieur à agents_with_data,
+        # cela signifie que des agents sont déconnectés - arrêter l'analyse
+        if store.agents_count > 0 and agents_with_data < store.agents_count:
+            # Calculer le ratio d'agents avec données
+            agents_ratio = agents_with_data / store.agents_count if store.agents_count > 0 else 0
+            # Si moins de 50% des agents ont des données, considérer comme déconnexion
+            if agents_ratio < 0.5:
+                print(f"[ON] ⚠️  Déconnexion détectée: seulement {agents_with_data}/{store.agents_count} agents avec données ({agents_ratio*100:.1f}%) - arrêt analyse")
+                store.set_agents_count(0)
+                continue
+        
         if len(w_data) == 0 and store.latest is None:
             # Première analyse : accepter même sans données W (seeds seulement)
             pass
@@ -810,16 +1174,36 @@ async def periodic_on_task():
         # V5: CRITIQUE - Vérifier que l'image a été mise à jour récemment ET après les données W
         # L'image doit être récente (moins de max_image_age secondes) ET idéalement après la dernière donnée W
         image_age = 0
+        image_timeout_forced = False  # Flag pour indiquer qu'on a forcé l'analyse
         if store.last_update_time:
             image_age = (now - store.last_update_time).total_seconds()
             max_image_age = 30.0 if store.latest is None else 10.0  # Réduire à 10s pour analyses suivantes (plus strict)
+            # CRITICAL FIX: Timeout absolu pour éviter le blocage si les W-machines ne dessinent plus
+            # Si l'image est trop ancienne depuis trop longtemps, forcer l'analyse avec l'image disponible
+            max_wait_for_image = 60.0  # 60 secondes max d'attente pour une image récente
+            if not hasattr(periodic_on_task, '_image_wait_start'):
+                periodic_on_task._image_wait_start = now
+            
+            image_wait_time = (now - periodic_on_task._image_wait_start).total_seconds()
+            
             if image_age > max_image_age:
-                print(f"[ON] Image trop ancienne ({image_age:.1f}s > {max_image_age}s), attente mise à jour récente...")
-                continue
+                if image_wait_time >= max_wait_for_image:
+                    # Timeout atteint, forcer l'analyse avec l'image disponible
+                    print(f"[ON] ⚠️  Timeout image ({image_wait_time:.1f}s ≥ {max_wait_for_image}s) - FORÇAGE analyse avec image de {image_age:.1f}s")
+                    periodic_on_task._image_wait_start = now  # Reset pour prochaine analyse
+                    image_timeout_forced = True  # Marquer qu'on a forcé
+                else:
+                    print(f"[ON] Image trop ancienne ({image_age:.1f}s > {max_image_age}s), attente mise à jour récente ({image_wait_time:.1f}s/{max_wait_for_image}s)...")
+                    continue
+            else:
+                # Image récente, reset le timer
+                if hasattr(periodic_on_task, '_image_wait_start'):
+                    delattr(periodic_on_task, '_image_wait_start')
         
         # V5: CRITIQUE - Vérifier que l'image a été mise à jour après ou en même temps que les dernières données W
         # Si les données W sont plus récentes que l'image, attendre que l'image soit mise à jour
-        if w_store.last_update_time and store.last_update_time:
+        # SAUF si on a forcé l'analyse à cause du timeout image (image_timeout_forced)
+        if not image_timeout_forced and w_store.last_update_time and store.last_update_time:
             w_update_time = w_store.last_update_time
             image_update_time = store.last_update_time
             time_diff = (w_update_time - image_update_time).total_seconds()
@@ -847,7 +1231,11 @@ async def periodic_on_task():
                 # Calculer temps d'attente depuis début attente première analyse
                 wait_time = (now - store.first_analysis_start_time).total_seconds()
                 min_agents_ratio = 0.75  # Accepter si 75% des agents ont envoyé leurs données
-                min_agents_count = max(2, int(store.agents_count * min_agents_ratio))  # Au moins 2 agents ou 75%
+                # Permettre 1 agent pour les tests, sinon minimum 2 ou 75% du total
+                if store.agents_count == 1:
+                    min_agents_count = 1
+                else:
+                    min_agents_count = max(2, int(store.agents_count * min_agents_ratio))  # Au moins 2 agents ou 75%
                 timeout_first_analysis = 20.0  # Timeout de 20s pour première analyse
                 
                 if len(w_data_check) < store.agents_count:
@@ -874,15 +1262,37 @@ async def periodic_on_task():
                 print(f"[ON] {store.agents_count} agents actifs mais aucune donnée W reçue - attente seed...")
                 continue
         
+        # V5: Timeout absolu pour éviter l'attente indéfinie si un agent est bloqué
+        # Si on a des données W et que ça fait plus de 45s qu'on attend la quiescence, forcer l'analyse
+        max_quiescence_wait = 45.0  # 45 secondes max d'attente de quiescence
+        force_analysis = False
+        
         if not all_finished:
-            # Des agents W sont encore en train d'agir, attendre
-            print(f"[ON] Agents W encore actifs (dernière mise à jour W il y a {time_since_last_w_update:.1f}s < {quiescence_delay}s), attente...")
-            continue
+            # Calculer depuis combien de temps on attend
+            if not hasattr(periodic_on_task, '_quiescence_start'):
+                periodic_on_task._quiescence_start = now
+            
+            wait_for_quiescence = (now - periodic_on_task._quiescence_start).total_seconds()
+            
+            if wait_for_quiescence >= max_quiescence_wait and len(w_data_check) >= 2:
+                # Timeout atteint, forcer l'analyse avec les données disponibles
+                print(f"[ON] ⚠️  Timeout quiescence ({wait_for_quiescence:.1f}s ≥ {max_quiescence_wait}s) - FORÇAGE analyse avec {len(w_data_check)} agents")
+                force_analysis = True
+                periodic_on_task._quiescence_start = now  # Reset pour prochaine analyse
+            else:
+                # Des agents W sont encore en train d'agir, attendre
+                print(f"[ON] Agents W encore actifs (dernière mise à jour W il y a {time_since_last_w_update:.1f}s < {quiescence_delay}s, attente quiescence {wait_for_quiescence:.1f}s/{max_quiescence_wait}s)...")
+                continue
+        else:
+            # Quiescence atteinte, reset le timer
+            if hasattr(periodic_on_task, '_quiescence_start'):
+                delattr(periodic_on_task, '_quiescence_start')
         
         # V5: CRITIQUE - Vérification finale : s'assurer que l'image est vraiment récente
         # (au cas où une nouvelle image serait arrivée pendant les vérifications précédentes)
+        # CRITICAL: Ignorer cette vérification si on a déjà forcé l'analyse avec timeout
         now_final = datetime.now(timezone.utc)
-        if store.last_update_time:
+        if store.last_update_time and not image_timeout_forced:
             final_image_age = (now_final - store.last_update_time).total_seconds()
             if final_image_age > 8.0:  # Si l'image a plus de 8s, elle est probablement obsolète
                 print(f"[ON] ⏳ Image finale trop ancienne ({final_image_age:.1f}s), attente mise à jour...")
@@ -934,22 +1344,42 @@ async def periodic_on_task():
             w_store.clear_stale_agents(timeout=300)  # 300s (5 minutes) même sans agents actifs
         
         o_result = None
+        o_tokens = None
         for attempt in range(3):  # Augmenter à 3 tentatives
-            o_result = await call_gemini_o(store.latest_image_base64, store.agents_count, store.latest, agent_positions_list)
+            o_result, o_tokens = await call_gemini_o(store.latest_image_base64, store.agents_count, store.latest, agent_positions_list)
             if o_result:
                 # V5: Valider que toutes les positions dans les structures sont valides
                 if agent_positions_list and len(agent_positions_list) > 0:
                     structures = o_result.get('structures', [])
                     invalid_positions = []
+                    corrected_structures = []
+                    
                     for struct in structures:
                         agent_positions = struct.get('agent_positions', [])
+                        valid_positions = []
+                        struct_invalid = False
+                        
                         for pos in agent_positions:
-                            if pos not in agent_positions_list:
+                            if pos in agent_positions_list:
+                                valid_positions.append(pos)
+                            else:
                                 invalid_positions.append(pos)
+                                struct_invalid = True
+                        
+                        # CRITICAL: Ne garder que les structures avec positions valides
+                        if valid_positions:
+                            struct['agent_positions'] = valid_positions
+                            struct['size_agents'] = len(valid_positions)  # Corriger size_agents
+                            corrected_structures.append(struct)
+                        # Sinon, rejeter la structure complètement
+                    
                     if invalid_positions:
-                        print(f"[ON] ⚠️  ATTENTION: O a retourné des positions invalides: {invalid_positions}")
+                        print(f"[ON] ⚠️  ATTENTION: O a retourné {len(invalid_positions)} positions invalides: {invalid_positions}")
                         print(f"[ON] 📍 Positions valides: {agent_positions_list}")
-                        # Ne pas rejeter complètement, mais loguer l'erreur
+                        print(f"[ON] 🔧 Structures corrigées: {len(corrected_structures)}/{len(structures)} conservées")
+                    
+                    # Remplacer les structures par les versions corrigées
+                    o_result['structures'] = corrected_structures
                 
                 # V5: Valider qu'aucun agent n'apparaît dans plusieurs structures
                 is_valid, errors = validate_structures_no_overlap(o_result)
@@ -1004,7 +1434,6 @@ async def periodic_on_task():
         # CRITIQUE: Récupérer les données W JUSTE AVANT d'appeler N (pas au début de la boucle)
         # car d'autres agents peuvent avoir envoyé leurs données entre le début de la boucle et maintenant
         w_data = w_store.get_all_agents_data()
-        n_result = None
         
         print(f"[N] Données W disponibles: {len(w_data)} agents (agents_count: {store.agents_count})")
         
@@ -1021,8 +1450,10 @@ async def periodic_on_task():
         for agent_id, data in w_data.items():
             print(f"  - Agent {agent_id[:8]}: iter={data.get('iteration')}, strategy={data.get('strategy')}")
         
+        n_result = None
+        n_tokens = None
         for attempt in range(3):  # Augmenter à 3 tentatives
-            n_result = await call_gemini_n(o_result, w_data, store.latest)
+            n_result, n_tokens = await call_gemini_n(o_result, w_data, store.latest)
             if n_result:
                 # V5: Valider que tous les agents W actifs ont une erreur de prédiction
                 prediction_errors = n_result.get('prediction_errors', {})
@@ -1083,7 +1514,11 @@ async def periodic_on_task():
                 for agent_id, err in list(prediction_errors.items())[:5]:  # Max 5 pour lisibilité
                     err_val = err.get('error', 0) if isinstance(err, dict) else 0
                     err_exp = err.get('explanation', 'N/A') if isinstance(err, dict) else 'N/A'
-                    print(f"[N]    → Agent {agent_id[:8]}: error={err_val:.2f}, explanation={err_exp[:60]}...")
+                    # CRITICAL: err_val peut être "N/A" (str) au lieu d'un float si Gemini n'a pas pu évaluer
+                    if isinstance(err_val, (int, float)):
+                        print(f"[N]    → Agent {agent_id[:8]}: error={err_val:.2f}, explanation={str(err_exp)[:60]}...")
+                    else:
+                        print(f"[N]    → Agent {agent_id[:8]}: error={err_val}, explanation={str(err_exp)[:60]}...")
                 
                 break
             if attempt < 2:
@@ -1172,6 +1607,22 @@ async def periodic_on_task():
             else:
                 print("[ON] ⚠️  Tracker local non disponible, rankings non calculés")
             
+            # V5: Calculer les métriques machine basées sur les tokens
+            machine_metrics_data = None
+            try:
+                machine_metrics_data = calculate_machine_metrics(o_result, n_result, w_data_check, o_tokens, n_tokens)
+                if machine_metrics_data:
+                    cd_machine = machine_metrics_data['machine_metrics']['C_d_machine']['value']
+                    cw_machine = machine_metrics_data['machine_metrics']['C_w_machine']['value']
+                    u_machine = machine_metrics_data['machine_metrics']['U_machine']['value']
+                    print(f"[MachineMetrics] C_d_machine={cd_machine:.1f} bits ({machine_metrics_data['machine_metrics']['C_d_machine']['tokens']} tokens), "
+                          f"C_w_machine={cw_machine:.1f} bits ({machine_metrics_data['machine_metrics']['C_w_machine']['tokens']} tokens), "
+                          f"U_machine={u_machine:.1f} bits")
+            except Exception as e:
+                print(f"[MachineMetrics] ⚠️  Erreur calcul métriques machine: {e}")
+                import traceback
+                traceback.print_exc()
+            
             combined_snapshot = {
                 'structures': o_result.get('structures', []),
                 'formal_relations': formal_relations,
@@ -1189,6 +1640,10 @@ async def periodic_on_task():
                 },
                 'agents_count': store.agents_count
             }
+            
+            # Ajouter les métriques machine au snapshot si disponibles
+            if machine_metrics_data:
+                combined_snapshot['machine_metrics'] = machine_metrics_data['machine_metrics']
             
             store.set_snapshot(combined_snapshot)
             print(f"[ON] Snapshot O+N combiné (version {store.version}, {len(combined_snapshot['structures'])} structures, U={u_value})")

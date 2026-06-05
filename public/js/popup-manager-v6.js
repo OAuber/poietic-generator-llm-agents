@@ -135,13 +135,13 @@ class PopupManager {
                 defaultHeight: 420
             },
             verbatim: {
-                title: 'Verbatim Stream (W machines)',
+                title: 'Verbatim (S+W machines)',
                 icon: '💬',
                 defaultWidth: 400,
                 defaultHeight: 350
             },
             'verbatim-on': {
-                title: 'Verbatim Stream (O N machines)',
+                title: 'Verbatim (O+N machines)',
                 icon: '📝',
                 defaultWidth: 400,
                 defaultHeight: 350
@@ -157,7 +157,37 @@ class PopupManager {
                 icon: '📊',
                 defaultWidth: 450,
                 defaultHeight: 350
-            }
+            },
+            'quantum-coherence': {
+                title: 'Quantum Coherence',
+                icon: '⚛️',
+                defaultWidth: 450,
+                defaultHeight: 300
+            },
+            'narrative-convergence': {
+                title: 'Narrative Convergence',
+                icon: '🌀',
+                defaultWidth: 450,
+                defaultHeight: 300
+            },
+            'quantum-overview': {
+                title: 'Quantum State Overview',
+                icon: '✨',
+                defaultWidth: 500,
+                defaultHeight: 400
+            },
+            'quantum-verbatim': {
+                title: 'O+N Verbatim (Quantum)',
+                icon: '📖',
+                defaultWidth: 500,
+                defaultHeight: 450
+            },
+            'follow-graph': {
+                title: 'Follow Relations',
+                icon: '🔀',
+                defaultWidth: 450,
+                defaultHeight: 400
+            },
         };
         
         return configs[type] || configs.simplicity;
@@ -258,10 +288,6 @@ class PopupManager {
                     </div>
                     <div class="chart-legend">
                         <div class="legend-item">
-                            <div class="legend-color" style="background: #007bff;"></div>
-                            <span>Agent Error</span>
-                        </div>
-                        <div class="legend-item">
                             <div class="legend-color" style="background: #28a745;"></div>
                             <span>Mean</span>
                         </div>
@@ -300,6 +326,11 @@ class PopupManager {
                             <option value="mean_error" selected>Mean Error</option>
                             <option value="std_error">Std Error</option>
                             <option value="avg_signalling_cost">Avg Signalling Cost</option>
+                            <option value="phi_coherence">φ (Formal Resonance)</option>
+                            <option value="xi_correlation_length">ξ (Collective Extent)</option>
+                            <option value="I_fringe_visibility">I (Pareidolic Contrast)</option>
+                            <option value="tau_condensation">τ (Narrative Convergence)</option>
+                            <option value="delta_S_entropy">ΔS (Complexity Flux)</option>
                         </select>
                         <span>vs</span>
                         <select id="${id}-y-axis" class="speed-select" style="flex: 1;">
@@ -309,6 +340,11 @@ class PopupManager {
                             <option value="mean_error">Mean Error</option>
                             <option value="std_error">Std Error</option>
                             <option value="avg_signalling_cost">Avg Signalling Cost</option>
+                            <option value="phi_coherence">φ (Formal Resonance)</option>
+                            <option value="xi_correlation_length">ξ (Collective Extent)</option>
+                            <option value="I_fringe_visibility">I (Pareidolic Contrast)</option>
+                            <option value="tau_condensation">τ (Narrative Convergence)</option>
+                            <option value="delta_S_entropy">ΔS (Complexity Flux)</option>
                         </select>
                     </div>
                     <div class="chart-container" style="overflow: hidden; flex: 1; min-height: 0;">
@@ -402,6 +438,152 @@ class PopupManager {
                     </div>
                 `;
                 
+            case 'quantum-coherence':
+                return `
+                    <div class="metrics-row">
+                        <div class="metric-box">
+                            <div class="metric-label">φ (Formal Resonance)</div>
+                            <div class="metric-value" id="${id}-phi" style="color: #00d4ff;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">ξ (Collective Extent)</div>
+                            <div class="metric-value" id="${id}-xi" style="color: #8080ff;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">I (Pareidolic Contrast)</div>
+                            <div class="metric-value" id="${id}-I" style="color: #ff80ff;">0.00</div>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="overflow: hidden; flex: 1; min-height: 0;">
+                        <canvas id="${id}-chart"></canvas>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #00d4ff;"></div>
+                            <span>φ-coherence</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #8080ff;"></div>
+                            <span>ξ/3</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #ff80ff;"></div>
+                            <span>I-visibility</span>
+                        </div>
+                    </div>
+                `;
+                
+            case 'narrative-convergence':
+                return `
+                    <div class="metrics-row">
+                        <div class="metric-box">
+                            <div class="metric-label">τ (Narrative Convergence)</div>
+                            <div class="metric-value" id="${id}-tau" style="color: #ffcc00;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">ΔS (Complexity Flux)</div>
+                            <div class="metric-value" id="${id}-dS" style="color: #ffff80;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">Regime</div>
+                            <div class="metric-value" id="${id}-regime" style="font-size: 14px;">-</div>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="overflow: hidden; flex: 1; min-height: 0;">
+                        <canvas id="${id}-chart"></canvas>
+                    </div>
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #ffcc00;"></div>
+                            <span>τ-condensation</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #ffff80;"></div>
+                            <span>ΔS-entropy</span>
+                        </div>
+                    </div>
+                `;
+                
+            case 'quantum-overview':
+                return `
+                    <div style="background: var(--bg-tertiary); padding: 10px; border-radius: 6px; margin-bottom: 8px;">
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Current Regime:</div>
+                        <div id="${id}-regime" style="font-size: 14px; font-weight: 600; color: var(--text-primary);">Awaiting data...</div>
+                    </div>
+                    <div class="metrics-row" style="margin-bottom: 8px;">
+                        <div class="metric-box">
+                            <div class="metric-label">φ (Formal Resonance)</div>
+                            <div class="metric-value" id="${id}-phi" style="color: #00d4ff;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">τ (Narrative Convergence)</div>
+                            <div class="metric-value" id="${id}-tau" style="color: #ffcc00;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">U (Emergence)</div>
+                            <div class="metric-value" id="${id}-U" style="color: #3fb950;">0</div>
+                        </div>
+                    </div>
+                    <div class="metrics-row" style="margin-bottom: 8px;">
+                        <div class="metric-box">
+                            <div class="metric-label">ξ (Collective Extent)</div>
+                            <div class="metric-value" id="${id}-xi" style="color: #8080ff; font-size: 16px;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">I (Pareidolic Contrast)</div>
+                            <div class="metric-value" id="${id}-I" style="color: #ff80ff; font-size: 16px;">0.00</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">ΔS (Complexity Flux)</div>
+                            <div class="metric-value" id="${id}-dS" style="color: #ffff80; font-size: 16px;">0.00</div>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="overflow: hidden; flex: 1; min-height: 0;">
+                        <canvas id="${id}-chart"></canvas>
+                    </div>
+                `;
+                
+            case 'quantum-verbatim':
+                return `
+                    <div id="${id}-stream" style="height: 100%; overflow-y: auto; font-family: monospace; font-size: 11px; line-height: 1.4;">
+                        <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
+                            Waiting for O+N quantum snapshot...
+                        </div>
+                    </div>
+                `;
+            
+            case 'follow-graph':
+                return `
+                    <div style="display: flex; flex-direction: column; height: 100%;">
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 6px;">
+                            Directed follow relations between agents. Arrows show who follows whom.
+                        </div>
+                        <div class="chart-container" style="flex: 1; min-height: 0;">
+                            <canvas id="${id}-canvas"></canvas>
+                        </div>
+                        <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">
+                            Node = agent position; arrow A→B = \"A follows B\".
+                        </div>
+                    </div>
+                `;
+                
+            case 'quantum-rankings':
+                return `
+                    <table class="ranking-table" id="${id}-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Position</th>
+                                <th>Avg Error</th>
+                                <th>Iterations</th>
+                            </tr>
+                        </thead>
+                        <tbody id="${id}-tbody">
+                            <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No data yet</td></tr>
+                        </tbody>
+                    </table>
+                `;
+                
             default:
                 return '<div class="empty-state"><div class="message">Unknown visualization type</div></div>';
         }
@@ -453,6 +635,13 @@ class PopupManager {
                         });
                     }
                 }, 100);
+                break;
+                
+            case 'quantum-coherence':
+            case 'narrative-convergence':
+            case 'quantum-overview':
+                instance.chart = null;
+                instance.history = [];
                 break;
         }
         
@@ -614,6 +803,21 @@ class PopupManager {
                 break;
             case 'signalling':
                 this.updateSignallingPopup(id, popup, data);
+                break;
+            case 'quantum-coherence':
+                this.updateQuantumCoherencePopup(id, popup, data);
+                break;
+            case 'narrative-convergence':
+                this.updateNarrativeConvergencePopup(id, popup, data);
+                break;
+            case 'quantum-overview':
+                this.updateQuantumOverviewPopup(id, popup, data);
+                break;
+            case 'quantum-verbatim':
+                this.updateQuantumVerbatimPopup(id, popup, data);
+                break;
+            case 'follow-graph':
+                this.updateFollowGraphPopup(id, popup, data);
                 break;
         }
     }
@@ -801,7 +1005,8 @@ class PopupManager {
             }
         });
         
-        // Calculer avg_signalling_cost pour chaque itération depuis les événements d'itération
+        // Enrichir les métriques avec avg_signalling_cost et métriques quantiques
+        const quantumHistory = data.quantumHistory || {};
         const enrichedMetrics = metrics.map((m, index) => {
             const version = m.version !== undefined ? m.version : index;
             
@@ -829,10 +1034,25 @@ class PopupManager {
                 }
             }
             
-            return {
+            // Ajouter les métriques quantiques depuis quantumHistory (index correspond à version)
+            const enriched = {
                 ...m,
                 avg_signalling_cost: avgSignallingCost
             };
+            
+            // Ajouter métriques quantiques si disponibles (chercher par version dans quantumHistory)
+            if (quantumHistory.versions && quantumHistory.phi_coherence) {
+                const qIndex = quantumHistory.versions.indexOf(version);
+                if (qIndex >= 0) {
+                    enriched.phi_coherence = quantumHistory.phi_coherence[qIndex];
+                    enriched.xi_correlation_length = quantumHistory.xi_correlation_length?.[qIndex];
+                    enriched.I_fringe_visibility = quantumHistory.I_fringe_visibility?.[qIndex];
+                    enriched.tau_condensation = quantumHistory.tau_condensation?.[qIndex];
+                    enriched.delta_S_entropy = quantumHistory.delta_S_entropy?.[qIndex];
+                }
+            }
+            
+            return enriched;
         });
         
         const xAxis = document.getElementById(`${id}-x-axis`)?.value || 'mean_error';
@@ -984,19 +1204,86 @@ class PopupManager {
         }
     }
     
-    // CRITICAL FIX: Popup pour W machines uniquement (avec stratégies et itération)
+    // Popup pour S et W machines (avec stratégies et itération)
     updateVerbatimWPopup(id, popup, data) {
         const stream = document.getElementById(`${id}-stream`);
         if (!stream) return;
         
-        // Collecter uniquement les verbatim W
+        // Collecter les verbatim S et W
         let verbatimEntries = [];
         
         // CRITICAL FIX: Utiliser un Map pour dédupliquer par agentId-iteration (pas version)
         // car un agent peut avoir plusieurs actions dans la même version globale
         const wEntriesMap = new Map(); // Clé: agentId-iteration, Valeur: entrée
+        const sEntriesMap = new Map(); // Clé: agentId-iteration, Valeur: entrée
         
-        // 1. Verbatim des agents W depuis les événements d'itération
+        // 1. Verbatim des agents S depuis les événements 'agent' avec iteration === 0
+        const allAgentEvents = (data.events || [])
+            .filter(e => e.type === 'agent' && e.data);
+        
+        allAgentEvents.forEach(e => {
+            const agent = e.data;
+            if (!agent || agent.type !== 'ai' || !agent.id) return;
+            
+            const agentIteration = agent.iteration !== undefined ? agent.iteration : (agent.version || 0);
+            if (agentIteration !== 0) return; // Seulement S (iteration === 0)
+            
+            const agentId = agent.id;
+            const entryKey = `S-${agentId}-${agentIteration}`;
+            const timestamp = e.timestamp || agent.timestamp || new Date().toISOString();
+            
+            // Extraire les informations du seed
+            const seed = agent.seed || {};
+            const concept = seed.concept || agent.concept || '';
+            const reference = seed.reference || agent.reference || '';
+            const quantumMeasures = agent.quantum_measures || seed.quantum_measures || {};
+            
+            let sText = '';
+            if (concept) {
+                sText = `CONCEPT: ${concept}\n`;
+            }
+            if (reference) {
+                sText += `REFERENCE: ${reference}\n`;
+            }
+            if (Object.keys(quantumMeasures).length > 0) {
+                sText += `\nQUANTUM MEASURES:\n`;
+                if (quantumMeasures.psi_distinctiveness !== undefined) {
+                    sText += `  Ψ-distinctiveness: ${quantumMeasures.psi_distinctiveness.toFixed(2)}\n`;
+                }
+                if (quantumMeasures.eta_potential !== undefined) {
+                    sText += `  η-potential: ${quantumMeasures.eta_potential.toFixed(2)}\n`;
+                }
+                if (quantumMeasures.lambda_coherence !== undefined) {
+                    sText += `  λ-coherence: ${quantumMeasures.lambda_coherence.toFixed(2)}\n`;
+                }
+            }
+            if (seed.rationale || agent.rationale) {
+                sText += `\nRATIONALE: ${seed.rationale || agent.rationale}\n`;
+            }
+            
+            const content = sText.trim();
+            if (content) {
+                const existing = sEntriesMap.get(entryKey);
+                const existingTime = existing ? new Date(existing.timestamp).getTime() : 0;
+                const newTime = new Date(timestamp).getTime();
+                
+                if (!existing || newTime > existingTime) {
+                    sEntriesMap.set(entryKey, {
+                        type: 'S',
+                        id: agentId,
+                        position: agent.position || [0, 0],
+                        strategy_id: '',
+                        strategy_ids: [],
+                        iteration: agentIteration,
+                        version: agent.version || 0,
+                        content: content,
+                        timestamp: timestamp
+                    });
+                }
+            }
+        });
+        
+        // 2. Verbatim des agents W depuis les événements d'itération
         const allIterationEvents = (data.events || [])
             .filter(e => e.type === 'iteration');
         
@@ -1010,32 +1297,69 @@ class PopupManager {
                 eventData.agents.forEach(agent => {
                     if (!agent || agent.type !== 'ai' || !agent.id) return;
                     
+                    const agentId = agent.id;
+                    const agentIteration = agent.iteration !== undefined ? agent.iteration : version;
+                    
+                    // Distinguer S (iteration === 0) de W (iteration > 0)
+                    const isSeed = agentIteration === 0;
+                    const entryKey = isSeed ? `S-${agentId}-${agentIteration}` : `W-${agentId}-${agentIteration}`;
+                    const targetMap = isSeed ? sEntriesMap : wEntriesMap;
+                    
                     let content = agent.verbatim_summary || agent.rationale || agent.strategy || '';
                     if (!content) return;
                     
-                    // Supprimer la ligne "ΔC_w: ..." si elle existe dans le contenu
+                    // Pour S: extraire les informations du seed
+                    if (isSeed) {
+                        // Format S: extraire concept, reference, quantum_measures
+                        const seed = agent.seed || {};
+                        const concept = seed.concept || '';
+                        const reference = seed.reference || '';
+                        const quantumMeasures = agent.quantum_measures || seed.quantum_measures || {};
+                        
+                        let sText = '';
+                        if (concept) {
+                            sText = `CONCEPT: ${concept}\n`;
+                        }
+                        if (reference) {
+                            sText += `REFERENCE: ${reference}\n`;
+                        }
+                        if (Object.keys(quantumMeasures).length > 0) {
+                            sText += `\nQUANTUM MEASURES:\n`;
+                            if (quantumMeasures.psi_distinctiveness !== undefined) {
+                                sText += `  Ψ-distinctiveness: ${quantumMeasures.psi_distinctiveness.toFixed(2)}\n`;
+                            }
+                            if (quantumMeasures.eta_potential !== undefined) {
+                                sText += `  η-potential: ${quantumMeasures.eta_potential.toFixed(2)}\n`;
+                            }
+                            if (quantumMeasures.lambda_coherence !== undefined) {
+                                sText += `  λ-coherence: ${quantumMeasures.lambda_coherence.toFixed(2)}\n`;
+                            }
+                        }
+                        if (seed.rationale) {
+                            sText += `\nRATIONALE: ${seed.rationale}\n`;
+                        }
+                        
+                        content = sText.trim() || content;
+                    } else {
+                        // Pour W: supprimer la ligne "ΔC_w: ..." si elle existe
                     content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
                     content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
+                    }
                     
                     if (!content) return;
-                    
-                    // CRITICAL FIX: Utiliser agent.iteration comme clé principale (plus précis que version globale)
-                    const agentId = agent.id;
-                    const agentIteration = agent.iteration !== undefined ? agent.iteration : version;
-                    const entryKey = `W-${agentId}-${agentIteration}`;
                     
                     // CRITICAL FIX: Stocker aussi strategy_ids si disponible (pour combinaisons)
                     const strategy_ids = agent.strategy_ids || (agent.strategy_id ? [agent.strategy_id] : []);
                     const strategy_id = strategy_ids.length > 1 ? strategy_ids.join(' + ') : (strategy_ids[0] || '');
                     
                     // Toujours mettre à jour si nouvelle entrée ou timestamp plus récent
-                    const existing = wEntriesMap.get(entryKey);
+                    const existing = targetMap.get(entryKey);
                     const existingTime = existing ? new Date(existing.timestamp).getTime() : 0;
                     const newTime = new Date(timestamp).getTime();
                     
                     if (!existing || newTime > existingTime) {
-                        wEntriesMap.set(entryKey, {
-                            type: 'W',
+                        targetMap.set(entryKey, {
+                            type: isSeed ? 'S' : 'W',
                             id: agentId,
                             position: agent.position,
                             strategy_id: strategy_id,
@@ -1058,23 +1382,60 @@ class PopupManager {
             
             // Vérifier si on a déjà une entrée pour cet agent à cette itération
             const agentIteration = agent.iteration !== undefined ? agent.iteration : (agent.version || 0);
-            const entryKey = `W-${agent.id}-${agentIteration}`;
+            
+            // Distinguer S (iteration === 0) de W (iteration > 0)
+            const isSeed = agentIteration === 0;
+            const entryKey = isSeed ? `S-${agent.id}-${agentIteration}` : `W-${agent.id}-${agentIteration}`;
+            const targetMap = isSeed ? sEntriesMap : wEntriesMap;
             
             // Si pas d'entrée ou si les données de agentMetrics sont plus récentes
-            const existing = wEntriesMap.get(entryKey);
+            const existing = targetMap.get(entryKey);
             if (!existing || (agent.timestamp && new Date(agent.timestamp) > new Date(existing.timestamp))) {
                 let content = agent.verbatim_summary || agent.rationale || agent.strategy || '';
                 if (content) {
-                    // Supprimer la ligne "ΔC_w: ..." si elle existe
+                    // Pour S: extraire les informations du seed
+                    if (isSeed) {
+                        const seed = agent.seed || {};
+                        const concept = seed.concept || '';
+                        const reference = seed.reference || '';
+                        const quantumMeasures = agent.quantum_measures || seed.quantum_measures || {};
+                        
+                        let sText = '';
+                        if (concept) {
+                            sText = `CONCEPT: ${concept}\n`;
+                        }
+                        if (reference) {
+                            sText += `REFERENCE: ${reference}\n`;
+                        }
+                        if (Object.keys(quantumMeasures).length > 0) {
+                            sText += `\nQUANTUM MEASURES:\n`;
+                            if (quantumMeasures.psi_distinctiveness !== undefined) {
+                                sText += `  Ψ-distinctiveness: ${quantumMeasures.psi_distinctiveness.toFixed(2)}\n`;
+                            }
+                            if (quantumMeasures.eta_potential !== undefined) {
+                                sText += `  η-potential: ${quantumMeasures.eta_potential.toFixed(2)}\n`;
+                            }
+                            if (quantumMeasures.lambda_coherence !== undefined) {
+                                sText += `  λ-coherence: ${quantumMeasures.lambda_coherence.toFixed(2)}\n`;
+                            }
+                        }
+                        if (seed.rationale) {
+                            sText += `\nRATIONALE: ${seed.rationale}\n`;
+                        }
+                        
+                        content = sText.trim() || content;
+                    } else {
+                        // Pour W: supprimer la ligne "ΔC_w: ..." si elle existe
                     content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*Error:\s*[\d.-]+/gi, '').trim();
                     content = content.replace(/ΔC_w:\s*[\d.-]+\s*\|\s*ΔC_d:\s*[\d.-]+\s*\|\s*U.*?expected:\s*[\d.-]+/gi, '').trim();
+                    }
                     
                     if (content) {
                         const strategy_ids = agent.strategy_ids || (agent.strategy_id ? [agent.strategy_id] : []);
                         const strategy_id = strategy_ids.length > 1 ? strategy_ids.join(' + ') : (strategy_ids[0] || '');
                         
-                        wEntriesMap.set(entryKey, {
-                            type: 'W',
+                        targetMap.set(entryKey, {
+                            type: isSeed ? 'S' : 'W',
                             id: agent.id,
                             position: agent.position,
                             strategy_id: strategy_id,
@@ -1089,19 +1450,19 @@ class PopupManager {
             }
         });
         
-        // Ajouter toutes les entrées W dédupliquées
+        // Ajouter toutes les entrées S et W dédupliquées
+        verbatimEntries.push(...Array.from(sEntriesMap.values()));
         verbatimEntries.push(...Array.from(wEntriesMap.values()));
         
-        // Trier par timestamp et garder les 30 derniers
+        // Trier par timestamp (plus récent en premier) et garder les 5 derniers
         verbatimEntries = verbatimEntries
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 30)
-            .reverse();
+            .slice(0, 5);
         
         if (verbatimEntries.length === 0) {
             stream.innerHTML = `
                 <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
-                    Waiting for W machine responses...
+                    Waiting for S and W machine responses...
                 </div>
             `;
             return;
@@ -1112,6 +1473,7 @@ class PopupManager {
             const posY = d.position?.[1] !== undefined ? d.position[1] : '?';
             const strategyId = d.strategy_id || '';
             const iteration = d.iteration !== undefined ? d.iteration : d.version || 'N/A';
+            const isSeed = d.type === 'S';
             
             // Extraire le texte du verbatim
             const content = d.content || '';
@@ -1129,9 +1491,11 @@ class PopupManager {
                 bodyText = lines.slice(1).join('\n');
             }
             
-            // Construire le header avec stratégies et itération
-            let headerDisplay = `🤖 Agent [${posX},${posY}] - Iteration ${iteration}`;
-            if (strategyId) {
+            // Construire le header avec type de machine, position et itération
+            const machineType = isSeed ? '🌱 S-Machine (Quantum Seed)' : '🤖 W-Machine';
+            const color = isSeed ? 'var(--accent-orange)' : 'var(--accent-purple)';
+            let headerDisplay = `${machineType} [${posX},${posY}] - Iteration ${iteration}`;
+            if (strategyId && !isSeed) {
                 headerDisplay += ` - Strategy: ${strategyId}`;
             }
             if (headerText) {
@@ -1140,7 +1504,7 @@ class PopupManager {
             
             return `
                 <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px;">
-                    <div style="color: var(--accent-purple); font-weight: 600; margin-bottom: 4px;">
+                    <div style="color: ${color}; font-weight: 600; margin-bottom: 4px;">
                         ${headerDisplay}
                     </div>
                     <div style="white-space: pre-wrap; color: var(--text-primary);">${bodyText}</div>
@@ -1148,7 +1512,8 @@ class PopupManager {
             `;
         }).join('');
         
-        stream.scrollTop = stream.scrollHeight;
+        // Scroll to top to show most recent entries first
+        stream.scrollTop = 0;
     }
     
     // CRITICAL FIX: Nouveau popup pour O et N machines uniquement
@@ -1271,11 +1636,10 @@ class PopupManager {
             }
         });
         
-        // Trier par timestamp et garder les 30 derniers
+        // Trier par timestamp (plus récent en premier) et garder les 5 derniers
         verbatimEntries = verbatimEntries
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 30)
-            .reverse();
+            .slice(0, 5);
         
         if (verbatimEntries.length === 0) {
             stream.innerHTML = `
@@ -1309,7 +1673,8 @@ class PopupManager {
             return '';
         }).join('');
         
-        stream.scrollTop = stream.scrollHeight;
+        // Scroll to top to show most recent entries first
+        stream.scrollTop = 0;
     }
     
     updateSignallingPopup(id, popup, data) {
@@ -1319,112 +1684,73 @@ class PopupManager {
         
         if (Object.keys(rankings).length === 0) return;
         
-        // V5.1: Filtrer pour ne garder que les agents actuellement actifs
+        // Ne garder que les agents actifs
         const activeAgentIds = new Set(Object.keys(agentMetrics));
         
-        // V5.1: Collecter l'historique des tokens de signalement et pixels par rank et par itération
-        // Structure: { rank: { tokens: [...], pixels: [...] } }
-        // Pour chaque événement, on utilise le rank de l'agent à cette itération
-        // MAIS seulement pour les agents actuellement actifs
-        const historyByRank = {};
+        // 1) rank -> agents actifs
+        const rankToAgentIds = {};
+        Object.entries(rankings).forEach(([agentId, info]) => {
+            if (!activeAgentIds.has(agentId) || !info || typeof info !== 'object') return;
+            const rank = info.rank || 999;
+            if (rank === 999) return;
+            if (!rankToAgentIds[rank]) rankToAgentIds[rank] = [];
+            rankToAgentIds[rank].push(agentId);
+        });
         
-        // Parcourir tous les événements de type 'agent' pour construire l'historique
+        const uniqueRanks = Object.keys(rankToAgentIds)
+            .map(r => parseInt(r, 10))
+            .filter(r => !isNaN(r) && r !== 999)
+            .sort((a, b) => a - b);
+        
+        if (uniqueRanks.length === 0) return;
+        
+        // 2) Historique par rank (agents actifs uniquement)
+        const historyByRank = {};
         events.forEach(event => {
             if (event.type !== 'agent' || !event.data) return;
-            
             const agentData = event.data;
             const agentId = agentData.id;
-            if (!agentId) return;
-            
-            // V5.1: Ne garder que les événements des agents actuellement actifs
-            if (!activeAgentIds.has(agentId)) return;
-            
-            // V5.1: Utiliser le rank de l'agent à cette itération (stocké dans l'événement)
+            if (!agentId || !activeAgentIds.has(agentId)) return;
             const rank = agentData.rank || 999;
+            if (!rankToAgentIds[rank]) return;
             
-            // Initialiser l'historique pour ce rank si nécessaire
-            if (!historyByRank[rank]) {
-                historyByRank[rank] = {
-                    tokens: [],
-                    pixels: []
-                };
-            }
+            if (!historyByRank[rank]) historyByRank[rank] = { tokens: [], pixels: [] };
             
-            // Extraire les tokens de signalement
             let signallingTokens = 0;
             if (agentData.signalling_tokens && agentData.signalling_tokens.signalling !== undefined) {
                 signallingTokens = agentData.signalling_tokens.signalling;
             } else if (agentData.delta_C_w !== undefined) {
-                // Fallback: utiliser ΔC_w en bits comme approximation
                 signallingTokens = Math.abs(agentData.delta_C_w) * 10;
             }
-            
-            // Extraire les pixels
             const pixels = agentData.pixels || [];
-            const pixelCount = pixels.length;
-            const normalizedPixels = Math.min(pixelCount, 400);
+            const normalizedPixels = Math.min(pixels.length, 400);
             
-            // Stocker les données pour ce rank (on accumule toutes les itérations)
             historyByRank[rank].tokens.push(signallingTokens);
             historyByRank[rank].pixels.push(normalizedPixels);
         });
         
-        // V5.1: Filtrer les rankings pour ne garder que les agents actifs
-        const activeRankings = {};
-        Object.entries(rankings).forEach(([agentId, info]) => {
-            if (activeAgentIds.has(agentId) && info && typeof info === 'object') {
-                activeRankings[agentId] = info;
-            }
+        // 3) Fallback: si un rank actif n'a pas d'historique, utiliser l'état courant
+        uniqueRanks.forEach(rank => {
+            if (historyByRank[rank]) return;
+            const agentIds = rankToAgentIds[rank] || [];
+            agentIds.forEach(agentId => {
+                const agent = agentMetrics[agentId];
+                if (!agent) return;
+                let signallingTokens = 0;
+                if (agent.signalling_tokens && agent.signalling_tokens.signalling !== undefined) {
+                    signallingTokens = agent.signalling_tokens.signalling;
+                } else if (agent.delta_C_w !== undefined) {
+                    signallingTokens = Math.abs(agent.delta_C_w) * 10;
+                }
+                const pixels = agent.pixels || [];
+                const normalizedPixels = Math.min(pixels.length, 400);
+                if (!historyByRank[rank]) historyByRank[rank] = { tokens: [], pixels: [] };
+                historyByRank[rank].tokens.push(signallingTokens);
+                historyByRank[rank].pixels.push(normalizedPixels);
+            });
         });
         
-        // Obtenir tous les ranks uniques et les trier
-        const uniqueRanks = Object.keys(historyByRank)
-            .map(r => parseInt(r, 10))
-            .filter(r => !isNaN(r) && r !== 999) // Exclure le rank par défaut
-            .sort((a, b) => a - b);
-        
-        // Si on n'a pas d'historique, utiliser les rankings actuels comme fallback
-        if (uniqueRanks.length === 0) {
-            Object.entries(activeRankings).forEach(([agentId, info]) => {
-                if (!info || typeof info !== 'object') return;
-                const rank = info.rank || 999;
-                if (rank === 999) return;
-                
-                if (!historyByRank[rank]) {
-                    historyByRank[rank] = {
-                        tokens: [],
-                        pixels: []
-                    };
-                }
-                
-                // Utiliser les données actuelles de agentMetrics comme fallback
-                const agent = agentMetrics[agentId];
-                if (agent) {
-                    let signallingTokens = 0;
-                    if (agent.signalling_tokens && agent.signalling_tokens.signalling !== undefined) {
-                        signallingTokens = agent.signalling_tokens.signalling;
-                    } else if (agent.delta_C_w !== undefined) {
-                        signallingTokens = Math.abs(agent.delta_C_w) * 10;
-                    }
-                    const pixels = agent.pixels || [];
-                    const normalizedPixels = Math.min(pixels.length, 400);
-                    
-                    historyByRank[rank].tokens.push(signallingTokens);
-                    historyByRank[rank].pixels.push(normalizedPixels);
-                }
-            });
-            
-            // Recalculer les ranks uniques après le fallback
-            const fallbackRanks = Object.keys(historyByRank)
-                .map(r => parseInt(r, 10))
-                .filter(r => !isNaN(r) && r !== 999)
-                .sort((a, b) => a - b);
-            uniqueRanks.push(...fallbackRanks);
-        }
-        
-        if (uniqueRanks.length === 0) return;
-        
-        // Créer un point par rank unique avec les moyennes sur toutes les itérations
+        // 4) Un point par rank ACTUEL
         const chartData = [];
         uniqueRanks.forEach((rank, index) => {
             const rankHistory = historyByRank[rank];
@@ -1432,16 +1758,10 @@ class PopupManager {
             
             const tokens = rankHistory.tokens || [];
             const pixels = rankHistory.pixels || [];
-            
             if (tokens.length === 0 && pixels.length === 0) return;
             
-            // Calculer les moyennes sur toutes les itérations pour ce rank
-            const avgTokens = tokens.length > 0 
-                ? tokens.reduce((sum, val) => sum + val, 0) / tokens.length 
-                : 0;
-            const avgPixels = pixels.length > 0 
-                ? pixels.reduce((sum, val) => sum + val, 0) / pixels.length 
-                : 0;
+            const avgTokens = tokens.reduce((s, v) => s + v, 0) / (tokens.length || 1);
+            const avgPixels = pixels.reduce((s, v) => s + v, 0) / (pixels.length || 1);
             
             chartData.push({
                 xPosition: index + 1,
@@ -1451,7 +1771,609 @@ class PopupManager {
             });
         });
         
+        if (chartData.length === 0) return;
+        
         this.drawSignallingChart(id, chartData);
+    }
+    
+    // =========================================================================
+    // V6 Quantum Popups Update Methods
+    // =========================================================================
+    
+    updateQuantumCoherencePopup(id, popup, data) {
+        const history = data.quantumHistory || {};
+        const latestSnapshot = data.latestQuantumSnapshot || {};
+        const co = latestSnapshot.coherence_observables || {};
+        
+        const phi = co.phi_coherence || co.phi_formal_resonance || 0;
+        const xi = co.xi_correlation_length || co.xi_collective_extent || 0;
+        const I = co.I_fringe_visibility || co.I_pareidolic_contrast || 0;
+        
+        // Update metric displays
+        const phiEl = document.getElementById(`${id}-phi`);
+        const xiEl = document.getElementById(`${id}-xi`);
+        const IEl = document.getElementById(`${id}-I`);
+        
+        if (phiEl) phiEl.textContent = phi.toFixed(2);
+        if (xiEl) xiEl.textContent = xi.toFixed(2);
+        if (IEl) IEl.textContent = I.toFixed(2);
+        
+        // Build history arrays (use full key names from ai-metrics-v6.js)
+        const phiHistory = history.phi_coherence || [];
+        const xiHistory = history.xi_correlation_length || [];
+        const IHistory = history.I_fringe_visibility || [];
+        
+        // Add current values if not already present
+        if (phiHistory.length === 0 || phiHistory[phiHistory.length - 1] !== phi) {
+            phiHistory.push(phi);
+        }
+        if (xiHistory.length === 0 || xiHistory[xiHistory.length - 1] !== xi) {
+            xiHistory.push(xi);
+        }
+        if (IHistory.length === 0 || IHistory[IHistory.length - 1] !== I) {
+            IHistory.push(I);
+        }
+        
+        // Limit history
+        if (phiHistory.length > 100) phiHistory.shift();
+        if (xiHistory.length > 100) xiHistory.shift();
+        if (IHistory.length > 100) IHistory.shift();
+        
+        // Draw chart
+        const chartData = phiHistory.map((_, i) => ({
+            phi: phiHistory[i] || 0,
+            xi: (xiHistory[i] || 0) / 3, // Normalize xi
+            I: IHistory[i] || 0
+        }));
+        
+        this.drawLineChart(id, chartData, ['phi', 'xi', 'I'], ['#00d4ff', '#8080ff', '#ff80ff']);
+    }
+    
+    updateNarrativeConvergencePopup(id, popup, data) {
+        const history = data.quantumHistory || {};
+        const latestSnapshot = data.latestQuantumSnapshot || {};
+        const eo = latestSnapshot.emergence_observables || {};
+        
+        const tau = eo.tau_condensation || eo.tau_narrative_convergence || 0;
+        const dS = eo.delta_S_entropy || eo.delta_S_complexity_flux || 0;
+        
+        // Determine regime
+        const phi = latestSnapshot.coherence_observables?.phi_coherence || latestSnapshot.coherence_observables?.phi_formal_resonance || 0;
+        let regime = 'Awaiting data...';
+        let regimeColor = 'var(--text-secondary)';
+        if (tau >= 0.8) {
+            regime = '✨ BOSE-EINSTEIN CONDENSATE';
+            regimeColor = '#ffcc00';
+        } else if (phi >= 0.6) {
+            regime = '🔮 QUANTUM COHERENT';
+            regimeColor = '#3fb950';
+        } else if (phi >= 0.4) {
+            regime = '⚛️ PARTIAL COHERENCE';
+            regimeColor = '#00d4ff';
+        } else {
+            regime = '🌀 FRAGMENTATION REGIME';
+            regimeColor = '#f85149';
+        }
+        
+        // Update metric displays
+        const tauEl = document.getElementById(`${id}-tau`);
+        const dSEl = document.getElementById(`${id}-dS`);
+        const regimeEl = document.getElementById(`${id}-regime`);
+        
+        if (tauEl) tauEl.textContent = tau.toFixed(2);
+        if (dSEl) dSEl.textContent = dS.toFixed(2);
+        if (regimeEl) {
+            regimeEl.textContent = regime;
+            regimeEl.style.color = regimeColor;
+        }
+        
+        // Build history arrays (use full key names from ai-metrics-v6.js)
+        const tauHistory = history.tau_condensation || [];
+        const dSHistory = history.delta_S_entropy || [];
+        
+        // Add current values if not already present
+        if (tauHistory.length === 0 || tauHistory[tauHistory.length - 1] !== tau) {
+            tauHistory.push(tau);
+        }
+        if (dSHistory.length === 0 || dSHistory[dSHistory.length - 1] !== dS) {
+            dSHistory.push(dS);
+        }
+        
+        // Limit history
+        if (tauHistory.length > 100) tauHistory.shift();
+        if (dSHistory.length > 100) dSHistory.shift();
+        
+        // Draw chart
+        const chartData = tauHistory.map((_, i) => ({
+            tau: tauHistory[i] || 0,
+            dS: dSHistory[i] || 0
+        }));
+        
+        this.drawLineChart(id, chartData, ['tau', 'dS'], ['#ffcc00', '#ffff80']);
+    }
+    
+    updateQuantumOverviewPopup(id, popup, data) {
+        const latestSnapshot = data.latestQuantumSnapshot || {};
+        const co = latestSnapshot.coherence_observables || {};
+        const eo = latestSnapshot.emergence_observables || {};
+        const sa = latestSnapshot.simplicity_assessment || {};
+        
+        const phi = co.phi_coherence || co.phi_formal_resonance || 0;
+        const xi = co.xi_correlation_length || co.xi_collective_extent || 0;
+        const I = co.I_fringe_visibility || co.I_pareidolic_contrast || 0;
+        const tau = eo.tau_condensation || eo.tau_narrative_convergence || 0;
+        const dS = eo.delta_S_entropy || eo.delta_S_complexity_flux || 0;
+        const U = sa.U_current?.value || (sa.C_w_current?.value || 0) - (sa.C_d_current?.value || 0);
+        
+        // Determine regime
+        let regime = 'Awaiting data...';
+        let regimeColor = 'var(--text-secondary)';
+        if (tau >= 0.8) {
+            regime = '✨ BOSE-EINSTEIN CONDENSATE';
+            regimeColor = '#ffcc00';
+        } else if (phi >= 0.6) {
+            regime = '🔮 QUANTUM COHERENT';
+            regimeColor = '#3fb950';
+        } else if (phi >= 0.4) {
+            regime = '⚛️ PARTIAL COHERENCE';
+            regimeColor = '#00d4ff';
+        } else {
+            regime = '🌀 FRAGMENTATION REGIME';
+            regimeColor = '#f85149';
+        }
+        
+        // Update metric displays
+        const phiEl = document.getElementById(`${id}-phi`);
+        const tauEl = document.getElementById(`${id}-tau`);
+        const UEl = document.getElementById(`${id}-U`);
+        const xiEl = document.getElementById(`${id}-xi`);
+        const IEl = document.getElementById(`${id}-I`);
+        const dSEl = document.getElementById(`${id}-dS`);
+        const regimeEl = document.getElementById(`${id}-regime`);
+        
+        if (phiEl) phiEl.textContent = phi.toFixed(2);
+        if (tauEl) tauEl.textContent = tau.toFixed(2);
+        if (UEl) {
+            UEl.textContent = Math.round(U);
+            UEl.className = `metric-value ${U >= 0 ? 'positive' : 'negative'}`;
+        }
+        if (xiEl) xiEl.textContent = xi.toFixed(2);
+        if (IEl) IEl.textContent = I.toFixed(2);
+        if (dSEl) dSEl.textContent = dS.toFixed(2);
+        if (regimeEl) {
+            regimeEl.textContent = regime;
+            regimeEl.style.color = regimeColor;
+        }
+        
+        // Build history for chart (use full key names from ai-metrics-v6.js)
+        const history = data.quantumHistory || {};
+        const phiHistory = history.phi_coherence || [];
+        const tauHistory = history.tau_condensation || [];
+        const UHistory = history.U || [];
+        const xiHistory = history.xi_correlation_length || [];
+        const IHistory = history.I_fringe_visibility || [];
+        const dSHistory = history.delta_S_entropy || [];
+        
+        // Add current values
+        if (phiHistory.length === 0 || phiHistory[phiHistory.length - 1] !== phi) {
+            phiHistory.push(phi);
+        }
+        if (tauHistory.length === 0 || tauHistory[tauHistory.length - 1] !== tau) {
+            tauHistory.push(tau);
+        }
+        if (UHistory.length === 0 || UHistory[UHistory.length - 1] !== U) {
+            UHistory.push(U);
+        }
+        if (xiHistory.length === 0 || xiHistory[xiHistory.length - 1] !== xi) {
+            xiHistory.push(xi);
+        }
+        if (IHistory.length === 0 || IHistory[IHistory.length - 1] !== I) {
+            IHistory.push(I);
+        }
+        if (dSHistory.length === 0 || dSHistory[dSHistory.length - 1] !== dS) {
+            dSHistory.push(dS);
+        }
+        
+        // Limit history
+        if (phiHistory.length > 100) phiHistory.shift();
+        if (tauHistory.length > 100) tauHistory.shift();
+        if (UHistory.length > 100) UHistory.shift();
+        if (xiHistory.length > 100) xiHistory.shift();
+        if (IHistory.length > 100) IHistory.shift();
+        if (dSHistory.length > 100) dSHistory.shift();
+        
+        // Normalize U for chart (scale to 0-1)
+        const maxU = Math.max(...UHistory, 1);
+        const normalizedUHistory = UHistory.map(u => u / maxU);
+        
+        // Normalize xi for chart (scale to 0-1, divide by 3 as mentioned in legend)
+        const maxXi = Math.max(...xiHistory.map(x => x / 3), 1);
+        const normalizedXiHistory = xiHistory.map(x => (x / 3) / maxXi);
+        
+        // Normalize dS for chart (scale to 0-1)
+        const maxDS = Math.max(...dSHistory.map(Math.abs), 1);
+        const normalizedDSHistory = dSHistory.map(d => (d / maxDS + 1) / 2); // Normalize to 0-1 range
+        
+        // Draw chart with all metrics
+        const chartData = phiHistory.map((_, i) => ({
+            phi: phiHistory[i] || 0,
+            tau: tauHistory[i] || 0,
+            U: normalizedUHistory[i] || 0,
+            xi: normalizedXiHistory[i] || 0,
+            I: IHistory[i] || 0,
+            dS: normalizedDSHistory[i] || 0
+        }));
+        
+        this.drawLineChart(id, chartData, ['phi', 'tau', 'U', 'xi', 'I', 'dS'], ['#00d4ff', '#ffcc00', '#3fb950', '#8080ff', '#ff80ff', '#ffff80']);
+    }
+    
+    updateQuantumVerbatimPopup(id, popup, data) {
+        const stream = document.getElementById(`${id}-stream`);
+        if (!stream) return;
+        
+        // Like V5: read from quantumSnapshots array (like oSnapshots and nSnapshots in V5)
+        const quantumSnapshots = data.quantumSnapshots || [];
+        
+        if (quantumSnapshots.length === 0) {
+            stream.innerHTML = `
+                <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
+                    Waiting for O+N quantum snapshot...
+                </div>
+            `;
+            return;
+        }
+        
+        // Collect verbatim entries from all snapshots (like V5 does)
+        let verbatimEntries = [];
+        const seenEntries = new Set();
+        
+        quantumSnapshots.forEach(qSnap => {
+            const snapshot = qSnap.snapshot || qSnap;
+            const version = snapshot.version || qSnap.version || 0;
+            const timestamp = qSnap.timestamp || new Date().toISOString();
+            
+            // O-Machine entry
+            const entryKeyO = `Q-O-${version}`;
+            if (!seenEntries.has(entryKeyO)) {
+                const structures = snapshot.structures || [];
+                const formalRelations = snapshot.formal_relations || {};
+                const coherence = snapshot.coherence_observables || {};
+                const saO = snapshot.simplicity_assessment || {};
+                
+                let oText = '';
+                if (structures.length > 0) {
+                    oText = 'STRUCTURES:\n';
+                    structures.forEach((st, i) => {
+                        const positions = st.agent_positions ? 
+                            st.agent_positions.map(p => `[${p[0]},${p[1]}]`).join(', ') : 'N/A';
+                        const interference = st.interference_type || st.resonance_type || 'mixed';
+                        oText += `  ${i+1}. ${st.type || 'Unknown'} (${st.size_agents || 1} agents, ${st.recognizability || 'Medium'})\n`;
+                        oText += `    Positions: ${positions} | Resonance: ${interference}\n`;
+                    });
+                } else {
+                    oText = 'STRUCTURES:\n  (none detected)\n';
+                }
+                
+                if (formalRelations && formalRelations.summary) {
+                    oText += `\nFORMAL RELATIONS:\n${formalRelations.summary}\n`;
+                }
+                
+                const phi = coherence.phi_coherence || coherence.phi_formal_resonance || 0;
+                const xi = coherence.xi_correlation_length || coherence.xi_collective_extent || 0;
+                const I = coherence.I_fringe_visibility || coherence.I_pareidolic_contrast || 0;
+                oText += `\nCOHERENCE OBSERVABLES:\n`;
+                oText += `  φ (Formal Resonance): ${phi.toFixed(2)} | ξ (Collective Extent): ${xi.toFixed(2)} | I (Pareidolic Contrast): ${I.toFixed(2)}\n`;
+                
+                const cdValue = saO.C_d_current?.value || 0;
+                const cdDesc = saO.C_d_current?.description || '';
+                if (cdDesc) {
+                    oText += `\nC_d (Descriptive Simplicity): ${cdValue} bits\n${cdDesc}\n`;
+                }
+                
+                if (oText.trim()) {
+                    seenEntries.add(entryKeyO);
+                    verbatimEntries.push({
+                        type: 'Q-O',
+                        version: version,
+                        content: oText.trim(),
+                        timestamp: timestamp
+                    });
+                }
+            }
+            
+            // N-Machine entry
+            const entryKeyN = `Q-N-${version}`;
+            if (!seenEntries.has(entryKeyN)) {
+                const narrative = snapshot.narrative || {};
+                const emergence = snapshot.emergence_observables || {};
+                const saN = snapshot.simplicity_assessment || {};
+                const errors = snapshot.prediction_errors || {};
+                
+                let nText = '';
+                const narrativeText = narrative.summary || '';
+                const cwValue = saN.C_w_current?.value || 0;
+                if (narrativeText) {
+                    nText = `NARRATIVE PAREIDOLIA:\n`;
+                    nText += `C_w = ${cwValue} bits\n${narrativeText}\n`;
+                }
+                
+                const tau = emergence.tau_condensation || emergence.tau_narrative_convergence || 0;
+                const dS = emergence.delta_S_entropy || emergence.delta_S_complexity_flux || 0;
+                nText += `\nEMERGENCE OBSERVABLES:\n`;
+                nText += `  τ (Narrative Convergence): ${tau.toFixed(2)} | ΔS (Complexity Flux): ${dS.toFixed(2)}\n`;
+                
+                const errorEntries = Object.entries(errors);
+                if (errorEntries.length > 0) {
+                    nText += `\nPREDICTION ERRORS:\n`;
+                    errorEntries.forEach(([agentId, errData]) => {
+                        const error = errData.error || 0;
+                        const explanation = errData.explanation || '';
+                        nText += `  [${agentId.substring(0,8)}]: ${error.toFixed(2)}`;
+                        if (explanation) nText += ` - ${explanation}`;
+                        nText += '\n';
+                    });
+                }
+                
+                if (nText.trim()) {
+                    seenEntries.add(entryKeyN);
+                    verbatimEntries.push({
+                        type: 'Q-N',
+                        version: version,
+                        content: nText.trim(),
+                        timestamp: timestamp
+                    });
+                }
+            }
+        });
+        
+        // Sort by timestamp (most recent first) and keep last 5
+        verbatimEntries = verbatimEntries
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 5);
+        
+        if (verbatimEntries.length === 0) {
+            stream.innerHTML = `
+                <div style="color: var(--text-secondary); text-align: center; padding: 20px;">
+                    Waiting for O+N quantum snapshot...
+                </div>
+            `;
+            return;
+        }
+        
+        // Render entries (like V5)
+        stream.innerHTML = verbatimEntries.map(d => {
+            if (d.type === 'Q-O') {
+                return `
+                    <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--accent-blue);">
+                        <div style="color: var(--accent-blue); font-weight: 600; margin-bottom: 4px;">
+                            🔬 O | Iter ${d.version || 'N/A'}
+                        </div>
+                        <div style="white-space: pre-wrap; color: var(--text-primary); font-size: 11px; line-height: 1.4;">${d.content}</div>
+                    </div>
+                `;
+            } else if (d.type === 'Q-N') {
+                return `
+                    <div style="margin-bottom: 12px; padding: 8px; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--accent-green);">
+                        <div style="color: var(--accent-green); font-weight: 600; margin-bottom: 4px;">
+                            📝 N | Iter ${d.version || 'N/A'}
+                        </div>
+                        <div style="white-space: pre-wrap; color: var(--text-primary); font-size: 11px; line-height: 1.4;">${d.content}</div>
+                    </div>
+                `;
+            }
+            return '';
+        }).join('');
+        
+        // Scroll to top to show most recent entries first
+        stream.scrollTop = 0;
+    }
+
+    updateFollowGraphPopup(id, popup, data) {
+        const canvas = document.getElementById(`${id}-canvas`);
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.parentElement.getBoundingClientRect();
+
+        const width = rect.width || canvas.offsetWidth || 400;
+        const height = (rect.height || canvas.offsetHeight || 300) - 10;
+
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        } else {
+            ctx.clearRect(0, 0, width, height);
+        }
+
+        const relations = data.followingRelations || [];
+        const agentMetrics = data.agentMetrics || {};
+        const agents = Object.values(agentMetrics);
+
+        // Dessiner fond
+        ctx.fillStyle = '#0d1117';
+        ctx.fillRect(0, 0, width, height);
+
+        if (agents.length === 0) {
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('No agents yet', width / 2, height / 2);
+            return;
+        }
+
+        // Calculer étendue de la grille comme dans drawSpatialHeatmap
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        agents.forEach(a => {
+            if (a.position && Array.isArray(a.position) && a.position.length >= 2) {
+                const x = a.position[0];
+                const y = a.position[1];
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+        });
+
+        if (minX === Infinity || minY === Infinity) {
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('No valid positions', width / 2, height / 2);
+            return;
+        }
+
+        const gridWidth = maxX - minX + 1;
+        const gridHeight = maxY - minY + 1;
+        const gridSize = Math.max(gridWidth, gridHeight);
+
+        const padding = 40;
+        const availableWidth = width - padding * 2;
+        const availableHeight = height - padding * 2;
+        const cellSize = Math.min(availableWidth / gridSize, availableHeight / gridSize);
+
+        const gridPixelWidth = gridWidth * cellSize;
+        const gridPixelHeight = gridHeight * cellSize;
+        const offsetX = (width - gridPixelWidth) / 2;
+        const offsetY = (height - gridPixelHeight) / 2;
+
+        // Helper: grid position -> canvas coordinates (centre de cellule)
+        const toCanvas = (pos) => {
+            if (!Array.isArray(pos) || pos.length !== 2) return [width / 2, height / 2];
+            const [gx, gy] = pos;
+            const relX = gx - minX;
+            const relY = gy - minY;
+            const cx = offsetX + relX * cellSize + cellSize / 2;
+            const cy = offsetY + relY * cellSize + cellSize / 2;
+            return [cx, cy];
+        };
+
+        // Dessiner les contours de cellules (grille des agents)
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 1;
+        agents.forEach(agent => {
+            if (!agent.position || !Array.isArray(agent.position) || agent.position.length < 2) return;
+            const [ax, ay] = agent.position;
+            const relX = ax - minX;
+            const relY = ay - minY;
+            ctx.strokeRect(
+                offsetX + relX * cellSize,
+                offsetY + relY * cellSize,
+                cellSize,
+                cellSize
+            );
+        });
+
+        // Préparer la détection des relations réciproques
+        const activeEdges = relations.filter(e => !e.is_end && e.to_agent && e.to_position);
+        const edgeKey = (a, b) => `${a}→${b}`;
+        const edgeSet = new Set(activeEdges.map(e => edgeKey(e.from_agent, e.to_agent)));
+
+        // Dessiner les arêtes (segments) en gris clair
+        ctx.strokeStyle = '#6e7681';
+        ctx.lineWidth = 1.6;
+
+        activeEdges.forEach(edge => {
+            const fromPos = edge.from_position || [0, 0];
+            const toPos = edge.to_position || [0, 0];
+            const [x1, y1] = toCanvas(fromPos);
+            const [x2, y2] = toCanvas(toPos);
+
+            // Segment (lien en gris)
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+
+            // Couleur de flèche selon le type de relation
+            const relType = edge.relation_type || '';
+            let arrowColor = '#58a6ff'; // défaut
+            if (relType.includes('phase') || relType.includes('lock')) {
+                arrowColor = '#00d4ff'; // cyan pour phase-lock
+            } else if (relType.includes('gradient')) {
+                arrowColor = '#d29922'; // orange pour gradients
+            } else if (relType.includes('bridge')) {
+                arrowColor = '#3fb950'; // vert pour bridges
+            } else if (relType.includes('narrative') || relType.includes('resonance')) {
+                arrowColor = '#ff80ff'; // magenta pour narrative_resonance
+            } else if (relType.includes('complement')) {
+                arrowColor = '#f85149'; // rouge pour compléments
+            }
+
+            ctx.fillStyle = arrowColor;
+            ctx.strokeStyle = arrowColor;
+
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const arrowLen = 8;
+
+            // Flèche côté cible
+            ctx.beginPath();
+            ctx.moveTo(x2, y2);
+            ctx.lineTo(x2 - arrowLen * Math.cos(angle - Math.PI / 6), y2 - arrowLen * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(x2 - arrowLen * Math.cos(angle + Math.PI / 6), y2 - arrowLen * Math.sin(angle + Math.PI / 6));
+            ctx.closePath();
+            ctx.fill();
+
+            // Flèche côté source si suivi réciproque
+            const hasReverse = edgeSet.has(edgeKey(edge.to_agent, edge.from_agent));
+            if (hasReverse) {
+                const backAngle = angle + Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x1 - arrowLen * Math.cos(backAngle - Math.PI / 6), y1 - arrowLen * Math.sin(backAngle - Math.PI / 6));
+                ctx.lineTo(x1 - arrowLen * Math.cos(backAngle + Math.PI / 6), y1 - arrowLen * Math.sin(backAngle + Math.PI / 6));
+                ctx.closePath();
+                ctx.fill();
+            }
+        });
+
+        // Coordonnées en bas à gauche de chaque carré pour éviter le chevauchement avec les flèches
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        agents.forEach(agent => {
+            if (!agent.position || !Array.isArray(agent.position) || agent.position.length < 2) return;
+            const ax = agent.position[0];
+            const ay = agent.position[1];
+            const relX = ax - minX;
+            const relY = ay - minY;
+            const labelX = offsetX + relX * cellSize + 3;
+            const labelY = offsetY + (relY + 1) * cellSize - 3;
+            ctx.fillText(`[${ax},${ay}]`, labelX, labelY);
+        });
+    }
+    
+    updateQuantumRankingsPopup(id, popup, data) {
+        const rankings = data.agentRankings || data.rankings || {};
+        const tbody = document.getElementById(`${id}-tbody`);
+        if (!tbody) return;
+        
+        const entries = Object.entries(rankings).sort((a, b) => (a[1].rank || 999) - (b[1].rank || 999));
+        
+        if (entries.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No data yet</td></tr>';
+            return;
+        }
+        
+        const rows = entries.map(([agentId, info]) => {
+            const rank = info.rank || 999;
+            const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other';
+            const pos = info.position || [0, 0];
+            const posX = pos[0] !== null && pos[0] !== undefined ? pos[0] : '?';
+            const posY = pos[1] !== null && pos[1] !== undefined ? pos[1] : '?';
+            
+            return `
+                <tr>
+                    <td><span class="rank-badge ${rankClass}">${rank}</span></td>
+                    <td>[${posX},${posY}]</td>
+                    <td>${(info.avg_error || 0).toFixed(3)}</td>
+                    <td>${info.total_iterations || 0}</td>
+                </tr>
+            `;
+        });
+        
+        tbody.innerHTML = rows.join('');
     }
     
     // =========================================================================
@@ -2004,15 +2926,15 @@ class PopupManager {
         }
         
         try {
-            localStorage.setItem('aiMetricsLayout', JSON.stringify(layout));
+            localStorage.setItem('aiMetricsLayoutV6', JSON.stringify(layout));
         } catch (e) {
-            console.warn('[PopupManager] Failed to save layout:', e);
+            console.warn('[PopupManager V6] Failed to save layout:', e);
         }
     }
     
     loadLayout() {
         try {
-            const saved = localStorage.getItem('aiMetricsLayout');
+            const saved = localStorage.getItem('aiMetricsLayoutV6');
             if (saved) {
                 const layout = JSON.parse(saved);
                 layout.forEach(item => {

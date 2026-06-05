@@ -14,7 +14,24 @@ class AIMetricsDashboard {
             rankings: {},
             canvasSnapshots: [],
             oSnapshots: [],
-            nSnapshots: []
+            nSnapshots: [],
+            // V6 Quantum data
+            quantumSnapshots: [],
+            quantumHistory: {
+                versions: [],  // V6: Array of version numbers for X-axis
+                phi_coherence: [],
+                xi_correlation_length: [],
+                I_fringe_visibility: [],
+                tau_condensation: [],
+                delta_S_entropy: [],
+                C_w: [],
+                C_d: [],
+                U: []
+            },
+            latestQuantumSnapshot: null,
+            agentRankings: {},
+            // V6: Following relations between agents (constructed from agent events)
+            followingRelations: []
         };
         this.popupManager = null;
         this.replayEngine = null;
@@ -24,7 +41,7 @@ class AIMetricsDashboard {
     }
     
     init() {
-        // Initialiser le PopupManager
+        // Initialiser le PopupManager V6
         this.popupManager = new PopupManager(
             document.getElementById('workspace'),
             (type) => this.onPopupDataRequest(type)
@@ -104,19 +121,20 @@ class AIMetricsDashboard {
             return;
         }
         
-        const wsUrl = `ws://${window.location.hostname}:5005/metrics`;
-        console.log('[AIMetrics] Connecting to', wsUrl);
+        const wsUrl = `ws://${window.location.hostname}:5006/quantum-metrics`;
+        console.log('[AIMetrics V6] Connecting to', wsUrl);
         
         try {
             this.socket = new WebSocket(wsUrl);
             
             this.socket.onopen = () => {
-                console.log('[AIMetrics] Connected');
+                console.log('[AIMetrics V6] ✅ Connected to quantum metrics server');
                 this.isConnected = true;
                 this.updateConnectionStatus(true);
                 
-                // Request current state (inclut les paramètres de stratégie)
+                // Request current state
                 this.socket.send(JSON.stringify({ type: 'get_state' }));
+                console.log('[AIMetrics V6] Requested initial state');
                 
                 // Charger les paramètres depuis localStorage au démarrage
                 const uThreshold = localStorage.getItem('strategy_u_threshold') || '70';
@@ -139,18 +157,20 @@ class AIMetricsDashboard {
             };
             
             this.socket.onclose = () => {
-                console.log('[AIMetrics] Disconnected');
+                console.log('[AIMetrics V6] Disconnected');
                 this.isConnected = false;
                 this.updateConnectionStatus(false);
+                // Auto-reconnect after 3s
+                setTimeout(() => this.connect(), 3000);
             };
             
             this.socket.onerror = (error) => {
-                console.error('[AIMetrics] WebSocket error:', error);
+                console.error('[AIMetrics V6] WebSocket error:', error);
                 this.showToast('Connection error', 'error');
             };
             
         } catch (e) {
-            console.error('[AIMetrics] Connection failed:', e);
+            console.error('[AIMetrics V6] Connection failed:', e);
             this.showToast('Failed to connect', 'error');
         }
     }
@@ -184,10 +204,35 @@ class AIMetricsDashboard {
     // =========================================================================
     
     handleMessage(msg) {
+        console.log('[AIMetrics V6] Received message:', msg.type, msg);
         switch (msg.type) {
-            case 'state_update':
-                this.handleStateUpdate(msg.data);
+            case 'state':
+                // State message contains tracker state, not a quantum snapshot
+                // Update session info from state
+                if (msg.state) {
+                    const state = msg.state;
+                    if (state.snapshot_count !== undefined) {
+                        document.getElementById('iteration-count').textContent = state.snapshot_count;
+                    }
+                    if (state.agent_count !== undefined) {
+                        document.getElementById('agents-count').textContent = state.agent_count;
+                        document.getElementById('ai-count').textContent = state.agent_count;
+                        document.getElementById('human-count').textContent = 0;
+                    }
+                    // Update session ID if available
+                    if (state.session_start) {
+                        const sessionId = state.session_start.substring(0, 19).replace('T', ' ');
+                        document.getElementById('session-id').textContent = sessionId;
+                    }
+                }
                 break;
+                
+            case 'quantum_snapshot':
+                // Quantum snapshot from O+N server
+                const snapshot = msg.snapshot || msg.state || msg;
+                this.handleQuantumSnapshot(snapshot);
+                break;
+                
             case 'strategy_params_update':
                 this.handleStrategyParamsUpdate(msg.params);
                 break;
@@ -221,8 +266,95 @@ class AIMetricsDashboard {
                 break;
                 
             default:
-                console.log('[AIMetrics] Unknown message type:', msg.type);
+                console.log('[AIMetrics V6] Unknown message type:', msg.type);
         }
+    }
+    
+    handleQuantumSnapshot(snapshot) {
+        if (!snapshot) {
+            console.warn('[AIMetrics V6] handleQuantumSnapshot: No snapshot provided');
+            return;
+        }
+        
+        console.log('[AIMetrics V6] handleQuantumSnapshot: v' + (snapshot.version || 'N/A'), {
+            hasCoherence: !!snapshot.coherence_observables,
+            hasEmergence: !!snapshot.emergence_observables,
+            hasSimplicity: !!snapshot.simplicity_assessment
+        });
+        
+        // Store latest snapshot
+        this.sessionData.latestQuantumSnapshot = snapshot;
+        
+        // Extract metrics
+        const co = snapshot.coherence_observables || {};
+        const eo = snapshot.emergence_observables || {};
+        const sa = snapshot.simplicity_assessment || {};
+        
+        const phi = co.phi_coherence || co.phi_formal_resonance || 0;
+        const xi = co.xi_correlation_length || co.xi_collective_extent || 0;
+        const I = co.I_fringe_visibility || co.I_pareidolic_contrast || 0;
+        const tau = eo.tau_condensation || eo.tau_narrative_convergence || 0;
+        const dS = eo.delta_S_entropy || eo.delta_S_complexity_flux || 0;
+        const Cw = sa.C_w_current?.value || 0;
+        const Cd = sa.C_d_current?.value || 0;
+        const U = sa.U_current?.value || (Cw - Cd);
+        
+        console.log('[AIMetrics V6] Extracted metrics:', { phi, xi, I, tau, dS, Cw, Cd, U });
+        
+        // Update history
+        const history = this.sessionData.quantumHistory;
+        const version = snapshot.version || history.versions.length;
+        history.versions.push(version);
+        history.phi_coherence.push(phi);
+        history.xi_correlation_length.push(xi);
+        history.I_fringe_visibility.push(I);
+        history.tau_condensation.push(tau);
+        history.delta_S_entropy.push(dS);
+        history.C_w.push(Cw);
+        history.C_d.push(Cd);
+        history.U.push(U);
+        
+        // Limit history
+        Object.keys(history).forEach(key => {
+            if (history[key].length > 100) {
+                history[key] = history[key].slice(-100);
+            }
+        });
+        
+        // Store snapshot
+        this.sessionData.quantumSnapshots.push({
+            version: snapshot.version || this.sessionData.quantumSnapshots.length,
+            timestamp: new Date().toISOString(),
+            snapshot: snapshot
+        });
+        
+        // Limit snapshots
+        if (this.sessionData.quantumSnapshots.length > 100) {
+            this.sessionData.quantumSnapshots = this.sessionData.quantumSnapshots.slice(-100);
+        }
+        
+        // Update agent rankings
+        if (snapshot.agent_rankings) {
+            this.sessionData.agentRankings = snapshot.agent_rankings;
+        }
+        
+        // Update iteration count if available
+        if (snapshot.version !== undefined) {
+            document.getElementById('iteration-count').textContent = snapshot.version;
+        }
+        
+        // Update agent counts if available
+        const rankings = snapshot.agent_rankings || {};
+        const agentCount = Object.keys(rankings).length;
+        if (agentCount > 0) {
+            document.getElementById('agents-count').textContent = agentCount;
+            // Assume all are AI for now (V6 is quantum-focused)
+            document.getElementById('ai-count').textContent = agentCount;
+            document.getElementById('human-count').textContent = 0;
+        }
+        
+        // Notify popups
+        this.popupManager.updateAll(this.sessionData);
     }
     
     handleStateUpdate(data) {
@@ -276,6 +408,49 @@ class AIMetricsDashboard {
         
         // Mettre à jour les métriques de l'agent
         this.sessionData.agentMetrics[data.id] = data;
+
+        // Mettre à jour le graphe des relations de follow si présent
+        if (data.follow_action) {
+            const fa = data.follow_action;
+            const fromId = data.id;
+            const toId = fa.target_agent_id || null;
+            const rels = this.sessionData.followingRelations || [];
+
+            // Copier pour éviter les effets de bord
+            let updated = rels.slice();
+
+            if (fa.is_end) {
+                // Fin de relation : supprimer les arêtes correspondantes
+                if (toId) {
+                    updated = updated.filter(r => !(r.from_agent === fromId && r.to_agent === toId));
+                } else {
+                    // Pas de cible explicite : retirer toutes les sorties de fromId
+                    updated = updated.filter(r => r.from_agent !== fromId);
+                }
+            } else if (toId) {
+                // Nouvelle relation ou mise à jour : remplacer l'arête (fromId -> toId)
+                updated = updated.filter(r => !(r.from_agent === fromId && r.to_agent === toId));
+                const edge = {
+                    from_agent: fromId,
+                    to_agent: toId,
+                    from_position: data.position || [0, 0],
+                    to_position: fa.target_position || null,
+                    since_iteration: fa.since_iteration ?? data.iteration ?? 0,
+                    relation_type: fa.relation_type || '',
+                    is_new: !!fa.is_new,
+                    is_end: !!fa.is_end,
+                    timestamp: data.timestamp || new Date().toISOString()
+                };
+                updated.push(edge);
+            }
+
+            // Limiter la taille
+            if (updated.length > 1000) {
+                updated = updated.slice(-1000);
+            }
+
+            this.sessionData.followingRelations = updated;
+        }
         
         // Mettre à jour les compteurs
         const aiCount = Object.values(this.sessionData.agentMetrics)
@@ -420,16 +595,21 @@ class AIMetricsDashboard {
     }
     
     handleSessionExport(data) {
-        // Télécharger le fichier
+        // Télécharger le fichier depuis l'export serveur
+        const metadata = data.metadata || {};
+        const totalIterations = metadata.total_iterations || 0;
+        const quantumSnapshotsCount = metadata.quantum_snapshots_count || 0;
+        const agentsCount = metadata.agents_count || 0;
+        
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `poietic-session-${data.session_id || 'export'}.json`;
+        a.download = `poietic-session-v6-server-${Date.now()}.json`;
         a.click();
         URL.revokeObjectURL(url);
         
-        this.showToast('Session exported', 'success');
+        this.showToast(`Session exported from server: ${totalIterations} iterations, ${quantumSnapshotsCount} quantum snapshots, ${agentsCount} agents`, 'success');
     }
     
     // =========================================================================
@@ -460,30 +640,45 @@ class AIMetricsDashboard {
             // Demander l'export via WebSocket
             this.socket.send(JSON.stringify({ type: 'get_session_export' }));
         } else {
-            // Exporter les données locales
+            // Exporter les données locales (V6 - toutes les données quantiques incluses)
+            const sessionId = document.getElementById('session-id').textContent;
+            const totalIterations = parseInt(document.getElementById('iteration-count').textContent) || 0;
+            const agentsCount = Object.keys(this.sessionData.agentMetrics).length;
+            const quantumSnapshotsCount = this.sessionData.quantumSnapshots?.length || 0;
+            
             const exportData = {
-                session_id: document.getElementById('session-id').textContent,
+                version: '6.0',
+                session_id: sessionId,
                 metadata: {
                     export_time: new Date().toISOString(),
-                    total_iterations: parseInt(document.getElementById('iteration-count').textContent) || 0,
-                    agents_count: Object.keys(this.sessionData.agentMetrics).length
+                    total_iterations: totalIterations,
+                    agents_count: agentsCount,
+                    quantum_snapshots_count: quantumSnapshotsCount
                 },
+                // V5-compatible data
                 events: this.sessionData.events,
                 globalMetrics: this.sessionData.globalMetrics,
                 agentMetrics: this.sessionData.agentMetrics,
                 rankings: this.sessionData.rankings,
-                canvasSnapshots: this.sessionData.canvasSnapshots
+                canvasSnapshots: this.sessionData.canvasSnapshots,
+                oSnapshots: this.sessionData.oSnapshots || [],
+                nSnapshots: this.sessionData.nSnapshots || [],
+                // V6 Quantum data
+                quantumSnapshots: this.sessionData.quantumSnapshots || [],
+                quantumHistory: this.sessionData.quantumHistory || {},
+                latestQuantumSnapshot: this.sessionData.latestQuantumSnapshot,
+                agentRankings: this.sessionData.agentRankings || {}
             };
             
             const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `poietic-session-local-${Date.now()}.json`;
+            a.download = `poietic-session-v6-${Date.now()}.json`;
             a.click();
             URL.revokeObjectURL(url);
             
-            this.showToast('Local session exported', 'success');
+            this.showToast(`Session exported: ${totalIterations} iterations, ${quantumSnapshotsCount} quantum snapshots, ${agentsCount} agents`, 'success');
         }
     }
     
@@ -492,18 +687,113 @@ class AIMetricsDashboard {
             const text = await file.text();
             const data = JSON.parse(text);
             
-            // Charger les données
+            // Detect format version
+            const version = data.version || (data.quantumSnapshots ? '6.0' : '5.0');
+            const isV6 = version.startsWith('6');
+            
+            console.log(`[AIMetrics] Importing session format ${version}`);
+            
+            // Réinitialiser proprement sessionData avant import
             this.sessionData = {
-                events: data.events || [],
-                globalMetrics: data.globalMetrics || [],
-                agentMetrics: data.agentMetrics || {},
-                rankings: data.rankings || {},
-                canvasSnapshots: data.canvasSnapshots || data.canvas_snapshots || [],
-                oSnapshots: data.oSnapshots || [],
-                nSnapshots: data.nSnapshots || []
+                events: [],
+                globalMetrics: [],
+                agentMetrics: {},
+                rankings: {},
+                canvasSnapshots: [],
+                oSnapshots: [],
+                nSnapshots: [],
+                quantumSnapshots: [],
+                quantumHistory: {
+                    versions: [],  // V6: Array of version numbers for X-axis
+                    phi_coherence: [],
+                    xi_correlation_length: [],
+                    I_fringe_visibility: [],
+                    tau_condensation: [],
+                    delta_S_entropy: [],
+                    C_w: [],
+                    C_d: [],
+                    U: []
+                },
+                latestQuantumSnapshot: null,
+                agentRankings: {}
             };
             
-            // Si format d'export serveur, convertir
+            // Charger les données V5-compatibles
+            this.sessionData.events = data.events || [];
+            this.sessionData.globalMetrics = data.globalMetrics || [];
+            this.sessionData.agentMetrics = data.agentMetrics || {};
+            this.sessionData.rankings = data.rankings || {};
+            this.sessionData.canvasSnapshots = data.canvasSnapshots || data.canvas_snapshots || [];
+            this.sessionData.oSnapshots = data.oSnapshots || [];
+            this.sessionData.nSnapshots = data.nSnapshots || [];
+            
+            // Charger les données V6 si présentes
+            if (isV6 || data.quantumSnapshots) {
+                this.sessionData.quantumSnapshots = data.quantumSnapshots || [];
+                // Merge quantumHistory, en s'assurant que versions existe
+                if (data.quantumHistory) {
+                    this.sessionData.quantumHistory = {
+                        versions: data.quantumHistory.versions || [],
+                        phi_coherence: data.quantumHistory.phi_coherence || [],
+                        xi_correlation_length: data.quantumHistory.xi_correlation_length || [],
+                        I_fringe_visibility: data.quantumHistory.I_fringe_visibility || [],
+                        tau_condensation: data.quantumHistory.tau_condensation || [],
+                        delta_S_entropy: data.quantumHistory.delta_S_entropy || [],
+                        C_w: data.quantumHistory.C_w || [],
+                        C_d: data.quantumHistory.C_d || [],
+                        U: data.quantumHistory.U || []
+                    };
+                }
+                this.sessionData.latestQuantumSnapshot = data.latestQuantumSnapshot || null;
+                this.sessionData.agentRankings = data.agentRankings || {};
+            }
+            
+            // Si format d'export serveur (avec tracker_state), convertir
+            if (data.tracker_state && data.tracker_history) {
+                // Convertir l'historique du tracker en quantumHistory
+                const history = data.tracker_history;
+                if (history.versions) {
+                    this.sessionData.quantumHistory.versions = history.versions;
+                }
+                if (history.phi_coherence) {
+                    this.sessionData.quantumHistory.phi_coherence = history.phi_coherence;
+                }
+                if (history.xi_correlation) {
+                    this.sessionData.quantumHistory.xi_correlation_length = history.xi_correlation;
+                }
+                if (history.I_visibility) {
+                    this.sessionData.quantumHistory.I_fringe_visibility = history.I_visibility;
+                }
+                if (history.tau_condensation) {
+                    this.sessionData.quantumHistory.tau_condensation = history.tau_condensation;
+                }
+                if (history.delta_S_entropy) {
+                    this.sessionData.quantumHistory.delta_S_entropy = history.delta_S_entropy;
+                }
+                if (history.C_w) {
+                    this.sessionData.quantumHistory.C_w = history.C_w;
+                }
+                if (history.C_d) {
+                    this.sessionData.quantumHistory.C_d = history.C_d;
+                }
+                if (history.U) {
+                    this.sessionData.quantumHistory.U = history.U;
+                }
+                
+                // Convertir les événements du serveur
+                if (data.events) {
+                    this.sessionData.events = data.events;
+                }
+                
+                // Convertir les données des agents
+                if (data.last_agent_data) {
+                    Object.entries(data.last_agent_data).forEach(([agentId, agentData]) => {
+                        this.sessionData.agentMetrics[agentId] = agentData;
+                    });
+                }
+            }
+            
+            // Si format d'export serveur (ancien format), convertir
             if (data.metadata && data.events && !data.globalMetrics) {
                 this.sessionData.globalMetrics = data.events
                     .filter(e => e.type === 'iteration')
@@ -524,10 +814,14 @@ class AIMetricsDashboard {
             }
             
             // Mettre à jour l'affichage
-            document.getElementById('session-id').textContent = 
-                (data.session_id || data.metadata?.start_time || 'Imported').substring(0, 19);
-            document.getElementById('iteration-count').textContent = 
-                data.metadata?.total_iterations || this.sessionData.globalMetrics.length;
+            const sessionId = data.session_id || data.metadata?.session_start || data.metadata?.start_time || 'Imported';
+            document.getElementById('session-id').textContent = sessionId.substring(0, 19).replace('T', ' ');
+            
+            const totalIterations = data.metadata?.total_iterations || 
+                                   data.metadata?.total_iterations || 
+                                   this.sessionData.globalMetrics.length ||
+                                   this.sessionData.quantumSnapshots.length;
+            document.getElementById('iteration-count').textContent = totalIterations;
             
             const aiCount = Object.values(this.sessionData.agentMetrics)
                 .filter(a => a.type === 'ai').length;
@@ -545,11 +839,15 @@ class AIMetricsDashboard {
             // Notifier les popups
             this.popupManager.updateAll(this.sessionData);
             
-            this.showToast(`Session imported: ${this.sessionData.globalMetrics.length} iterations`, 'success');
+            // Afficher un résumé détaillé
+            const quantumSnapshotsCount = this.sessionData.quantumSnapshots.length;
+            const formatInfo = isV6 ? 'V6 (Quantum)' : 'V5 (Legacy)';
+            const summary = `Session imported (${formatInfo}): ${totalIterations} iterations, ${quantumSnapshotsCount} quantum snapshots, ${aiCount + humanCount} agents`;
+            this.showToast(summary, 'success');
             
         } catch (e) {
             console.error('[AIMetrics] Import error:', e);
-            this.showToast('Failed to import session', 'error');
+            this.showToast(`Failed to import session: ${e.message}`, 'error');
         }
     }
     
@@ -564,17 +862,30 @@ class AIMetricsDashboard {
             rankings: {},
             canvasSnapshots: [],
             oSnapshots: [],
-            nSnapshots: []
+            nSnapshots: [],
+            // V6 Quantum data
+            quantumSnapshots: [],
+            quantumHistory: {
+                versions: [],  // V6: Array of version numbers for X-axis
+                phi_coherence: [],
+                xi_correlation_length: [],
+                I_fringe_visibility: [],
+                tau_condensation: [],
+                delta_S_entropy: [],
+                C_w: [],
+                C_d: [],
+                U: []
+            },
+            latestQuantumSnapshot: null,
+            agentRankings: {}
         };
         
         // Demander au serveur de clear si connecté
         if (this.isConnected && this.socket) {
             try {
-                await fetch(`http://${window.location.hostname}:5005/api/session/clear`, {
-                    method: 'POST'
-                });
+                this.socket.send(JSON.stringify({ type: 'reset' }));
             } catch (e) {
-                console.error('[AIMetrics] Clear error:', e);
+                console.error('[AIMetrics V6] Clear error:', e);
             }
         }
         

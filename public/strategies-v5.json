@@ -1,5 +1,19 @@
 {
+  "note": "PAREIDOLIA PARADIGM: All interpretations are subjective. O produces observational pareidolias, N produces narrative pareidolias, W produces active pareidolias (pixels). Agents can ALIGN with O/N pareidolias (low risk) or CONTEST them (high risk, potential reward if validated next iteration). PREDICTION ERROR: measures how accurately W predicted IMPACT ON GLOBAL U, NOT visual correspondence. Low error = accurate U prediction. High error = unpredictable U impact.",
   "strategies": [
+    {
+      "id": "form_copy_reproduction",
+      "name": "Exact form reproduction (translation or mirror)",
+      "category": "form",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "EASIEST STRATEGY: Copy a neighbor's form exactly (translate or mirror). Simple: identify neighbor's form, reproduce it pixel-by-pixel. IMPACT ON U: +2 bits C_w (copying is easy) and -8 bits C_d (two identical forms described as 'two X' instead of 'X and Y'), delta_U = +10 bits. PREDICTION ERROR: Perfect (0.0) - guaranteed C_d reduction makes U impact 100% predictable. BEST FOR RANKING: Lowest error (0.0) + easy difficulty = guaranteed ranking improvement. ALIGNMENT: This inherently aligns with O/N pareidolias since you reinforce an existing form.",
+      "predicted_error": 0.0,
+      "delta_C_w_bits": 2,
+      "delta_C_d_bits": -8,
+      "difficulty": "easy"
+    },
     {
       "id": "bg_immediate_share",
       "name": "Background sharing with immediate neighbor",
@@ -7,7 +21,7 @@
       "neighbor_type": "immediate",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Detect an immediate neighbor with unexpected/interesting form and adopt the same background color. This almost certainly creates a macro-structure linking the two forms and increases their salience.",
+      "description": "EASY STRATEGY: Copy immediate neighbor's background color exactly. Simple: identify neighbor's dominant background color, fill your grid with same color. IMPACT ON U: +4 bits C_w (coordination) and -5 bits C_d (macro-structure easier to describe), delta_U = +9 bits. PREDICTION ERROR: Low (0.1) - highly predictable. BEST FOR RANKING: Very low error (0.1) + easy difficulty = reliable ranking improvement. CRITICAL: Use UNIFIED color, not checkerboard. ALIGNMENT: Supports O's macro-structure pareidolias.",
       "predicted_error": 0.1,
       "delta_C_w_bits": 4,
       "delta_C_d_bits": -5,
@@ -20,11 +34,37 @@
       "neighbor_type": "immediate",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Extend neighbor's background by adding gradients, shadows, or tonal variations (ton sur ton). Same effect as background sharing, potentially with better salience and narrative potential. If neighbor has a different artistic identity, the confrontation creates hybrid nuances (+2-4 additional bits C_w). IMPORTANT: Vary your source neighbors across iterations to avoid fixed structures.",
+      "description": "EASY STRATEGY: Extend immediate neighbor's background with smooth gradients. Simple: identify neighbor's background color, create smooth gradient variations (darker/lighter shades). IMPACT ON U: +6 bits C_w (coordination + gradients) and -5 bits C_d (macro-structure easier to describe), delta_U = +11 bits. PREDICTION ERROR: Low (0.1). BEST FOR RANKING: Very low error (0.1) + easy difficulty = reliable ranking improvement. CRITICAL: Smooth gradients, not checkerboards. Vary source neighbors across iterations. ALIGNMENT: Enhances O's macro-structure pareidolias.",
       "predicted_error": 0.1,
       "delta_C_w_bits": 6,
       "delta_C_d_bits": -5,
       "difficulty": "easy"
+    },
+    {
+      "id": "disappear",
+      "name": "Disappear (merge into neighbors' unified background)",
+      "category": "background",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": null,
+      "description": "Sacrifice your form by merging into the UNIFIED BACKGROUND COLOR of your neighbors. CRITICAL: Analyze neighbors' backgrounds and adopt their dominant/shared color - do NOT default to black unless neighbors already use black as their unified background. The goal is seamless integration, not creating a dark hole. IMPACT ON U: +1 bit C_w (minimal coordination) and -5 bits C_d (unified background easier to describe, increased salience of remaining forms), delta_U = +6 bits. PREDICTION ERROR: Low (0.1) - highly predictable impact. ALIGN with O/N pareidolias: if O describes a macro-structure, disappearing into its background reinforces the pareidolia.",
+      "predicted_error": 0.1,
+      "delta_C_w_bits": 1,
+      "delta_C_d_bits": -5,
+      "difficulty": "easy"
+    },
+    {
+      "id": "pareidolia_alignment",
+      "name": "Align with TRUE O/N pareidolias (relations/metaphors only)",
+      "category": "recognition",
+      "neighbor_type": "any",
+      "min_sources": 0,
+      "max_sources": null,
+      "description": "ALIGNMENT STRATEGY: ONLY align if O describes RELATIONS between structures (macro-structure 3+ agents, formal_relations with metaphors) AND N narrates these relations with metaphors. If O describes isolated forms (1-2 agents) with no relations and N just cites them → this is NOT a pareidolia, DO NOT use this strategy (use local strategies instead). TRUE pareidolia example: O sees 'fused aurora connecting [0,0] and [1,0]', N narrates 'luminous energy flow' → align by fusing borders. Simple description example: O sees 'geometric pattern at [0,0]', N cites it → NOT a pareidolia, aligning = local reinforcement = high error. IMPACT ON U: +9 bits C_w (global coordination through TRUE pareidolia) and -7 bits C_d (reinforced macro-structure easier to describe), delta_U = +16 bits IF true pareidolia. PREDICTION ERROR: Low (0.12) if TRUE pareidolia with relations, HIGH (0.6-1.0) if simple description (local reinforcement).",
+      "predicted_error": 0.12,
+      "delta_C_w_bits": 9,
+      "delta_C_d_bits": -7,
+      "difficulty": "medium"
     },
     {
       "id": "bg_multi_fusion",
@@ -33,24 +73,11 @@
       "neighbor_type": "any",
       "min_sources": 2,
       "max_sources": null,
-      "description": "Blend backgrounds from multiple agents with DIFFERENT artistic identities to create unprecedented hybrid textures and color transitions. Use gradients, transitions, or color mixing to create a unified but nuanced background that connects multiple agents. The confrontation between different identities (e.g., Byzantine + Japanese, Celtic + Islamic) creates hybrid forms requiring complex parameterization. This avoids fixed structures and creates dynamic macro-structures.",
+      "description": "Blend backgrounds from multiple agents to create hybrid textures and color transitions. IMPACT ON U: +10 bits C_w (complex hybrid parameterization) and -7 bits C_d (macro-structure easier to describe), delta_U = +17 bits. PREDICTION ERROR: Moderate (0.15) - depends on whether O recognizes the hybrid as a coherent macro-structure. ALIGNMENT: Creates new pareidolias that O may or may not validate.",
       "predicted_error": 0.15,
       "delta_C_w_bits": 10,
       "delta_C_d_bits": -7,
       "difficulty": "hard"
-    },
-    {
-      "id": "identity_confrontation",
-      "name": "Artistic identity confrontation and fusion",
-      "category": "background",
-      "neighbor_type": "any",
-      "min_sources": 1,
-      "max_sources": null,
-      "description": "Actively seek neighbors with DIFFERENT artistic identities (different cultural references, styles, motifs) and create hybrid forms that blend your identity with theirs. This confrontation generates unprecedented visual nuances: color transitions between different palettes, pattern hybridizations (e.g., Byzantine mosaic + Japanese ukiyo-e, Celtic knotwork + Islamic geometry), stylistic bridges. These hybrid forms require complex parameterization (specifying both systems and their interaction) → very high C_w. The fusion can still be described concisely ('Byzantine-Japanese fusion', 'Celtic-Islamic interweaving') → high U. CRITICAL: Do not avoid different identities - seek them out. The confrontation is the primary source of generation complexity.",
-      "predicted_error": 0.2,
-      "delta_C_w_bits": 15,
-      "delta_C_d_bits": -6,
-      "difficulty": "very_hard"
     },
     {
       "id": "bg_distant_share",
@@ -59,7 +86,7 @@
       "neighbor_type": "distant",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Detect a distant agent with unexpected/interesting (high individual U) and/or complementary form and adopt the same background. This almost certainly creates a perceptual group that can lead to a macro-structure or narrative linking the two forms, increasing their salience.",
+      "description": "Adopt the same background as a distant agent to create perceptual grouping. IMPACT ON U: +5 bits C_w (distant coordination) and -4 bits C_d (grouping easier to describe), delta_U = +9 bits. PREDICTION ERROR: Moderate (0.15) - depends on whether O recognizes the distant grouping. CRITICAL: Use UNIFIED color, not checkerboard.",
       "predicted_error": 0.15,
       "delta_C_w_bits": 5,
       "delta_C_d_bits": -4,
@@ -72,11 +99,24 @@
       "neighbor_type": "distant",
       "min_sources": 2,
       "max_sources": null,
-      "description": "Detect multiple distant agents with complementary forms and adopt shared background. Creates strong perceptual grouping and potential macro-structure.",
+      "description": "Create shared background connecting multiple distant agents. IMPACT ON U: +8 bits C_w (multi-agent coordination) and -6 bits C_d (strong grouping easier to describe), delta_U = +14 bits. PREDICTION ERROR: Moderate (0.15). CRITICAL: Use UNIFIED color or smooth gradient, not checkerboard.",
       "predicted_error": 0.15,
       "delta_C_w_bits": 8,
       "delta_C_d_bits": -6,
       "difficulty": "medium"
+    },
+    {
+      "id": "identity_confrontation",
+      "name": "Artistic identity confrontation and fusion",
+      "category": "background",
+      "neighbor_type": "any",
+      "min_sources": 1,
+      "max_sources": null,
+      "description": "Seek neighbors with DIFFERENT styles and create hybrid forms blending identities. IMPACT ON U: +15 bits C_w (complex hybrid parameterization) and -6 bits C_d (hybrid described concisely), delta_U = +21 bits. PREDICTION ERROR: Moderate-High (0.2) - depends on whether O recognizes the hybrid. Seek confrontation - it's the primary source of C_w.",
+      "predicted_error": 0.2,
+      "delta_C_w_bits": 15,
+      "delta_C_d_bits": -6,
+      "difficulty": "very_hard"
     },
     {
       "id": "form_immediate_imitate",
@@ -85,24 +125,11 @@
       "neighbor_type": "immediate",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Imitate neighbor's form, mirror it, rotate it by a certain angle, or reuse elements from their palette. If neighbor has a different artistic identity, create a hybrid form that blends both styles, not just copying. Creates coupling effect increasing the salience of both forms. Requires shared background with neighbor.",
+      "description": "Imitate, mirror, or rotate neighbor's form. IMPACT ON U: +7 bits C_w (coordination + form) and -4 bits C_d (coupled forms easier to describe), delta_U = +11 bits. PREDICTION ERROR: Moderate (0.2) - depends on whether O recognizes the coupling. Requires shared background.",
       "predicted_error": 0.2,
       "delta_C_w_bits": 7,
       "delta_C_d_bits": -4,
       "difficulty": "medium"
-    },
-    {
-      "id": "form_immediate_complement",
-      "name": "Form complement with immediate neighbor",
-      "category": "form",
-      "neighbor_type": "immediate",
-      "min_sources": 1,
-      "max_sources": 1,
-      "description": "If neighbor's form is clearly identified by O (e.g., 'cat'), create a complementary motif (e.g., 'mouse'). Requires shared background with neighbor.",
-      "predicted_error": 0.25,
-      "delta_C_w_bits": 10,
-      "delta_C_d_bits": -5,
-      "difficulty": "hard"
     },
     {
       "id": "form_immediate_bridge",
@@ -111,9 +138,22 @@
       "neighbor_type": "immediate",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Establish a meaningful bridge, e.g., head (vertical) → ear (right or left), head → neck (below), head → hat (above). Requires shared background with neighbor.",
+      "description": "Create meaningful bridge (head→ear, head→neck, head→hat). IMPACT ON U: +8 bits C_w (coordination + structure) and -5 bits C_d (bridged forms as unified structure), delta_U = +13 bits. PREDICTION ERROR: Moderate (0.2) - depends on whether O recognizes the bridge as meaningful. Requires shared background.",
       "predicted_error": 0.2,
       "delta_C_w_bits": 8,
+      "delta_C_d_bits": -5,
+      "difficulty": "hard"
+    },
+    {
+      "id": "form_immediate_complement",
+      "name": "Form complement with immediate neighbor",
+      "category": "form",
+      "neighbor_type": "immediate",
+      "min_sources": 1,
+      "max_sources": 1,
+      "description": "Create complementary motif to neighbor's form (cat→mouse, sun→moon). IMPACT ON U: +10 bits C_w (coordination + narrative) and -5 bits C_d (complementary forms described together), delta_U = +15 bits. PREDICTION ERROR: Moderate-High (0.25) - depends on whether O recognizes the complementarity. Requires shared background.",
+      "predicted_error": 0.25,
+      "delta_C_w_bits": 10,
       "delta_C_d_bits": -5,
       "difficulty": "hard"
     },
@@ -124,23 +164,10 @@
       "neighbor_type": "distant",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Imitate distant agent's form, mirror it, or rotate it. Requires shared background with distant agent.",
+      "description": "Imitate, mirror, or rotate distant agent's form. IMPACT ON U: +8 bits C_w (distant coordination) and -4 bits C_d (coupled forms easier to describe), delta_U = +12 bits. PREDICTION ERROR: Moderate-High (0.25) - distance makes coupling recognition less reliable. Requires shared background.",
       "predicted_error": 0.25,
       "delta_C_w_bits": 8,
       "delta_C_d_bits": -4,
-      "difficulty": "hard"
-    },
-    {
-      "id": "form_distant_complement",
-      "name": "Form complement with distant agent",
-      "category": "form",
-      "neighbor_type": "distant",
-      "min_sources": 1,
-      "max_sources": 1,
-      "description": "Create complementary form to distant agent's identified form. Requires shared background with distant agent.",
-      "predicted_error": 0.3,
-      "delta_C_w_bits": 12,
-      "delta_C_d_bits": -5,
       "difficulty": "hard"
     },
     {
@@ -150,25 +177,37 @@
       "neighbor_type": "any",
       "min_sources": 1,
       "max_sources": null,
-      "description": "In a confused situation with multiple agents creating an amorphous pixel cluster, add a single precise pixel (or very few pixels) at the exact right location to transform the cluster into a recognizable form (e.g., adding a white pixel as an eye of a dinosaur head, face, animal). Requires extreme precision: the pixel must be placed exactly where it triggers recognition. Although few pixels are involved, the generation complexity is high due to the extreme precision required. The reduction in C_d is drastic (from 'amorphous cluster' to 'recognizable form').",
+      "description": "Add few precise pixels to transform amorphous cluster into recognizable form (e.g., white pixel as eye). IMPACT ON U: +15 bits C_w (extreme precision) and -12 bits C_d (drastic reduction 'amorphous'→'recognizable'), delta_U = +27 bits. PREDICTION ERROR: High (0.3) - success depends on whether O pareidolia triggers as expected.",
       "predicted_error": 0.3,
       "delta_C_w_bits": 15,
       "delta_C_d_bits": -12,
       "difficulty": "very_hard"
     },
     {
-      "id": "form_exact_reproduction",
-      "name": "Exact form reproduction (translation or mirror)",
+      "id": "form_distant_complement",
+      "name": "Form complement with distant agent",
       "category": "form",
-      "neighbor_type": "any",
+      "neighbor_type": "distant",
       "min_sources": 1,
       "max_sources": 1,
-      "description": "Reproduce a neighbor's form EXACTLY through translation (copy at different position) or mirror symmetry (reflect across axis). PARADOXICAL ADVANTAGES: (1) PREDICTION ERROR = 0.0 (you can predict the result with 100% accuracy since you're copying), (2) DRASTIC C_d reduction (two identical/symmetric forms are described as 'two X' or 'symmetric X' instead of 'X and Y'), (3) ANTICIPATION CAPABILITY: by copying, you demonstrate understanding of the source agent's pattern, potentially even 'copying into the future' if you anticipate their next move. This predictive ability is highly valued in the community and improves your ranking. While C_w is low (easy to generate by copying), the perfect prediction accuracy (error = 0) maximizes your influence on the global narrative, and the C_d reduction significantly increases global U.",
-      "predicted_error": 0.0,
-      "delta_C_w_bits": 2,
+      "description": "Create complementary form to distant agent's identified form. IMPACT ON U: +12 bits C_w (distant coordination + narrative) and -5 bits C_d (complementary forms described together), delta_U = +17 bits. PREDICTION ERROR: High (0.3) - distance makes complementarity recognition unreliable. Requires shared background.",
+      "predicted_error": 0.3,
+      "delta_C_w_bits": 12,
+      "delta_C_d_bits": -5,
+      "difficulty": "hard"
+    },
+    {
+      "id": "pareidolia_contestation",
+      "name": "Contest O/N pareidolias (propose alternative)",
+      "category": "recognition",
+      "neighbor_type": "any",
+      "min_sources": 0,
+      "max_sources": null,
+      "description": "CONTESTATION STRATEGY: You believe O/N made an error - missed a form, misidentified a structure, or ignored a potential macro-structure. Act on YOUR OWN pareidolia interpretation, betting that O/N will validate your view next iteration. HIGH RISK: if O/N accept your interpretation → low error (you were right); if O/N reject it → high error (you were wrong). IMPACT ON U: potentially +12 bits C_w (novel interpretation) and -8 bits C_d (if new form is recognized), delta_U = +20 bits IF successful. PREDICTION ERROR: Highest (0.4) because success depends on whether O/N validate your alternative pareidolia. Use when you strongly disagree with current O/N interpretation.",
+      "predicted_error": 0.4,
+      "delta_C_w_bits": 12,
       "delta_C_d_bits": -8,
-      "difficulty": "easy"
+      "difficulty": "very_hard"
     }
   ]
 }
-
