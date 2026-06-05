@@ -93,13 +93,58 @@ class AIPlayerV6 {
       metricDS: document.getElementById('metric-dS'),
       metricU: document.getElementById('metric-u'),
       metricRank: document.getElementById('metric-rank'),
-      quantumVersion: document.getElementById('quantum-version')
+      quantumVersion: document.getElementById('quantum-version'),
+      modelSelect: document.getElementById('llm-model-select'),
+      headerModel: document.getElementById('header-llm-model'),
+      llmStatusBadge: document.getElementById('llm-status-badge'),
+      costSession: document.getElementById('cost-session'),
+      costTotal: document.getElementById('cost-total'),
+      orUsage: document.getElementById('or-usage'),
+      orRemaining: document.getElementById('or-remaining')
     };
 
     this.bindUI();
     this.initApiKey();
     // Connect to metrics server
     this.connectMetricsServer();
+
+    // Modele OpenRouter (sélecteur) + panneau coût
+    this.AI_API_BASE = this.Q_API_BASE; // serveur V6 quantique (8006)
+    this.model = (this.elements.modelSelect && this.elements.modelSelect.value) || 'google/gemini-3.5-flash';
+    if (window.GeminiV6Adapter) window.GeminiV6Adapter.model = this.model;
+    if (this.elements.headerModel) this.elements.headerModel.textContent = this.model;
+    if (this.elements.modelSelect) {
+      this.elements.modelSelect.addEventListener('change', () => {
+        if (this.isRunning) { this.elements.modelSelect.value = this.model; this.log('Modèle verrouillé pendant l\'exécution.'); return; }
+        this.model = this.elements.modelSelect.value;
+        if (window.GeminiV6Adapter) window.GeminiV6Adapter.model = this.model;
+        if (this.elements.headerModel) this.elements.headerModel.textContent = this.model;
+        this.log('Modèle sélectionné:', this.model);
+      });
+    }
+    this.updateCostPanel();
+    setInterval(() => this.updateCostPanel(), 5000);
+  }
+
+  async updateCostPanel() {
+    try {
+      const res = await fetch(`${this.AI_API_BASE}/api/usage?session_id=poietic-v6`);
+      if (res.ok) {
+        const data = await res.json();
+        const total = data?.sessions?.['poietic-v6']?.total || {};
+        if (this.elements.costSession) this.elements.costSession.textContent = `$${(total.cost_usd || 0).toFixed(4)}`;
+        if (this.elements.costTotal) this.elements.costTotal.textContent = `$${(data?.grand_total?.cost_usd || 0).toFixed(4)}`;
+      }
+    } catch (_) {}
+    try {
+      const r2 = await fetch(`${this.AI_API_BASE}/api/usage/openrouter`);
+      if (r2.ok) {
+        const d = await r2.json();
+        const fmt = v => (typeof v === 'number' ? `$${v.toFixed(4)}` : '-');
+        if (this.elements.orUsage) this.elements.orUsage.textContent = fmt(d?.total_usage);
+        if (this.elements.orRemaining) this.elements.orRemaining.textContent = fmt(d?.remaining);
+      }
+    } catch (_) {}
   }
 
   initApiKey() {

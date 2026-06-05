@@ -54,8 +54,33 @@ class AIPlayerV5 {
       headerPosition: document.getElementById('header-position'),
       userIdDisplay: document.getElementById('user-id-display'),
       statusBadge: document.getElementById('status-badge'),
-      llmStatusBadge: document.getElementById('llm-status-badge')
+      llmStatusBadge: document.getElementById('llm-status-badge'),
+      modelSelect: document.getElementById('llm-model-select'),
+      headerModel: document.getElementById('header-llm-model'),
+      costSession: document.getElementById('cost-session'),
+      costTotal: document.getElementById('cost-total'),
+      orUsage: document.getElementById('or-usage'),
+      orRemaining: document.getElementById('or-remaining')
     };
+
+    // Base du serveur IA V5 (port 8005) pour /api/usage
+    this.AI_API_BASE = window.location.origin.replace(/:\d+$/, ':8005');
+    // Modele OpenRouter choisi au lancement (sélecteur), transmis à l'adaptateur
+    this.model = (this.elements.modelSelect && this.elements.modelSelect.value) || 'google/gemini-3.5-flash';
+    if (window.GeminiV5Adapter) window.GeminiV5Adapter.model = this.model;
+    if (this.elements.headerModel) this.elements.headerModel.textContent = this.model;
+    if (this.elements.modelSelect) {
+      this.elements.modelSelect.addEventListener('change', () => {
+        if (this.isRunning) { this.elements.modelSelect.value = this.model; this.log('Modèle verrouillé pendant l\'exécution. Stop puis change.'); return; }
+        this.model = this.elements.modelSelect.value;
+        if (window.GeminiV5Adapter) window.GeminiV5Adapter.model = this.model;
+        if (this.elements.headerModel) this.elements.headerModel.textContent = this.model;
+        this.log('Modèle sélectionné:', this.model);
+      });
+    }
+    // Rafraîchir le panneau coût périodiquement
+    this.updateCostPanel();
+    setInterval(() => this.updateCostPanel(), 5000);
 
     this.bindUI();
 
@@ -89,6 +114,27 @@ class AIPlayerV5 {
       this.elements.journal.scrollTop = this.elements.journal.scrollHeight;
     }
     console.log('[V5]', ...args);
+  }
+
+  async updateCostPanel() {
+    try {
+      const res = await fetch(`${this.AI_API_BASE}/api/usage?session_id=poietic-v5`);
+      if (res.ok) {
+        const data = await res.json();
+        const total = data?.sessions?.['poietic-v5']?.total || {};
+        if (this.elements.costSession) this.elements.costSession.textContent = `$${(total.cost_usd || 0).toFixed(4)}`;
+        if (this.elements.costTotal) this.elements.costTotal.textContent = `$${(data?.grand_total?.cost_usd || 0).toFixed(4)}`;
+      }
+    } catch (_) {}
+    try {
+      const r2 = await fetch(`${this.AI_API_BASE}/api/usage/openrouter`);
+      if (r2.ok) {
+        const d = await r2.json();
+        const fmt = v => (typeof v === 'number' ? `$${v.toFixed(4)}` : '-');
+        if (this.elements.orUsage) this.elements.orUsage.textContent = fmt(d?.total_usage);
+        if (this.elements.orRemaining) this.elements.orRemaining.textContent = fmt(d?.remaining);
+      }
+    } catch (_) {}
   }
 
   escapeHtml(text) {
@@ -887,19 +933,8 @@ class AIPlayerV5 {
           this.lastOVersionSeen = this.Osnapshot.version;
         }
         
-        // Vérifier la présence de la clé API avant appel LLM
-        const apiKey = window.GeminiV5Adapter?.getApiKey?.() || '';
-        if (!apiKey) {
-          this.log('Clé API Gemini manquante — seed ignoré jusqu\'à saisie.');
-          if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Inactive';
-          await new Promise(r => setTimeout(r, 1000));
-          this.iterationCount++;
-          const waitMs = Math.max(0, (parseInt(this.elements.interval.value)||0) * 1000);
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        } else {
-          if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Active';
-        }
+        // V5 (OpenRouter) : clé côté serveur, pas de gate clé client
+        if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Active (server key)';
         
         // Extraire la palette de couleurs locale (même pour seed, peut être utile)
         const colorPalette = this.extractLocalColorPalette();
@@ -1275,20 +1310,8 @@ class AIPlayerV5 {
           this.updateStrategyHistoryActualError();
         }
         
-        // Vérifier la présence de la clé API avant appel LLM
-        const apiKey = window.GeminiV5Adapter?.getApiKey?.() || '';
-        if (!apiKey) {
-          this.log('Clé API Gemini manquante — action ignorée jusqu\'à saisie.');
-          if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Inactive';
-          // Attendre un court délai et passer à l\'itération suivante (sans erreur)
-          await new Promise(r => setTimeout(r, 1000));
-          this.iterationCount++;
-          const waitMs = Math.max(0, (parseInt(this.elements.interval.value)||0) * 1000);
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        } else {
-          if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Active';
-        }
+        // V5 (OpenRouter) : clé côté serveur, pas de gate clé client
+        if (this.elements.llmStatusBadge) this.elements.llmStatusBadge.textContent = 'LLM: Active (server key)';
         ctx.C_w = this.Osnapshot?.simplicity_assessment?.C_w_current?.value ?? null;
         ctx.C_d = this.Osnapshot?.simplicity_assessment?.C_d_current?.value ?? null;
         ctx.U   = this.Osnapshot?.simplicity_assessment?.U_current?.value ?? null;

@@ -342,18 +342,20 @@
                     <!-- Tab 1: Config -->
                     <div class="tab-panel active" id="tab-config">
                         <div class="input-group">
-                            <label>LLM Model</label>
+                            <label>Vision Model (OpenRouter) — 1 onglet = 1 modèle</label>
                             <select id="llm-model-select">
-                                <option value="gemini-v4" selected>💎 Google Gemini V4 (O/W Alternation)</option>
+                                <option value="google/gemini-3.5-flash" selected>Gemini 3.5 Flash (vision, cheap)</option>
+                                <option value="anthropic/claude-opus-4.8">Claude Opus 4.8 (vision)</option>
+                                <option value="openai/gpt-5.5">GPT-5.5 (vision)</option>
+                                <option value="qwen/qwen3-vl-235b-a22b-instruct">Qwen3-VL 235B (vision)</option>
+                                <option value="qwen/qwen3-vl-8b-instruct">Qwen3-VL 8B (vision, cheap)</option>
                             </select>
                         </div>
 
                         <div class="input-group">
                             <label>API Key</label>
-                            <div style="display: flex; gap: 5px; align-items: center;">
-                                <input type="password" id="api-key" placeholder="Gemini API key..." style="flex: 1;">
-                                <button id="btn-clear-key" style="flex: none; width: auto; padding: 10px 12px; background: #555; font-size: 12px;" title="Clear key">🗑️</button>
-                            </div>
+                            <div style="font-size:11px; color:#888;">Clé OpenRouter côté serveur (OPENROUTER_API_KEY). Rien à saisir ici.</div>
+                            <input type="hidden" id="api-key" value="">
                         </div>
 
                         <div class="input-group">
@@ -389,6 +391,20 @@
                                     <div>Tokens IN (total): <b id="tokens-in-total">0</b></div>
                                     <div>Tokens OUT (total): <b id="tokens-out-total">0</b></div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Coût OpenRouter -->
+                        <div class="section">
+                            <div class="section-title">Cost (OpenRouter)</div>
+                            <div class="decision-box" style="margin-top:12px;">
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px; color:#ccc;">
+                                    <div>Session cost: <b id="cost-session">$0.0000</b></div>
+                                    <div>Total cost (run): <b id="cost-total">$0.0000</b></div>
+                                    <div>OpenRouter usage: <b id="or-usage">-</b></div>
+                                    <div>OpenRouter remaining: <b id="or-remaining">-</b></div>
+                                </div>
+                                <div style="font-size:10px; color:#777; margin-top:6px;">Coûts O + N + agents W (par modèle), via /api/usage.</div>
                             </div>
                         </div>
                     </div>
