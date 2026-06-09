@@ -13,9 +13,9 @@ Fil conducteur : la **Théorie de la Simplicité** (J.-L. Dessalles) — l'émer
 
 Résultats préliminaires :
 
-Video 1 — 9 W-agents with bounded retionality, evidence of emergence (V0): https://youtu.be/4N6eTMmk1L8
-Video 2 — 9 W-agents + 1 O-agent, simplicity metrics (V4): https://youtu.be/KHWO_7AeDJE
-Video 3 — 9 W + 1 O + 1 N-agent, prediction error & signalling cost ranking (V5): https://youtu.be/yh7BwZxoL78
+- Video 1 — 9 W-agents with bounded retionality, evidence of emergence (V0): https://youtu.be/4N6eTMmk1L8
+- Video 2 — 9 W-agents + 1 O-agent, simplicity metrics (V4): https://youtu.be/KHWO_7AeDJE
+- Video 3 — 9 W + 1 O + 1 N-agent, prediction error & signalling cost ranking (V5): https://youtu.be/yh7BwZxoL78
 
 
 ## Objectifs
